@@ -159,4 +159,23 @@ class HardeningIntegrationTest {
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, prom.statusCode());
     }
+
+    @Test
+    void corsPreflightAllowsTheConsoleOrigin() throws Exception {
+        // Browser preflight for the SPA console (different origin from the API).
+        HttpResponse<String> pre = http.send(HttpRequest.newBuilder(uri("/api/v1/auth/login"))
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+            .header("Origin", "http://localhost:3010")
+            .header("Access-Control-Request-Method", "POST")
+            .build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals("http://localhost:3010", pre.headers().firstValue("Access-Control-Allow-Origin").orElse(""));
+
+        // An unlisted origin is not granted CORS access.
+        HttpResponse<String> bad = http.send(HttpRequest.newBuilder(uri("/api/v1/auth/login"))
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+            .header("Origin", "http://evil.example.com")
+            .header("Access-Control-Request-Method", "POST")
+            .build(), HttpResponse.BodyHandlers.ofString());
+        assertTrue(bad.headers().firstValue("Access-Control-Allow-Origin").isEmpty(), "unlisted origin must not be allowed");
+    }
 }

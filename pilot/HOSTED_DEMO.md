@@ -33,6 +33,11 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8090 PORT=3010 npm run dev   # console
 
 Container images exist (`backend/Dockerfile`, `frontend/Dockerfile`) for building + pushing to a registry.
 
+> **CORS:** when the console and API are on **different origins** (like this 3010↔8090 demo), the
+> backend must allow the console origin. It defaults to `http://localhost:3000,http://localhost:3010`;
+> set `TRUSTLEDGER_CORS_ALLOWED_ORIGINS=https://console.yourco.com` for a cloud demo. Served
+> **same-origin behind nginx** (the prod default), CORS never triggers and no config is needed.
+
 ## Option B — Kubernetes (cloud demo)
 ```bash
 # infra: deploy/terraform (RDS + S3 + ECR + Secrets Manager)
