@@ -1,0 +1,194 @@
+package com.trustledger.rails;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.trustledger.api.AuthDtos.AuthResponse;
+import com.trustledger.persistence.entity.AccountEntity;
+import com.trustledger.persistence.repo.*;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import tools.jackson.databind.ObjectMapper;
+
+/** v2.2 external payment rail: success/failure/timeout, webhooks, duplicate protection, late events. */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Testcontainers
+class ExternalPaymentIntegrationTest {
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry r) {
+        r.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        r.add("spring.datasource.username", POSTGRES::getUsername);
+        r.add("spring.datasource.password", POSTGRES::getPassword);
+        r.add("trustledger.outbox.publisher.enabled", () -> "false");
+        r.add("trustledger.reconciliation.enabled", () -> "false");
+    }
+
+    @Value("${local.server.port}") int port;
+    @Autowired ObjectMapper json;
+    @Autowired WebhookSigner signer;
+    @Autowired AccountRepository accounts;
+    @Autowired ExternalPaymentAttemptRepository attempts;
+    @Autowired TransferRepository transfers;
+    @Autowired LedgerEntryRepository ledgerEntries;
+
+    private final HttpClient http = HttpClient.newHttpClient();
+    private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
+
+    private record Session(String token, UUID tenantId) {}
+
+    private Session register() throws Exception {
+        String body = json.writeValueAsString(Map.of("tenantName", "T-" + UUID.randomUUID(),
+            "email", "o-" + UUID.randomUUID() + "@x.com", "password", "Password!1"));
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/auth/register"))
+            .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            HttpResponse.BodyHandlers.ofString());
+        AuthResponse a = json.readValue(r.body(), AuthResponse.class);
+        return new Session(a.token(), a.tenantId());
+    }
+
+    private AccountEntity account(UUID tenantId, String opening) {
+        return accounts.save(new AccountEntity(UUID.randomUUID(), tenantId, UUID.randomUUID(), "GBP", new BigDecimal(opening)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> initiate(String token, AccountEntity src, String amount, String scenario, String key) throws Exception {
+        String body = json.writeValueAsString(Map.of("sourceAccountId", src.getId().toString(),
+            "amount", amount, "currency", "GBP", "reference", "ext", "deviceId", "web", "currentCountry", "GB",
+            "scenario", scenario));
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/transfers/external"))
+            .header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
+            .header("Idempotency-Key", key).POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, r.statusCode(), r.body());
+        return json.readValue(r.body(), Map.class);
+    }
+
+    private int webhook(String providerRef, String eventType, String eventId, boolean validSig) throws Exception {
+        String body = json.writeValueAsString(Map.of("eventId", eventId, "providerReference", providerRef, "eventType", eventType));
+        String sig = validSig ? signer.sign(body) : "deadbeef";
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/payment-rails/webhooks/sandbox"))
+            .header("Content-Type", "application/json").header("X-Signature", sig)
+            .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+        return r.statusCode();
+    }
+
+    private BigDecimal available(UUID id) { return accounts.findById(id).orElseThrow().getAvailableBalance(); }
+    private BigDecimal pending(UUID id) { return accounts.findById(id).orElseThrow().getPendingBalance(); }
+    private long sourceDebits(UUID id) {
+        return ledgerEntries.findByAccountId(id).stream().filter(e -> e.getDirection().equals("DEBIT")).count();
+    }
+    private String attemptStatus(String ref) {
+        return attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref).orElseThrow().getStatus();
+    }
+
+    @Test
+    void successPathReservesThenSettlesOnWebhook() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> res = initiate(s.token(), src, "200.00", "success", "ext-ok");
+        assertEquals("PENDING_SETTLEMENT", res.get("status"));
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")), "funds reserved");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
+
+        String ref = res.get("providerReference").toString();
+        assertEquals(200, webhook(ref, "SETTLED", "evt-1", true));
+
+        assertEquals("SETTLED", attemptStatus(ref));
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")), "reservation consumed");
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")));
+        assertEquals(1, sourceDebits(src.getId()));
+    }
+
+    @Test
+    void immediateFailureReleasesFunds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> res = initiate(s.token(), src, "200.00", "fail", "ext-fail");
+        assertEquals("FAILED", res.get("status"));
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds released");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
+    }
+
+    @Test
+    void timeoutCreatesPendingUnknownAndHoldsFunds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> res = initiate(s.token(), src, "200.00", "timeout", "ext-timeout");
+        assertEquals("PENDING_UNKNOWN", res.get("status"));
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")), "funds still reserved");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
+    }
+
+    @Test
+    void duplicateWebhookDoesNotDoublePostLedger() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = initiate(s.token(), src, "200.00", "success", "ext-dup").get("providerReference").toString();
+
+        assertEquals(200, webhook(ref, "SETTLED", "evt-dup", true));
+        assertEquals(200, webhook(ref, "SETTLED", "evt-dup", true)); // same event id -> ignored
+
+        assertEquals(1, sourceDebits(src.getId()), "duplicate webhook must not post a second ledger entry");
+        assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPostedBalance().compareTo(new BigDecimal("800.0000")));
+    }
+
+    @Test
+    void lateSuccessAfterTimeoutSettlesOnce() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = initiate(s.token(), src, "200.00", "timeout", "ext-late-ok").get("providerReference").toString();
+        // Provider eventually confirms success via webhook.
+        assertEquals(200, webhook(ref, "SETTLED", "evt-late-ok", true));
+        assertEquals("SETTLED", attemptStatus(ref));
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
+        assertEquals(1, sourceDebits(src.getId()));
+    }
+
+    @Test
+    void lateFailureAfterTimeoutReleasesOnce() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = initiate(s.token(), src, "200.00", "timeout", "ext-late-fail").get("providerReference").toString();
+        assertEquals(200, webhook(ref, "FAILED", "evt-late-fail", true));
+        assertEquals("FAILED", attemptStatus(ref));
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds released once");
+        assertEquals(0, sourceDebits(src.getId()), "no ledger posting on failure");
+    }
+
+    @Test
+    void invalidWebhookSignatureIsRejectedAndDoesNotChangeState() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = initiate(s.token(), src, "200.00", "success", "ext-badsig").get("providerReference").toString();
+        assertEquals(401, webhook(ref, "SETTLED", "evt-badsig", false));
+        assertEquals("PENDING_SETTLEMENT", attemptStatus(ref), "state unchanged on bad signature");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
+    }
+
+    @Test
+    void externalInitiateIsIdempotent() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> first = initiate(s.token(), src, "200.00", "success", "ext-idem");
+        Map<String, Object> replay = initiate(s.token(), src, "200.00", "success", "ext-idem");
+        assertEquals(first.get("transactionId"), replay.get("transactionId"));
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")), "replay must not reserve twice");
+    }
+}
