@@ -27,7 +27,8 @@ Last updated: 2026-06-09
 | JPA persistence + Flyway schema (`V1__initial_schema.sql`) | **VERIFIED** | Flyway migrates + Hibernate `validate` passes against real PG (Testcontainers) |
 | Persistent transfer: idempotency + `SELECT FOR UPDATE` row locks | **VERIFIED** | `PersistentTransferService` + 4 Testcontainers tests |
 | **No double-spend under concurrency** | **VERIFIED** | `concurrentTransfersNeverDoubleSpend` — 8 racing transfers, exactly 4 succeed, balance floors at 0, ledger debits == money moved |
-| REST API (`/api/v1` transfers, ledger, fraud) | IN PROGRESS | controllers stubbed; wire to `PersistentTransferService` + MockMvc test next |
+| REST API `POST /api/v1/transfers` (wired end-to-end) | **VERIFIED** | `TransferApiIntegrationTest` over real HTTP+PG: 200 complete / 409 idempotency conflict / 422 insufficient funds; `RestExceptionHandler` + dev-open `SecurityConfig` |
+| REST API (ledger/fraud read endpoints) | PLANNED | only the transfer write path is wired so far |
 | Persistent hold/reservation + fraud case + approve/reject | IN PROGRESS | request-time hold reserves to pending; `FundReservation`/`FraudCase` rows + approve/reject flow are the next slice |
 | Outbox → Kafka/Redpanda publisher | PLANNED | outbox rows persisted in-tx; publisher + Testcontainers-Redpanda test pending |
 | Docker Compose stack up | PLANNED | compose files present; not started |
