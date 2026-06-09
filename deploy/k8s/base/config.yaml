@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trustledger-config
+data:
+  PRODUCTION_MODE: "true"
+  SERVER_FORWARD_HEADERS_STRATEGY: "framework"
+---
+# Placeholder Secret. In production this is populated by External Secrets Operator from AWS Secrets
+# Manager (see docs/SECRETS_MANAGEMENT.md) — do NOT commit real values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trustledger-secrets
+type: Opaque
+stringData:
+  JWT_SECRET: "REPLACED_BY_SECRET_MANAGER"
+  DATABASE_URL: "REPLACED_BY_SECRET_MANAGER"
+  DATABASE_USERNAME: "REPLACED_BY_SECRET_MANAGER"
+  DATABASE_PASSWORD: "REPLACED_BY_SECRET_MANAGER"
+  KAFKA_BOOTSTRAP_SERVERS: "REPLACED_BY_SECRET_MANAGER"
+  RAILS_WEBHOOK_SECRET: "REPLACED_BY_SECRET_MANAGER"

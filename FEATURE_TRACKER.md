@@ -166,6 +166,21 @@ Deferred (honest, in `docs/MULTI_TENANCY.md`): org-unit *scoping* of permissions
 
 Deferred (honest): real trained weights (the scaffold needs labelled data; production weights are heuristic), Python inference microservice (inference is in-process Java for testability/governance), deep-learning models (explainable-first by design), DECISION_SUPPORT/blocking ML (forbidden in v2.8 — ML must not move money).
 
+## v2.9 — deployment automation
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Helm chart (backend+frontend, probes, HPA, PDB, ingress) | **VERIFIED** | `helm lint` clean; `helm template` renders 9 objects |
+| Secret strategy (external in prod) | **VERIFIED** | prod template (`existingSecret`) emits 0 inline secrets |
+| Kubernetes manifests (Kustomize base + prod overlay) | **VERIFIED** | `kubectl kustomize` builds 10 objects; prod patch → replicas=5 + pinned tags |
+| Terraform (RDS + encrypted S3 + ECR + Secrets Manager) | **VERIFIED (CI)** | `terraform validate` in the `iac` CI job |
+| Blue/green + rollback notes | **DONE** | `docs/DEPLOYMENT_AUTOMATION.md` |
+| Secret manager integration | **DONE** | `docs/SECRETS_MANAGEMENT.md` (Secrets Manager → External Secrets) |
+| Multi-region readiness | **DONE (pattern)** | `docs/MULTI_REGION.md` (region-parameterised IaC + active/standby) |
+| CI gates IaC on every push | **VERIFIED** | new `iac` job: Helm lint/template + Terraform validate + k8s YAML |
+
+Deferred (honest, in docs): a live two-region deployment + Route 53 failover (pattern + region-parameterised IaC shipped, not a running cluster); ServiceMonitor/Argo Rollouts wiring; VPC/networking Terraform (RDS/S3/ECR/secrets shipped; full networking left to the target account's module).
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.

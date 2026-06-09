@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trustledger-backend
+  labels: { app: trustledger, component: backend }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: trustledger, component: backend }
+  template:
+    metadata:
+      labels: { app: trustledger, component: backend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: backend
+          image: ghcr.io/thepluscode/trustledger-backend:2.9.0
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: trustledger-config }
+            - secretRef: { name: trustledger-secrets }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trustledger-backend
+  labels: { app: trustledger, component: backend }
+spec:
+  selector: { app: trustledger, component: backend }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trustledger-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: trustledger-backend
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trustledger-backend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: trustledger, component: backend }

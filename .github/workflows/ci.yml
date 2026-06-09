@@ -46,3 +46,32 @@ jobs:
         run: docker compose -f infra/docker-compose.yml config -q
       - name: Repo validation
         run: python3 scripts/validate_repo.py
+
+  iac:
+    name: IaC validation (Helm + Terraform + manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Helm lint + template (dev + prod-secret)
+        run: |
+          helm lint deploy/helm/trustledger
+          helm template tl deploy/helm/trustledger > /dev/null
+          helm template tl deploy/helm/trustledger --set secret.existingSecret=trustledger-secrets > /dev/null
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform validate
+        run: |
+          terraform -chdir=deploy/terraform init -backend=false -input=false
+          terraform -chdir=deploy/terraform validate
+      - name: Validate Kubernetes manifests (YAML)
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+          ok = True
+          for f in sorted(glob.glob("deploy/k8s/**/*.yaml", recursive=True)):
+              try:
+                  list(yaml.safe_load_all(open(f)))
+              except Exception as e:
+                  print("INVALID", f, e); ok = False
+          print("k8s manifests YAML OK" if ok else "FAIL"); sys.exit(0 if ok else 1)
+          PY

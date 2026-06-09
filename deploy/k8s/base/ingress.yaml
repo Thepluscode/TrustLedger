@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: trustledger
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [trustledger.example.com]
+      secretName: trustledger-tls
+  rules:
+    - host: trustledger.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: trustledger-backend, port: { number: 80 } } }
+          - path: /actuator
+            pathType: Prefix
+            backend: { service: { name: trustledger-backend, port: { number: 80 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: trustledger-frontend, port: { number: 80 } } }

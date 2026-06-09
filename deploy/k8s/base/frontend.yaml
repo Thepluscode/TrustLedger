@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trustledger-frontend
+  labels: { app: trustledger, component: frontend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: trustledger, component: frontend }
+  template:
+    metadata:
+      labels: { app: trustledger, component: frontend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: frontend
+          image: ghcr.io/thepluscode/trustledger-frontend:2.9.0
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trustledger-frontend
+  labels: { app: trustledger, component: frontend }
+spec:
+  selector: { app: trustledger, component: frontend }
+  ports:
+    - port: 80
+      targetPort: 3000

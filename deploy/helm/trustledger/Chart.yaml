@@ -1,0 +1,8 @@
+apiVersion: v2
+name: trustledger
+description: TrustLedger — ledger-first fintech platform (backend API + frontend console)
+type: application
+version: 2.9.0
+appVersion: "2.9.0"
+maintainers:
+  - name: TrustLedger
