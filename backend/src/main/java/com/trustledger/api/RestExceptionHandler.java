@@ -33,6 +33,11 @@ public class RestExceptionHandler {
         return body(HttpStatus.CONFLICT, "CONSENT_ERROR", e.getMessage());
     }
 
+    @ExceptionHandler(com.trustledger.app.QuotaService.QuotaExceededException.class)
+    public ResponseEntity<Map<String, Object>> quota(com.trustledger.app.QuotaService.QuotaExceededException e) {
+        return body(HttpStatus.TOO_MANY_REQUESTS, "QUOTA_EXCEEDED", e.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> badRequest(IllegalArgumentException e) {
         return body(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.getMessage());

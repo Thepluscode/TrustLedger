@@ -31,12 +31,14 @@ public class EvidenceService {
     private final AuditLogRepository auditLogs;
     private final EvidenceExportRepository exports;
     private final EvidenceStorage storage;
+    private final UsageMeteringService usage;
     private final ObjectMapper json;
 
     public EvidenceService(FraudCaseRepository fraudCases, FraudCaseLinkRepository caseLinks,
                            TransferRepository transfers, LedgerTransactionRepository ledgerTransactions,
                            LedgerEntryRepository ledgerEntries, AuditLogRepository auditLogs,
-                           EvidenceExportRepository exports, EvidenceStorage storage, ObjectMapper json) {
+                           EvidenceExportRepository exports, EvidenceStorage storage,
+                           UsageMeteringService usage, ObjectMapper json) {
         this.fraudCases = fraudCases;
         this.caseLinks = caseLinks;
         this.transfers = transfers;
@@ -45,6 +47,7 @@ public class EvidenceService {
         this.auditLogs = auditLogs;
         this.exports = exports;
         this.storage = storage;
+        this.usage = usage;
         this.json = json;
     }
 
@@ -116,6 +119,7 @@ public class EvidenceService {
             resourceId, "JSON", key, content.length, checksum, generatedBy));
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", generatedBy, "EVIDENCE_EXPORTED",
             resourceType, resourceId, writeJsonString(Map.of("exportId", exportId.toString(), "checksum", checksum))));
+        usage.record(tenantId, UsageMeteringService.EVIDENCE_EXPORTS, 1);
         return export;
     }
 
