@@ -1,6 +1,8 @@
 package com.trustledger.api;
 
 import com.trustledger.app.IdempotencyConflictException;
+import com.trustledger.security.ForbiddenException;
+import com.trustledger.security.UnauthorizedException;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +12,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Maps domain/application exceptions to safe HTTP responses (no stack traces to clients). */
 @RestControllerAdvice
 public class RestExceptionHandler {
+
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<Map<String, Object>> unauthorized(UnauthorizedException e) {
+        return body(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", e.getMessage());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> forbidden(ForbiddenException e) {
+        return body(HttpStatus.FORBIDDEN, "FORBIDDEN", e.getMessage());
+    }
 
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<Map<String, Object>> conflict(IdempotencyConflictException e) {

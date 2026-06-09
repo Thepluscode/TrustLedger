@@ -5,6 +5,7 @@ import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.PersistentTransferService;
 import com.trustledger.core.fraud.FraudContext;
 import com.trustledger.core.model.Money;
+import com.trustledger.security.CurrentUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,7 +26,7 @@ public class TransferController {
             @RequestBody TransferApiRequest body) {
 
         PersistentTransferRequest request = new PersistentTransferRequest(
-            body.tenantId(), body.userId(), body.sourceAccountId(), body.destinationAccountId(),
+            CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.destinationAccountId(),
             body.beneficiaryId(), body.amount(), body.currency(), body.reference(), idempotencyKey,
             body.deviceId(), body.currentCountry());
 

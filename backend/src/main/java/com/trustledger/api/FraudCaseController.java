@@ -4,6 +4,8 @@ import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.PersistentTransferService;
 import com.trustledger.persistence.entity.FraudCaseEntity;
 import com.trustledger.persistence.repo.FraudCaseRepository;
+import com.trustledger.security.CurrentUser;
+import com.trustledger.security.ForbiddenException;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -38,7 +40,11 @@ public class FraudCaseController {
     }
 
     private FraudCaseEntity requireCase(UUID caseId) {
-        return fraudCases.findById(caseId)
+        FraudCaseEntity c = fraudCases.findById(caseId)
             .orElseThrow(() -> new IllegalArgumentException("Fraud case not found: " + caseId));
+        if (!c.getTenantId().equals(CurrentUser.tenantId())) {
+            throw new ForbiddenException("Fraud case belongs to another tenant");
+        }
+        return c;
     }
 }

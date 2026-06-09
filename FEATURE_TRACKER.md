@@ -42,8 +42,8 @@ Last updated: 2026-06-09
 | Feature | Status | Evidence |
 |---------|--------|----------|
 | Reconciliation worker (`reconciliation_issues`, V3) | **VERIFIED** | `ReconciliationService` (scheduled): unbalanced-ledger-tx / expired-reservation / stuck-outbox checks, deduped per (type,entity); `ReconciliationIntegrationTest` (2, Testcontainers-PG) |
-| Auth/login (JWT, tenant from token) | PLANNED | API currently dev-open |
-| REST: accounts / beneficiaries / ledger / audit-logs / dashboard / fraud-case list | PLANNED | only transfer write + fraud approve/reject wired |
+| Auth/login (JWT, tenant from token) | **VERIFIED** | V4 tenants/users; dependency-free HS256 `JwtService`; `/auth/register|login|me`; BCrypt; `JwtAuthFilter` + locked-down `SecurityConfig`; transfer/fraud endpoints derive tenant from token. Tested: 401 unauthenticated, 403 cross-tenant, happy-path transfer + approve over HTTP |
+| REST: accounts / beneficiaries / ledger / audit-logs / dashboard / fraud-case list | PLANNED | transfer write + fraud approve/reject wired (token-scoped); read/CRUD next |
 | Frontend pages wired to API | PLANNED | scaffold builds only |
 | CI (`.github/workflows/ci.yml`) | PLANNED | — |
 
