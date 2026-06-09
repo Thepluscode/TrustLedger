@@ -1,11 +1,13 @@
 package com.trustledger.api;
 
+import com.trustledger.api.ApiViews.FraudCaseView;
 import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.PersistentTransferService;
 import com.trustledger.persistence.entity.FraudCaseEntity;
 import com.trustledger.persistence.repo.FraudCaseRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +23,20 @@ public class FraudCaseController {
     public FraudCaseController(PersistentTransferService transferService, FraudCaseRepository fraudCases) {
         this.transferService = transferService;
         this.fraudCases = fraudCases;
+    }
+
+    @GetMapping
+    public List<FraudCaseView> list() {
+        return fraudCases.findByTenantId(CurrentUser.tenantId()).stream().map(FraudCaseController::view).toList();
+    }
+
+    @GetMapping("/{caseId}")
+    public FraudCaseView get(@PathVariable UUID caseId) {
+        return view(requireCase(caseId));
+    }
+
+    private static FraudCaseView view(FraudCaseEntity c) {
+        return new FraudCaseView(c.getId(), c.getTransactionId(), c.getStatus(), c.getSeverity(), c.getRiskScore());
     }
 
     @PostMapping("/{caseId}/approve")

@@ -56,4 +56,9 @@ public class AuditLogEntity {
 
     public UUID getId() { return id; }
     public String getAction() { return action; }
+    public String getActorType() { return actorType; }
+    public UUID getActorId() { return actorId; }
+    public String getResourceType() { return resourceType; }
+    public UUID getResourceId() { return resourceId; }
+    public Instant getCreatedAt() { return createdAt; }
 }
