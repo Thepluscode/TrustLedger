@@ -39,7 +39,7 @@ services:
       POSTGRES_USER: trustledger
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql   # postgres:18+ stores data in a version subdir under this mount
     restart: unless-stopped
 
   redis:

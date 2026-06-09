@@ -1,0 +1,15 @@
+# Smoke override: replaces host port mappings with free alternates so the core data plane can be
+# brought up for a health check on a machine where the default ports are already in use.
+# `!override` is required because Compose otherwise MERGES (appends) port lists.
+#   docker compose -f docker-compose.yml -f docker-compose.smoke.yml -p trustledger-smoke up -d postgres redis redpanda
+services:
+  postgres:
+    ports: !override
+      - "55432:5432"
+  redis:
+    ports: !override
+      - "6380:6379"
+  redpanda:
+    ports: !override
+      - "19092:9092"
+      - "19644:9644"
