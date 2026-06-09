@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   BeneficiaryView,
   DashboardSummary,
+  ExternalPaymentResponse,
   FraudCaseView,
   TransferResponse,
 } from "./types";
@@ -69,6 +70,13 @@ export const api = {
 
   createTransfer: (idempotencyKey: string, body: Record<string, unknown>) =>
     request<TransferResponse>("/api/v1/transfers", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(body),
+    }),
+
+  createExternalTransfer: (idempotencyKey: string, body: Record<string, unknown>) =>
+    request<ExternalPaymentResponse>("/api/v1/transfers/external", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(body),

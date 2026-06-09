@@ -23,6 +23,15 @@ export interface TransferResponse {
   message: string;
 }
 
+export interface ExternalPaymentResponse {
+  transactionId: string;
+  providerReference: string | null;
+  status: string;
+  riskScore: number;
+  decision: string;
+  message: string;
+}
+
 export interface FraudCaseView {
   id: string;
   transactionId: string;

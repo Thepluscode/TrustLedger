@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Shell from "../components/Shell";
 import { api } from "../lib/api";
-import type { AccountView, TransferResponse } from "../lib/types";
+import type { AccountView, ExternalPaymentResponse, TransferResponse } from "../lib/types";
 
 export default function TransfersPage() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
@@ -12,6 +12,32 @@ export default function TransfersPage() {
   const [amount, setAmount] = useState("100.00");
   const [result, setResult] = useState<TransferResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [extAmount, setExtAmount] = useState("200.00");
+  const [extScenario, setExtScenario] = useState("success");
+  const [extResult, setExtResult] = useState<ExternalPaymentResponse | null>(null);
+  const [extError, setExtError] = useState<string | null>(null);
+
+  async function submitExternal(e: FormEvent) {
+    e.preventDefault();
+    setExtError(null);
+    setExtResult(null);
+    try {
+      const res = await api.createExternalTransfer(crypto.randomUUID(), {
+        sourceAccountId: source,
+        beneficiaryId: crypto.randomUUID(),
+        amount: extAmount,
+        currency: "GBP",
+        reference: "ui external",
+        deviceId: "web",
+        currentCountry: "GB",
+        scenario: extScenario,
+      });
+      setExtResult(res);
+    } catch (err) {
+      setExtError((err as Error).message);
+    }
+  }
 
   useEffect(() => {
     api.listAccounts().then((a) => {
@@ -75,6 +101,43 @@ export default function TransfersPage() {
               · risk <strong>{result.riskScore}</strong> · decision {result.decision}
             </p>
             <p className="muted">{result.message}</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel" style={{ marginTop: 18 }}>
+        <div className="panelHeader">
+          <div>
+            <h2>External payment (sandbox rail)</h2>
+            <p className="muted">Funds reserve on submit; a webhook or reconciliation settles or releases.</p>
+          </div>
+        </div>
+        <form className="form" onSubmit={submitExternal} style={{ padding: 16 }}>
+          <label>Source account</label>
+          <select value={source} onChange={(e) => setSource(e.target.value)}>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.id.slice(0, 8)}… ({a.availableBalance} {a.currency})</option>)}
+          </select>
+          <label>Amount</label>
+          <input value={extAmount} onChange={(e) => setExtAmount(e.target.value)} />
+          <label>Provider scenario</label>
+          <select value={extScenario} onChange={(e) => setExtScenario(e.target.value)}>
+            <option value="success">success (settles via webhook)</option>
+            <option value="slow">slow (pending settlement)</option>
+            <option value="fail">fail (released immediately)</option>
+            <option value="timeout">timeout (PENDING_UNKNOWN → reconciliation)</option>
+          </select>
+          <div style={{ marginTop: 16 }}>
+            <button type="submit">Submit external payment</button>
+          </div>
+        </form>
+        {extError && <p className="error" style={{ padding: "0 16px 16px" }}>{extError}</p>}
+        {extResult && (
+          <div style={{ padding: "0 16px 16px" }}>
+            <p>
+              Status <span className="badge">{extResult.status}</span>{" "}
+              · ref <span className="muted">{extResult.providerReference ?? "—"}</span>
+            </p>
+            <p className="muted">{extResult.message}</p>
           </div>
         )}
       </section>
