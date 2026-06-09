@@ -18,4 +18,5 @@ public final class CurrentUser {
 
     public static UUID tenantId() { return get().tenantId(); }
     public static UUID userId() { return get().userId(); }
+    public static String role() { return get().role(); }
 }

@@ -24,12 +24,14 @@ public class FraudIntelligenceService {
     private final UserRiskProfileRepository userProfiles;
     private final DeviceFingerprintRepository devices;
     private final BeneficiaryRiskProfileRepository beneficiaries;
+    private final TenantFraudPolicyService policies;
 
     public FraudIntelligenceService(UserRiskProfileRepository userProfiles, DeviceFingerprintRepository devices,
-                                    BeneficiaryRiskProfileRepository beneficiaries) {
+                                    BeneficiaryRiskProfileRepository beneficiaries, TenantFraudPolicyService policies) {
         this.userProfiles = userProfiles;
         this.devices = devices;
         this.beneficiaries = beneficiaries;
+        this.policies = policies;
     }
 
     public record Assessment(int score, FraudDecisionType decision, List<String> signals) {}
@@ -80,14 +82,15 @@ public class FraudIntelligenceService {
         }
 
         score = Math.min(100, score);
-        return new Assessment(score, bandFor(score), signals);
+        return new Assessment(score, bandFor(score, in.tenantId()), signals);
     }
 
-    private static FraudDecisionType bandFor(int score) {
-        if (score >= 85) return FraudDecisionType.REJECT;
-        if (score >= 65) return FraudDecisionType.HOLD_FOR_REVIEW;
-        if (score >= 45) return FraudDecisionType.STEP_UP_MFA;
-        if (score >= 25) return FraudDecisionType.ALLOW_WITH_MONITORING;
+    private FraudDecisionType bandFor(int score, UUID tenantId) {
+        var t = policies.thresholds(tenantId);
+        if (score >= t.reject()) return FraudDecisionType.REJECT;
+        if (score >= t.hold()) return FraudDecisionType.HOLD_FOR_REVIEW;
+        if (score >= t.mfa()) return FraudDecisionType.STEP_UP_MFA;
+        if (score >= t.monitor()) return FraudDecisionType.ALLOW_WITH_MONITORING;
         return FraudDecisionType.ALLOW;
     }
 

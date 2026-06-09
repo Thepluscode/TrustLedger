@@ -1,17 +1,19 @@
 package com.trustledger.api;
 
+import com.trustledger.app.AccessControlService;
 import com.trustledger.app.EvidenceService;
 import com.trustledger.app.RetentionService;
 import com.trustledger.persistence.entity.EvidenceExportEntity;
 import com.trustledger.persistence.repo.EvidenceExportRepository;
 import com.trustledger.security.CurrentUser;
+import com.trustledger.security.Permission;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Evidence & compliance exports. All tenant-scoped; generation is audited. */
+/** Evidence & compliance exports. All tenant-scoped; permission-gated; generation is audited. */
 @RestController
 @RequestMapping("/api/v1/evidence")
 public class EvidenceController {
@@ -19,11 +21,14 @@ public class EvidenceController {
     private final EvidenceService evidence;
     private final RetentionService retention;
     private final EvidenceExportRepository exports;
+    private final AccessControlService access;
 
-    public EvidenceController(EvidenceService evidence, RetentionService retention, EvidenceExportRepository exports) {
+    public EvidenceController(EvidenceService evidence, RetentionService retention, EvidenceExportRepository exports,
+                              AccessControlService access) {
         this.evidence = evidence;
         this.retention = retention;
         this.exports = exports;
+        this.access = access;
     }
 
     public record EvidenceExportView(UUID id, String resourceType, UUID resourceId, String format,
@@ -33,11 +38,13 @@ public class EvidenceController {
 
     @PostMapping("/fraud-cases/{caseId}")
     public EvidenceExportView exportFraudCase(@PathVariable UUID caseId) {
+        access.require(Permission.EVIDENCE_EXPORT);
         return view(evidence.exportFraudCase(CurrentUser.tenantId(), caseId, CurrentUser.userId()));
     }
 
     @PostMapping("/ledger/{ledgerTxId}")
     public EvidenceExportView exportLedger(@PathVariable UUID ledgerTxId) {
+        access.require(Permission.EVIDENCE_EXPORT);
         return view(evidence.exportLedgerTransaction(CurrentUser.tenantId(), ledgerTxId, CurrentUser.userId()));
     }
 
