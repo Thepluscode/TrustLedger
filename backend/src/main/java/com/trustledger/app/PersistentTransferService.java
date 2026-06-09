@@ -40,13 +40,15 @@ public class PersistentTransferService {
     private final FundReservationRepository reservations;
     private final FraudCaseRepository fraudCases;
     private final FraudEngine fraudEngine;
+    private final FraudCaseLinkingService caseLinking;
     private final ObjectMapper json;
 
     public PersistentTransferService(AccountRepository accounts, LedgerTransactionRepository ledgerTransactions,
                                      LedgerEntryRepository ledgerEntries, IdempotencyKeyRepository idempotencyKeys,
                                      OutboxEventRepository outbox, AuditLogRepository auditLogs,
                                      TransferRepository transfers, FundReservationRepository reservations,
-                                     FraudCaseRepository fraudCases, FraudEngine fraudEngine, ObjectMapper json) {
+                                     FraudCaseRepository fraudCases, FraudEngine fraudEngine,
+                                     FraudCaseLinkingService caseLinking, ObjectMapper json) {
         this.accounts = accounts;
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
@@ -57,6 +59,7 @@ public class PersistentTransferService {
         this.reservations = reservations;
         this.fraudCases = fraudCases;
         this.fraudEngine = fraudEngine;
+        this.caseLinking = caseLinking;
         this.json = json;
     }
 
@@ -127,10 +130,12 @@ public class PersistentTransferService {
             saveTransfer(req, transferId, "HELD_FOR_REVIEW", decision);
             reservations.save(new FundReservationEntity(UUID.randomUUID(), req.tenantId(), transferId,
                 source.getId(), amount.amount(), req.currency(), "ACTIVE", Instant.now().plus(24, ChronoUnit.HOURS)));
-            fraudCases.save(new FraudCaseEntity(UUID.randomUUID(), req.tenantId(), transferId, req.userId(),
+            UUID caseId = UUID.randomUUID();
+            fraudCases.save(new FraudCaseEntity(caseId, req.tenantId(), transferId, req.userId(),
                 "OPEN", severityFor(decision.riskScore()), decision.riskScore(),
                 "Auto-opened for held transfer", writeJson(Map.of("signals", decision.signals(),
                     "riskScore", decision.riskScore(), "decision", decision.decision().name()))));
+            caseLinking.linkNewCase(caseId); // link to other cases hitting the same recipient
             audit(req.tenantId(), "SYSTEM", null, "TRANSFER_HELD_FOR_REVIEW", "TRANSFER", transferId,
                 Map.of("amount", amount.toString()));
             enqueue(req.tenantId(), "FRAUD_CASE", transferId, "FRAUD_CASE_CREATED",
