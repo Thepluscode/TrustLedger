@@ -4,6 +4,7 @@ import type {
   AuthResponse,
   BeneficiaryView,
   DashboardSummary,
+  EvidenceExportView,
   ExternalPaymentResponse,
   FraudCaseView,
   TransferResponse,
@@ -96,4 +97,22 @@ export const api = {
 
   rejectCase: (caseId: string) =>
     request<TransferResponse>(`/api/v1/fraud/cases/${caseId}/reject`, { method: "POST" }),
+
+  exportFraudCaseEvidence: (caseId: string) =>
+    request<EvidenceExportView>(`/api/v1/evidence/fraud-cases/${caseId}`, { method: "POST" }),
+
+  listEvidence: () => request<EvidenceExportView[]>("/api/v1/evidence/exports"),
+
+  downloadEvidence: async (id: string): Promise<void> => {
+    const res = await fetch(`${BASE}/api/v1/evidence/exports/${id}/download`, {
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `evidence-${id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

@@ -62,6 +62,15 @@ export interface BeneficiaryView {
   trusted: boolean;
 }
 
+export interface EvidenceExportView {
+  id: string;
+  resourceType: string;
+  resourceId: string;
+  format: string;
+  byteSize: number;
+  checksum: string;
+}
+
 export interface ApiError {
   code: string;
   error: string;

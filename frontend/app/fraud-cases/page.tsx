@@ -15,6 +15,8 @@ export default function FraudCasesPage() {
   }
   useEffect(load, []);
 
+  const [note, setNote] = useState<string | null>(null);
+
   async function act(caseId: string, action: "approve" | "reject") {
     setBusy(caseId);
     setError(null);
@@ -29,6 +31,17 @@ export default function FraudCasesPage() {
     }
   }
 
+  async function exportEvidence(caseId: string) {
+    setError(null);
+    setNote(null);
+    try {
+      const e = await api.exportFraudCaseEvidence(caseId);
+      setNote(`Evidence exported (${e.checksum.slice(0, 23)}…). See the Evidence page.`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <Shell active="/fraud-cases">
       <header className="topbar">
@@ -38,6 +51,7 @@ export default function FraudCasesPage() {
         </div>
       </header>
       {error && <p className="error">{error}</p>}
+      {note && <p className="ok">{note}</p>}
       <section className="panel">
         <table>
           <thead>
@@ -52,14 +66,15 @@ export default function FraudCasesPage() {
                 <td>{c.severity}</td>
                 <td><span className="badge">{c.status}</span></td>
                 <td>
-                  {c.status === "OPEN" ? (
-                    <div className="row">
-                      <button disabled={busy === c.id} onClick={() => act(c.id, "approve")}>Approve</button>
-                      <button className="secondary" disabled={busy === c.id} onClick={() => act(c.id, "reject")}>Reject</button>
-                    </div>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
+                  <div className="row">
+                    {c.status === "OPEN" && (
+                      <>
+                        <button disabled={busy === c.id} onClick={() => act(c.id, "approve")}>Approve</button>
+                        <button className="secondary" disabled={busy === c.id} onClick={() => act(c.id, "reject")}>Reject</button>
+                      </>
+                    )}
+                    <button className="secondary" onClick={() => exportEvidence(c.id)}>Export evidence</button>
+                  </div>
                 </td>
               </tr>
             ))}

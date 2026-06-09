@@ -10,6 +10,7 @@ const LINKS: [string, string][] = [
   ["Accounts", "/accounts"],
   ["Transfers", "/transfers"],
   ["Fraud Cases", "/fraud-cases"],
+  ["Evidence", "/evidence"],
 ];
 
 export default function Shell({ children, active }: { children: ReactNode; active: string }) {
