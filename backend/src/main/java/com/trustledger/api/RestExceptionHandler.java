@@ -28,6 +28,11 @@ public class RestExceptionHandler {
         return body(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", e.getMessage());
     }
 
+    @ExceptionHandler(com.trustledger.app.ConsentService.ConsentException.class)
+    public ResponseEntity<Map<String, Object>> consent(com.trustledger.app.ConsentService.ConsentException e) {
+        return body(HttpStatus.CONFLICT, "CONSENT_ERROR", e.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> badRequest(IllegalArgumentException e) {
         return body(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.getMessage());
