@@ -124,4 +124,20 @@ export const api = {
   getBillingEvents: () => request<string[]>("/api/v1/tenant/billing/events"),
   listProviderConfigs: () =>
     request<{ provider: string; environment: string; enabled: boolean }[]>("/api/v1/tenant/provider-configs"),
+
+  listMlModels: () =>
+    request<{ id: string; modelName: string; version: string; status: string; deploymentMode: string }[]>("/api/v2/ml/models"),
+  getMlScores: (transactionId: string) =>
+    request<
+      {
+        transactionId: string;
+        modelVersion: string;
+        featureSetVersion: string;
+        fraudProbability: string;
+        riskBand: string;
+        explanationJson: string;
+        shadowMode: boolean;
+        latencyMs: number;
+      }[]
+    >(`/api/v2/ml/fraud-scores/${transactionId}`),
 };

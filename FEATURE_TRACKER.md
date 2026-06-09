@@ -146,6 +146,26 @@ Deferred (honest): scheduled/standing-order/international payments (placeholders
 
 Deferred (honest, in `docs/MULTI_TENANCY.md`): org-unit *scoping* of permissions (enforcement is by role today), full onboarding wizard UI, PostgreSQL row-level security (defence-in-depth atop the tested app-layer scoping), real billing-provider integration.
 
+## v2.8 — ML-assisted fraud scoring (shadow mode)
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Feature builder (one canonical fs-v1 path) | **VERIFIED** | `FeatureBuilder` deterministic (unit) |
+| Explainable baseline model (logistic) | **VERIFIED** | `LogisticFraudModel`: high→CRITICAL, benign→LOW, ranked factors |
+| **ML shadow score cannot move money** | **VERIFIED** | CRITICAL shadow score leaves balances + transfer status unchanged |
+| Missing features don't crash | **VERIFIED** | empty feature map → LOW, no exception |
+| Score + version + explanation stored | **VERIFIED** | `ml_fraud_scores` + `fraud_features` (V14) |
+| Model registry + promote/rollback | **VERIFIED** | CANDIDATE→SHADOW→ANALYST_ASSIST (blocking rejected); rollback→OFF |
+| Risk aggregator keeps rules authoritative | **VERIFIED** | rules ALLOW + ML CRITICAL → final ALLOW + disagreement flagged |
+| Analyst feedback loop | **VERIFIED** | `fraud_feedback`; label captured + listed |
+| Model monitoring + alerts | **VERIFIED** | latency 800 → `MODEL_LATENCY_HIGH` |
+| Tenant isolation of model artefacts | **VERIFIED** | tenant B cannot read tenant A scores |
+| Frontend ML score/explanation/models | **VERIFIED (build)** | `/ml` page (models + transaction explanation) |
+| Offline training scaffold | **DONE** | `ml/` (logistic baseline mirrors fs-v1; not run in CI) |
+| Backend suite | **VERIFIED** | 107 tests, 0 failures |
+
+Deferred (honest): real trained weights (the scaffold needs labelled data; production weights are heuristic), Python inference microservice (inference is in-process Java for testability/governance), deep-learning models (explainable-first by design), DECISION_SUPPORT/blocking ML (forbidden in v2.8 — ML must not move money).
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.

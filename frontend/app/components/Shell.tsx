@@ -10,6 +10,7 @@ const LINKS: [string, string][] = [
   ["Accounts", "/accounts"],
   ["Transfers", "/transfers"],
   ["Fraud Cases", "/fraud-cases"],
+  ["ML", "/ml"],
   ["Evidence", "/evidence"],
   ["Admin", "/admin"],
 ];
