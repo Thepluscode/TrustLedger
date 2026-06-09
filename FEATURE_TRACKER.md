@@ -19,16 +19,17 @@ Last updated: 2026-06-09
 | Audit log + outbox event recording (in-memory) | **VERIFIED** | asserted in orchestrator suite |
 | **Whole backend: `mvn test`** | **VERIFIED** | `Tests run: 37, Failures: 0` (2026-06-09) |
 
-## Wiring & infrastructure (scaffold present, not yet exercised)
+## Wiring & infrastructure
 
-| Feature | Status | Note |
+| Feature | Status | Evidence / note |
 |---------|--------|------|
-| Spring Boot app boots (`spring-boot:run`) | PLANNED | compiles; not run/observed yet |
-| JPA persistence + Flyway schema (`V1__initial_schema.sql`) | PLANNED | schema file exists; no repositories wired |
-| REST API (`/api/v1` transfers, ledger, fraud) | IN PROGRESS | controllers stubbed; no integration test |
-| Idempotency/state via DB + `SELECT FOR UPDATE` | PLANNED | currently in-memory maps |
-| Outbox → Kafka/Redpanda publisher | PLANNED | in-memory outbox only |
-| Testcontainers integration tests (PG/Redpanda) | PLANNED | deps resolve; no `@Testcontainers` tests yet |
+| Spring Boot context loads (full autoconfig) | **VERIFIED** | `@SpringBootTest` context boots in `PersistentTransferIntegrationTest` |
+| JPA persistence + Flyway schema (`V1__initial_schema.sql`) | **VERIFIED** | Flyway migrates + Hibernate `validate` passes against real PG (Testcontainers) |
+| Persistent transfer: idempotency + `SELECT FOR UPDATE` row locks | **VERIFIED** | `PersistentTransferService` + 4 Testcontainers tests |
+| **No double-spend under concurrency** | **VERIFIED** | `concurrentTransfersNeverDoubleSpend` — 8 racing transfers, exactly 4 succeed, balance floors at 0, ledger debits == money moved |
+| REST API (`/api/v1` transfers, ledger, fraud) | IN PROGRESS | controllers stubbed; wire to `PersistentTransferService` + MockMvc test next |
+| Persistent hold/reservation + fraud case + approve/reject | IN PROGRESS | request-time hold reserves to pending; `FundReservation`/`FraudCase` rows + approve/reject flow are the next slice |
+| Outbox → Kafka/Redpanda publisher | PLANNED | outbox rows persisted in-tx; publisher + Testcontainers-Redpanda test pending |
 | Docker Compose stack up | PLANNED | compose files present; not started |
 | Next.js operations cockpit | PLANNED | scaffold only; `npm run build` not run |
 
