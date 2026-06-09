@@ -61,9 +61,11 @@ public class FundReservationEntity {
     }
 
     public UUID getId() { return id; }
+    public UUID getTenantId() { return tenantId; }
     public UUID getTransactionId() { return transactionId; }
     public UUID getAccountId() { return accountId; }
     public BigDecimal getAmount() { return amount; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Instant getExpiresAt() { return expiresAt; }
 }

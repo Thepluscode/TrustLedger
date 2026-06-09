@@ -7,5 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
     List<OutboxEventEntity> findTop100ByStatusOrderByCreatedAtAsc(String status);
+    List<OutboxEventEntity> findByStatusAndRetryCountGreaterThanEqual(String status, int retryCount);
     long countByStatus(String status);
 }

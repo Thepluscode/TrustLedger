@@ -37,6 +37,16 @@ Last updated: 2026-06-09
 | Next.js frontend build (`npm run build`) | **VERIFIED** | Next.js 16.2.6 + React 19 + TS compiles clean, static pages generated; `next.config.js` pins the Turbopack root |
 | Next.js operations cockpit (real screens) | PLANNED | only the scaffold page builds; cockpit/ledger-explorer/fraud-workspace UIs pending |
 
+## v2.1 execution hardening
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Reconciliation worker (`reconciliation_issues`, V3) | **VERIFIED** | `ReconciliationService` (scheduled): unbalanced-ledger-tx / expired-reservation / stuck-outbox checks, deduped per (type,entity); `ReconciliationIntegrationTest` (2, Testcontainers-PG) |
+| Auth/login (JWT, tenant from token) | PLANNED | API currently dev-open |
+| REST: accounts / beneficiaries / ledger / audit-logs / dashboard / fraud-case list | PLANNED | only transfer write + fraud approve/reject wired |
+| Frontend pages wired to API | PLANNED | scaffold builds only |
+| CI (`.github/workflows/ci.yml`) | PLANNED | — |
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.
