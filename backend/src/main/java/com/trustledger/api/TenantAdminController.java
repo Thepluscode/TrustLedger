@@ -59,9 +59,10 @@ public class TenantAdminController {
     }
 
     @PutMapping("/plan")
-    public void changePlan(@RequestBody PlanRequest b) {
+    public Map<String, String> changePlan(@RequestBody PlanRequest b) {
         access.require(Permission.TENANT_ADMIN);
         billing.changePlan(CurrentUser.tenantId(), b.plan());
+        return Map.of("plan", b.plan());
     }
 
     @GetMapping("/billing/events")

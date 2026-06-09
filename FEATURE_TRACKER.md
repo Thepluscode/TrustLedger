@@ -127,6 +127,25 @@ Deferred (honest, logged): full load suite (1,000 transfers/min) beyond the 50-c
 
 Deferred (honest): scheduled/standing-order/international payments (placeholders); real ASPSP credentials + OBIE identity/SCA (regulated — see REGULATORY_BOUNDARIES.md); a dedicated `provider_reconciliation_snapshots` table (mismatch detection reuses the external-rail reconciliation).
 
+## v2.7 — multi-tenant enterprise readiness
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Tenant-aware RBAC (role → permission) | **VERIFIED** | `RolePermissions` + `AccessControlService`; VIEWER export 403, OWNER 200 |
+| Denied access is audited | **VERIFIED** | `ACCESS_DENIED` audit survives the 403 (noRollbackFor) |
+| Per-tenant fraud policy (wired into engine) | **VERIFIED** | same score 45 → MFA (default) vs ALLOW_WITH_MONITORING (threshold 60) |
+| Per-tenant provider config (V13) | **VERIFIED** | PRODUCTION env disabled by default |
+| Quotas + hard block (non-critical) | **VERIFIED** | 2nd provider config over limit → 429 |
+| Usage metering | **VERIFIED** | transfers_created summed per month |
+| Billing hooks (separate from money ledger) | **VERIFIED** | plan change emits `PLAN_CHANGED` |
+| Tenant upgrade (plan/status/region/currency) | **VERIFIED** | V13 alter + entity |
+| Cross-tenant isolation | **VERIFIED** | tenant from token everywhere; cross-tenant evidence export 403 |
+| Enterprise admin UI | **VERIFIED (build)** | `/admin`: usage, plan change, quotas, provider configs, billing events |
+| Org hierarchy + role assignments | **MODELLED** | `organisation_units` + `user_role_assignments` tables exist (org-scope enforcement deferred) |
+| Backend suite | **VERIFIED** | 97 tests, 0 failures |
+
+Deferred (honest, in `docs/MULTI_TENANCY.md`): org-unit *scoping* of permissions (enforcement is by role today), full onboarding wizard UI, PostgreSQL row-level security (defence-in-depth atop the tested app-layer scoping), real billing-provider integration.
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.

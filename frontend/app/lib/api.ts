@@ -115,4 +115,13 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+
+  getUsage: (metric: string) =>
+    request<{ currentMonth: number }>(`/api/v1/tenant/usage?metric=${encodeURIComponent(metric)}`),
+  getTenantQuota: () => request<Record<string, number>>("/api/v1/tenant/quota"),
+  changePlan: (plan: string) =>
+    request<{ plan: string }>("/api/v1/tenant/plan", { method: "PUT", body: JSON.stringify({ plan }) }),
+  getBillingEvents: () => request<string[]>("/api/v1/tenant/billing/events"),
+  listProviderConfigs: () =>
+    request<{ provider: string; environment: string; enabled: boolean }[]>("/api/v1/tenant/provider-configs"),
 };
