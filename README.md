@@ -1,68 +1,84 @@
-# TrustLedger v2.0
+# TrustLedger v2.1
 
-TrustLedger is a ledger-first secure transaction and fraud monitoring platform.
+TrustLedger is a **ledger-first** secure transaction and fraud-monitoring platform: every money
+movement is double-entry, every risky transfer is scored, every suspicious one becomes a reviewable
+case, and every sensitive action is auditable.
 
-This package contains:
+## What's runnable today
 
-- **v1.0 executable domain spine**: Java ledger + fraud + transfer orchestration core with a runnable validation harness.
-- **v2.0 advanced design system**: external payment rail abstraction, reconciliation, fraud intelligence, evidence packs, operations cockpit, and enterprise deployment architecture.
-- **Spring Boot/Maven backend skeleton**: production-oriented project layout with API boundaries, dependencies, and test strategy.
-- **Modern frontend interface scaffold**: Next.js dashboard/admin UI structure.
-- **Infrastructure scaffolding**: Docker Compose, production-style Compose, Nginx, Redpanda, Redis, PostgreSQL, OpenSearch, MinIO, Prometheus, and Grafana.
+- **Spring Boot 4 backend** (Java, Maven) — JWT auth, accounts, transfers, fraud cases, ledger,
+  audit, dashboard, reconciliation — on **PostgreSQL** (Flyway, `ddl-auto=validate`), with a
+  **transactional outbox → Redpanda** publisher.
+- **Next.js 16 frontend** — login, dashboard, accounts, transfers, fraud-case review — wired to the API.
+- **Infra** — Docker Compose for Postgres, Redis, Redpanda, OpenSearch, MinIO, Prometheus, Grafana.
+- **CI** — GitHub Actions: backend `mvn test`, frontend build, compose-config + repo validation.
 
 ## Product spine
 
 ```text
-transfer request
-  -> idempotency guard
-  -> fraud score
-  -> allow / MFA / hold / reject
-  -> funds reservation when needed
-  -> balanced double-entry ledger posting
-  -> audit event
-  -> outbox event
-  -> reconciliation visibility
+POST /transfers -> idempotency guard -> lock source/dest (SELECT FOR UPDATE) -> fraud score
+  -> ALLOW: post balanced double-entry ledger
+  -> STEP_UP_MFA: require MFA
+  -> HOLD_FOR_REVIEW: reserve funds + open fraud case  -> admin approve (post) / reject (release)
+  -> REJECT
+  -> audit log + outbox event ; reconciliation worker watches for drift
 ```
 
-## Run the test suite (verified)
-
-The backend builds and tests under Maven (Spring Boot 4.0.0, Java 17). The financial
-domain core is covered by a JUnit 5 suite — **37 tests, all passing** — exercising the
-ledger invariants, idempotency, fraud decisions, the transaction state machine, and the
-end-to-end transfer orchestration (see `backend/src/test/java/com/trustledger/core/`).
+## Quickstart (local)
 
 ```bash
-cd backend
-mvn test          # 37 tests, 0 failures
-mvn spring-boot:run
+# 1. Infra (Postgres is what the backend needs; ports remappable via docker-compose.smoke.yml)
+cd infra && docker compose up -d postgres redpanda redis
+
+# 2. Backend  (http://localhost:8080)
+cd ../backend && mvn spring-boot:run
+
+# 3. Frontend (http://localhost:3000 ; set the API base if not default)
+cd ../frontend && npm install && NEXT_PUBLIC_API_BASE_URL=http://localhost:8080 npm run dev
 ```
 
-Last verified: `mvn -B test` → `Tests run: 37, Failures: 0, Errors: 0, Skipped: 0` (2026-06-09).
+Then in the UI: **Create tenant** (register) → **Accounts** (open two) → **Transfers** (send one;
+see the risk decision) → a high-risk transfer lands in **Fraud Cases** for approve/reject.
 
-## Dependency-free domain harness (no Maven required)
-
-A standalone `javac`-only acceptance harness also exists for environments without Maven:
+API smoke without the UI:
 
 ```bash
-cd TrustLedger_v2
-bash scripts/run_domain_validation.sh
-python3 scripts/validate_repo.py
+TOKEN=$(curl -s localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
+  -d '{"tenantName":"Acme","email":"a@acme.io","password":"Password!1"}' | jq -r .token)
+curl -s localhost:8080/api/v1/dashboard/summary -H "Authorization: Bearer $TOKEN"
 ```
 
-Expected output:
+## Tests (verified)
+
+Backend: **56 tests, 0 failures** — pure-domain unit tests plus **Testcontainers** integration
+across **PostgreSQL & Redpanda**.
+
+```bash
+cd backend && mvn test     # Tests run: 56, Failures: 0, Errors: 0, Skipped: 0  (2026-06-09)
+cd frontend && npm run build
+```
+
+Coverage highlights: double-entry invariants · idempotency replay + payload-mismatch ·
+**no double-spend under concurrent transfers** · high-risk hold + reserve + fraud case ·
+admin approve posts / reject releases · outbox real delivery + replay-safety · reconciliation
+mismatch detection · JWT auth + **tenant isolation** (401/403).
+
+A dependency-free `javac` harness also exists: `bash scripts/run_domain_validation.sh`.
+
+## Layout
 
 ```text
-Domain acceptance validation passed.
-Repository validation passed.
+backend/    Spring Boot 4 + JPA + Flyway (db/migration/V1..V5) ; src/test = JUnit + Testcontainers
+frontend/   Next.js 16 app router ; app/lib/api.ts is the typed client
+infra/      docker-compose.yml (+ .prod, + .smoke port-override), nginx, prometheus
+docs/       design + architecture (TRUSTLEDGER_V2_DESIGN.md, LEDGER_ENGINE.md, FRAUD_ENGINE.md, …)
+.github/workflows/ci.yml
+FEATURE_TRACKER.md   live VERIFIED-vs-PLANNED status (the source of truth for "what works")
 ```
 
-## Docker pilot stack
+## Scope boundary
 
-```bash
-cd infra
-docker compose up --build
-```
-
-## Important scope boundary
-
-This repo is not a regulated bank, card issuer, or production payment processor. It is an advanced engineering baseline showing how to design and implement the ledger and fraud spine correctly before integrating real external rails.
+Not a regulated bank, card issuer, or production payment processor. It is an engineering baseline
+that gets the ledger + fraud spine correct and tested first. External payment rails (v2.2),
+behavioural fraud intelligence (v2.3), and evidence/compliance packs (v2.4) come next — see
+`docs/TRUSTLEDGER_V2_DESIGN.md`.

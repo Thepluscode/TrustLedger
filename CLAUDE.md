@@ -46,7 +46,7 @@ processed twice. 7. Every state transition is audited. Enforce these in **code a
 
 ```bash
 cd backend
-mvn -B test            # JUnit 5 suite — currently 37 tests, 0 failures (the source of truth for "works")
+mvn -B test            # JUnit 5 + Testcontainers — currently 56 tests, 0 failures (the source of truth for "works")
 mvn -B compile
 mvn spring-boot:run     # needs Postgres (+ Kafka/Redpanda for outbox) — see infra/
 
@@ -71,12 +71,12 @@ entities must match) · Kafka/Redpanda (outbox) · Redis · OpenSearch · MinIO 
 - **No silent failures; structured audit on every sensitive action.**
 
 ## Status & build order
-See **`FEATURE_TRACKER.md`** for live VERIFIED-vs-scaffold status (never mark VERIFIED without test
-output / observed behavior). Current state: the in-memory domain spine is VERIFIED (37 tests);
-persistence, REST runtime, outbox publisher, Testcontainers integration, Docker stack, and the
-Next.js UI are scaffold/in-progress. Implement gaps in the brutal order: persist the spine (JPA +
-Flyway, proven with Testcontainers incl. a concurrent no-double-spend test) → REST API end-to-end →
-outbox→Redpanda → reconciliation worker → admin/fraud APIs → frontend. External rails come last.
+See **`FEATURE_TRACKER.md`** for live VERIFIED-vs-PLANNED status (never mark VERIFIED without test
+output / observed behavior). Current state (v2.1): VERIFIED — persistence (JPA+Flyway V1–V5),
+JWT auth + tenant isolation, full transfer lifecycle incl. concurrent no-double-spend, hold/approve/
+reject, outbox→Redpanda, reconciliation worker, the REST surface (accounts/beneficiaries/ledger/
+fraud/audit/dashboard), Docker-compose core data plane, Next.js build, and CI — 56 backend tests.
+PLANNED next (v2.2–v2.4): external payment rails, behavioural fraud profiles, evidence/compliance packs.
 
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
