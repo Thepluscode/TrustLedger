@@ -1,0 +1,82 @@
+package com.trustledger.api;
+
+import com.trustledger.app.EvidenceService;
+import com.trustledger.app.RetentionService;
+import com.trustledger.persistence.entity.EvidenceExportEntity;
+import com.trustledger.persistence.repo.EvidenceExportRepository;
+import com.trustledger.security.CurrentUser;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+/** Evidence & compliance exports. All tenant-scoped; generation is audited. */
+@RestController
+@RequestMapping("/api/v1/evidence")
+public class EvidenceController {
+
+    private final EvidenceService evidence;
+    private final RetentionService retention;
+    private final EvidenceExportRepository exports;
+
+    public EvidenceController(EvidenceService evidence, RetentionService retention, EvidenceExportRepository exports) {
+        this.evidence = evidence;
+        this.retention = retention;
+        this.exports = exports;
+    }
+
+    public record EvidenceExportView(UUID id, String resourceType, UUID resourceId, String format,
+                                     long byteSize, String checksum) {}
+    public record RetentionPolicyRequest(String resourceType, int retentionDays, boolean archiveEnabled,
+                                         String deletionMode, boolean legalHoldEnabled) {}
+
+    @PostMapping("/fraud-cases/{caseId}")
+    public EvidenceExportView exportFraudCase(@PathVariable UUID caseId) {
+        return view(evidence.exportFraudCase(CurrentUser.tenantId(), caseId, CurrentUser.userId()));
+    }
+
+    @PostMapping("/ledger/{ledgerTxId}")
+    public EvidenceExportView exportLedger(@PathVariable UUID ledgerTxId) {
+        return view(evidence.exportLedgerTransaction(CurrentUser.tenantId(), ledgerTxId, CurrentUser.userId()));
+    }
+
+    @GetMapping("/exports")
+    public List<EvidenceExportView> list() {
+        return exports.findByTenantId(CurrentUser.tenantId()).stream().map(EvidenceController::view).toList();
+    }
+
+    @GetMapping("/exports/{id}/download")
+    public ResponseEntity<byte[]> download(@PathVariable UUID id) {
+        byte[] content = evidence.download(CurrentUser.tenantId(), id);
+        String checksum = exports.findById(id).map(EvidenceExportEntity::getChecksum).orElse("");
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("X-Evidence-Checksum", checksum)
+            .body(content);
+    }
+
+    @PostMapping("/exports/{id}/legal-hold")
+    public ResponseEntity<Void> legalHold(@PathVariable UUID id, @RequestParam(defaultValue = "true") boolean on) {
+        retention.setLegalHold(CurrentUser.tenantId(), id, on);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/exports/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        retention.deleteExport(CurrentUser.tenantId(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/retention-policies")
+    public ResponseEntity<Void> upsertPolicy(@RequestBody RetentionPolicyRequest body) {
+        retention.upsertPolicy(CurrentUser.tenantId(), body.resourceType(), body.retentionDays(),
+            body.archiveEnabled(), body.deletionMode(), body.legalHoldEnabled());
+        return ResponseEntity.noContent().build();
+    }
+
+    private static EvidenceExportView view(EvidenceExportEntity e) {
+        return new EvidenceExportView(e.getId(), e.getResourceType(), e.getResourceId(), e.getFormat(),
+            e.getByteSize(), e.getChecksum());
+    }
+}

@@ -72,4 +72,6 @@ public class FraudCaseEntity {
     public void setStatus(String status) { this.status = status; }
     public String getSeverity() { return severity; }
     public int getRiskScore() { return riskScore; }
+    public String getEvidence() { return evidence; }
+    public UUID getUserId() { return userId; }
 }
