@@ -181,6 +181,22 @@ Deferred (honest): real trained weights (the scaffold needs labelled data; produ
 
 Deferred (honest, in docs): a live two-region deployment + Route 53 failover (pattern + region-parameterised IaC shipped, not a running cluster); ServiceMonitor/Argo Rollouts wiring; VPC/networking Terraform (RDS/S3/ECR/secrets shipped; full networking left to the target account's module).
 
+## v3.0 — pilot / customer package
+
+| Artifact | Status | Notes |
+|----------|--------|-------|
+| Buyer one-pager | **DONE** | `pilot/ONE_PAGER.md` |
+| Technical due-diligence pack | **DONE** | `pilot/DUE_DILIGENCE.md` (every claim → doc + CI evidence) |
+| Security questionnaire (answered) | **DONE** | `pilot/SECURITY_QUESTIONNAIRE.md` (honest ✅/◑/☐ per item) |
+| Pilot deployment checklist | **DONE** | `pilot/PILOT_CHECKLIST.md` (4–6 week plan) |
+| Demo script | **DONE** | `pilot/DEMO_SCRIPT.md` (12–15 min, real behaviour only) |
+| Pricing model | **DONE** | `pilot/PRICING.md` (aligned to v2.7 plans + usage metering) |
+| Hosted-demo guide | **DONE** | `pilot/HOSTED_DEMO.md` (compose/k8s + seed) |
+| Demo seed script | **VERIFIED (syntax)** | `pilot/demo-seed.sh` — real API: tenant + accounts + transfers + live risk assessment (`bash -n` clean) |
+| Sample evidence packs | **DONE** | `pilot/sample-evidence/` — exact `EvidenceService` schema (JSON valid) |
+
+Honest finding logged: the public transfer endpoint scores `lowRisk`, so the seed does **not** auto-open a held fraud case — wiring the intelligence layer as the live transfer gate remains a v2.3/v2.8 deferral (the demo shows fraud via `/fraud/assess` + the sample evidence pack). No buyer-facing claim exceeds what CI proves.
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.
