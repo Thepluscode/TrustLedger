@@ -111,6 +111,22 @@ Deferred (honest): PDF rendering (JSON bundles are the canonical, checksummed fo
 
 Deferred (honest, logged): full load suite (1,000 transfers/min) beyond the 50-concurrent proof; automated chaos/fault-injection (expected behaviours documented, not yet a JUnit fault-injection harness); live S3/MinIO evidence adapter; refresh-token rotation / session revocation (planned v2.6).
 
+## v2.6 — Open Banking integration readiness (sandbox)
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Payment consent model + lifecycle (V11) | **VERIFIED** | `PaymentConsentEntity`; AWAITING→AUTHORISED→SUBMITTED, expiry/reject |
+| OB-shaped sandbox adapter (consent + auth URL) | **VERIFIED** | `OpenBankingSandboxAdapter` |
+| Secure redirect callback (state + redirect allowlist) | **VERIFIED** | allowlist rejects unknown URL (400); callback authorises |
+| **Callback replay rejected (one-time state)** | **VERIFIED** | replayed state → 409; cannot re-process/resubmit |
+| Submit authorised consent → reserve via rail | **VERIFIED** | reuses v2.2 external rail; funds reserved; pre-auth submit → 409; expired → 409 |
+| Provider reconciliation / PENDING_UNKNOWN / mismatch | **VERIFIED (reused)** | v2.2 `ExternalPaymentIntegrationTest` + `ExternalReconciliationIntegrationTest` (timeout→PENDING_UNKNOWN, late settle once, mismatch→issue, dup webhook no double-post) |
+| Webhook signature verification | **VERIFIED (reused)** | `WebhookSigner` + bad-sig 401 |
+| Regulatory-boundary + provider docs | **DONE** | `docs/{OPEN_BANKING_READINESS,CONSENT_FLOW,WEBHOOK_SECURITY,PROVIDER_RECONCILIATION,PAYMENT_PROVIDER_ADAPTERS,REGULATORY_BOUNDARIES}.md` |
+| Backend suite | **VERIFIED** | 91 tests, 0 failures |
+
+Deferred (honest): scheduled/standing-order/international payments (placeholders); real ASPSP credentials + OBIE identity/SCA (regulated — see REGULATORY_BOUNDARIES.md); a dedicated `provider_reconciliation_snapshots` table (mismatch detection reuses the external-rail reconciliation).
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.

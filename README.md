@@ -1,8 +1,8 @@
-# TrustLedger v2.5
+# TrustLedger v2.6
 
 TrustLedger is a **ledger-first** secure transaction and fraud-monitoring platform: every money
 movement is double-entry, every risky transfer is scored, every suspicious one becomes a reviewable
-case, and every sensitive action is auditable. **v2.2** added an external payment-rail sandbox; **v2.3** adds fraud intelligence (behaviour/device/beneficiary risk, case linking, dual approval) on top of internal ledger transfers; **v2.4** adds checksummed evidence packs, ledger-balance proofs, retention + legal hold; **v2.5** adds hardening (rate limiting, secure headers, Prometheus metrics, backup/restore + DR drill, CI security scans, SLOs) on top of
+case, and every sensitive action is auditable. **v2.2** added an external payment-rail sandbox; **v2.3** adds fraud intelligence (behaviour/device/beneficiary risk, case linking, dual approval) on top of internal ledger transfers; **v2.4** adds checksummed evidence packs, ledger-balance proofs, retention + legal hold; **v2.5** adds hardening (rate limiting, secure headers, metrics, backup/restore, CI scans, SLOs); **v2.6** adds an Open Banking-shaped sandbox (payment consent + secure callback + provider reconciliation) on top of
 webhook settlement, `PENDING_UNKNOWN` timeout handling, duplicate-callback protection, and provider
 reconciliation.
 
@@ -52,11 +52,11 @@ curl -s localhost:8080/api/v1/dashboard/summary -H "Authorization: Bearer $TOKEN
 
 ## Tests (verified)
 
-Backend: **85 tests, 0 failures** — pure-domain unit tests plus **Testcontainers** integration
+Backend: **91 tests, 0 failures** — pure-domain unit tests plus **Testcontainers** integration
 across **PostgreSQL & Redpanda**.
 
 ```bash
-cd backend && mvn test     # Tests run: 85, Failures: 0, Errors: 0, Skipped: 0  (2026-06-09)
+cd backend && mvn test     # Tests run: 91, Failures: 0, Errors: 0, Skipped: 0  (2026-06-09)
 cd frontend && npm run build
 ```
 
@@ -70,7 +70,7 @@ A dependency-free `javac` harness also exists: `bash scripts/run_domain_validati
 ## Layout
 
 ```text
-backend/    Spring Boot 4 + JPA + Flyway (db/migration/V1..V10) ; src/test = JUnit + Testcontainers
+backend/    Spring Boot 4 + JPA + Flyway (db/migration/V1..V11) ; src/test = JUnit + Testcontainers
 frontend/   Next.js 16 app router ; app/lib/api.ts is the typed client
 infra/      docker-compose.yml (+ .prod, + .smoke port-override), nginx, prometheus
 docs/       design + architecture (TRUSTLEDGER_V2_DESIGN.md, LEDGER_ENGINE.md, FRAUD_ENGINE.md, …)
