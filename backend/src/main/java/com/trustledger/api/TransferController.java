@@ -5,6 +5,7 @@ import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.PersistentTransferService;
 import com.trustledger.core.fraud.FraudContext;
 import com.trustledger.core.model.Money;
+import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.security.CurrentUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +16,11 @@ import org.springframework.web.bind.annotation.*;
 public class TransferController {
 
     private final PersistentTransferService transferService;
+    private final TransferMetrics metrics;
 
-    public TransferController(PersistentTransferService transferService) {
+    public TransferController(PersistentTransferService transferService, TransferMetrics metrics) {
         this.transferService = transferService;
+        this.metrics = metrics;
     }
 
     @PostMapping
@@ -32,6 +35,7 @@ public class TransferController {
 
         Money median = Money.of("100000.00", body.currency());
         PersistentTransferResponse result = transferService.transfer(request, FraudContext.lowRisk(), median);
+        metrics.record(result.status());
 
         HttpStatus status = switch (result.status()) {
             case "COMPLETED" -> HttpStatus.OK;
