@@ -1,0 +1,5 @@
+package com.trustledger.core.model;
+
+public enum FraudDecisionType {
+    ALLOW,ALLOW_WITH_MONITORING,STEP_UP_MFA,DELAY_TRANSFER,HOLD_FOR_REVIEW,REJECT,FREEZE_ACCOUNT,ESCALATE_TO_COMPLIANCE
+}

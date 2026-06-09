@@ -1,0 +1,5 @@
+package com.trustledger.core.model;
+
+public enum FraudCaseStatus {
+    OPEN,TRIAGED,IN_REVIEW,WAITING_FOR_CUSTOMER,APPROVED,REJECTED,ESCALATED,FALSE_POSITIVE,CONFIRMED_FRAUD,CLOSED
+}

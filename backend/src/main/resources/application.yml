@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: trustledger-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trustledger}
+    username: ${DATABASE_USERNAME:trustledger}
+    password: ${DATABASE_PASSWORD:trustledger}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+trustledger:
+  fraud:
+    mfa-threshold: 50
+    hold-threshold: 65
+    reject-threshold: 95
+  ledger:
+    allow-negative-balances: false
