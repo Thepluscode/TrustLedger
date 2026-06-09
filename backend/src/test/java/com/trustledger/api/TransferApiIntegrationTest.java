@@ -39,6 +39,8 @@ class TransferApiIntegrationTest {
     @Value("${local.server.port}") int port;
     @Autowired AccountRepository accounts;
     @Autowired ObjectMapper json;
+    @Autowired com.trustledger.app.PersistentTransferService transferService;
+    @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -90,6 +92,31 @@ class TransferApiIntegrationTest {
         HttpResponse<String> res = postTransfer(src, dst, "100.00", "api-insufficient");
         assertEquals(422, res.statusCode());
         assertTrue(res.body().contains("TRANSFER_REJECTED"), res.body());
+    }
+
+    @Test
+    void analystCanApproveAHeldTransferOverHttp() throws Exception {
+        AccountEntity src = account("1000.0000");
+        AccountEntity dst = account("0.0000");
+        // Create a held transfer via the service (the HTTP transfer path scores low-risk by default).
+        var highRisk = new com.trustledger.core.fraud.FraudContext(true, true, 8, 0, "GB", "GB", 5000,
+            false, false, false, java.util.Map.of(), java.time.Instant.now());
+        var req = new com.trustledger.app.PersistentTransferRequest(src.getTenantId(), src.getUserId(),
+            src.getId(), dst.getId(), UUID.randomUUID(), new BigDecimal("400.00"), "GBP", "ref", "idem-http-hold",
+            "device", "GB");
+        var held = transferService.transfer(req, highRisk, com.trustledger.core.model.Money.of("100000.00", "GBP"));
+        UUID caseId = fraudCases.findByTransactionId(held.transactionId()).orElseThrow().getId();
+
+        HttpRequest approve = HttpRequest.newBuilder(
+                URI.create("http://localhost:" + port + "/api/v1/fraud/cases/" + caseId + "/approve"))
+            .header("X-Actor", "senior-analyst")
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build();
+        HttpResponse<String> res = http.send(approve, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(200, res.statusCode());
+        assertTrue(res.body().contains("COMPLETED"), res.body());
+        assertBalance(dst.getId(), "400.0000");
     }
 
     private void assertBalance(UUID accountId, String expected) {

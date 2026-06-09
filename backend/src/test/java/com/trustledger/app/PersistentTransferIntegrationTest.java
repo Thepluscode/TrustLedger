@@ -46,8 +46,15 @@ class PersistentTransferIntegrationTest {
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired OutboxEventRepository outbox;
     @Autowired AuditLogRepository auditLogs;
+    @Autowired com.trustledger.persistence.repo.FundReservationRepository reservations;
+    @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
 
     private static final Money HIGH_MEDIAN = Money.of("100000.00", "GBP");
+
+    private FraudContext highRisk() {
+        // newBeneficiary + newDevice + failedLogins>5 + 8x-median amount => score 90 => HOLD
+        return new FraudContext(true, true, 8, 0, "GB", "GB", 5000, false, false, false, java.util.Map.of(), java.time.Instant.now());
+    }
 
     private AccountEntity account(String opening) {
         return accounts.save(new AccountEntity(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -150,5 +157,53 @@ class PersistentTransferIntegrationTest {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         assertEquals(0, debited.compareTo(new BigDecimal("100.0000")), "ledger debits must equal money that left");
         assertEquals(0, accounts.findById(dst.getId()).get().getAvailableBalance().compareTo(new BigDecimal("100.0000")));
+    }
+
+    @Test
+    void highRiskTransferIsHeldWithReservationAndCase() {
+        AccountEntity src = account("1000.0000");
+        AccountEntity dst = account("0.0000");
+        PersistentTransferResponse r = service.transfer(req(src, dst, "400.00", "idem-hold-1"), highRisk(), HIGH_MEDIAN);
+
+        assertEquals("HELD_FOR_REVIEW", r.status());
+        assertBalance(src.getId(), "600.0000"); // available reduced by the reservation
+        assertEquals(0, accounts.findById(src.getId()).get().getPendingBalance().compareTo(new BigDecimal("400.0000")));
+        assertTrue(reservations.findByTransactionIdAndStatus(r.transactionId(), "ACTIVE").isPresent());
+        assertEquals("OPEN", fraudCases.findByTransactionId(r.transactionId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void approveHeldTransferPostsAndConsumesReservation() {
+        AccountEntity src = account("1000.0000");
+        AccountEntity dst = account("0.0000");
+        PersistentTransferResponse held = service.transfer(req(src, dst, "400.00", "idem-hold-2"), highRisk(), HIGH_MEDIAN);
+
+        PersistentTransferResponse approved = service.approveHeldTransfer(src.getTenantId(), held.transactionId(), "analyst");
+
+        assertEquals("COMPLETED", approved.status());
+        assertEquals(0, accounts.findById(src.getId()).get().getPendingBalance().compareTo(new BigDecimal("0.0000")));
+        assertBalance(dst.getId(), "400.0000");
+        assertTrue(reservations.findByTransactionIdAndStatus(held.transactionId(), "ACTIVE").isEmpty());
+        assertEquals("APPROVED", fraudCases.findByTransactionId(held.transactionId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void rejectHeldTransferReleasesReservation() {
+        AccountEntity src = account("1000.0000");
+        AccountEntity dst = account("0.0000");
+        PersistentTransferResponse held = service.transfer(req(src, dst, "400.00", "idem-hold-3"), highRisk(), HIGH_MEDIAN);
+
+        PersistentTransferResponse rejected = service.rejectHeldTransfer(src.getTenantId(), held.transactionId(), "analyst");
+
+        assertEquals("REJECTED", rejected.status());
+        assertBalance(src.getId(), "1000.0000"); // funds returned to available
+        assertEquals(0, accounts.findById(src.getId()).get().getPendingBalance().compareTo(new BigDecimal("0.0000")));
+        assertBalance(dst.getId(), "0.0000");
+        assertTrue(reservations.findByTransactionIdAndStatus(held.transactionId(), "ACTIVE").isEmpty());
+        assertEquals("REJECTED", fraudCases.findByTransactionId(held.transactionId()).orElseThrow().getStatus());
+    }
+
+    private void assertBalance(UUID accountId, String expected) {
+        assertEquals(0, accounts.findById(accountId).orElseThrow().getAvailableBalance().compareTo(new BigDecimal(expected)));
     }
 }

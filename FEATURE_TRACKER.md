@@ -29,8 +29,9 @@ Last updated: 2026-06-09
 | **No double-spend under concurrency** | **VERIFIED** | `concurrentTransfersNeverDoubleSpend` — 8 racing transfers, exactly 4 succeed, balance floors at 0, ledger debits == money moved |
 | REST API `POST /api/v1/transfers` (wired end-to-end) | **VERIFIED** | `TransferApiIntegrationTest` over real HTTP+PG: 200 complete / 409 idempotency conflict / 422 insufficient funds; `RestExceptionHandler` + dev-open `SecurityConfig` |
 | REST API (ledger/fraud read endpoints) | PLANNED | only the transfer write path is wired so far |
-| Persistent hold/reservation + fraud case + approve/reject | IN PROGRESS | request-time hold reserves to pending; `FundReservation`/`FraudCase` rows + approve/reject flow are the next slice |
-| Outbox → Kafka/Redpanda publisher | PLANNED | outbox rows persisted in-tx; publisher + Testcontainers-Redpanda test pending |
+| Persistent hold/reservation + fraud case + approve/reject | **VERIFIED** | V2 `transfers` table + `FundReservation`/`FraudCase` entities; hold reserves + opens case, approve consumes + posts, reject releases — service tests (3) + HTTP approve test; `FraudCaseController` |
+| Outbox → Kafka/Redpanda publisher | IN PROGRESS | outbox rows persisted in-tx; publisher + Testcontainers-Redpanda test next |
+| Fraud signals table (`fraud_signals`) | PLANNED | signals stored in `fraud_cases.evidence` JSON for now; dedicated table deferred |
 | Docker Compose stack up | PLANNED | compose files present; not started |
 | Next.js operations cockpit | PLANNED | scaffold only; `npm run build` not run |
 
