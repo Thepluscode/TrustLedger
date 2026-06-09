@@ -192,7 +192,7 @@ Deferred (honest, in docs): a live two-region deployment + Route 53 failover (pa
 | Demo script | **DONE** | `pilot/DEMO_SCRIPT.md` (12–15 min, real behaviour only) |
 | Pricing model | **DONE** | `pilot/PRICING.md` (aligned to v2.7 plans + usage metering) |
 | Hosted-demo guide | **DONE** | `pilot/HOSTED_DEMO.md` (compose/k8s + seed) |
-| Demo seed script | **VERIFIED (syntax)** | `pilot/demo-seed.sh` — real API: tenant + accounts + transfers + live risk assessment (`bash -n` clean) |
+| Demo seed script | **VERIFIED (live)** | `pilot/demo-seed.sh` ran end-to-end against a live instance: tenant+accounts+transfers, COMPLETED ledger (750/250), login verified, risk assessment STEP_UP_MFA |
 | Sample evidence packs | **DONE** | `pilot/sample-evidence/` — exact `EvidenceService` schema (JSON valid) |
 
 Honest finding logged: the public transfer endpoint scores `lowRisk`, so the seed does **not** auto-open a held fraud case — wiring the intelligence layer as the live transfer gate remains a v2.3/v2.8 deferral (the demo shows fraud via `/fraud/assess` + the sample evidence pack). No buyer-facing claim exceeds what CI proves.

@@ -17,6 +17,7 @@ echo "→ registering demo tenant + owner"
 REG=$(curl -fsS -X POST "$BASE/api/v1/auth/register" -H 'Content-Type: application/json' \
   -d "{\"tenantName\":\"Demo ${SUFFIX}\",\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}")
 TOKEN=$(echo "$REG" | jget "['token']")
+TENANT=$(echo "$REG" | jget "['tenantId']")
 AUTH="Authorization: Bearer ${TOKEN}"
 
 echo "→ creating funded accounts"
@@ -37,10 +38,17 @@ echo "→ running an explainable high-risk assessment (intelligence layer)"
 ASSESS=$(curl -fsS -X POST "$BASE/api/v1/fraud/assess" -H "$AUTH" -H 'Content-Type: application/json' \
   -d "{\"deviceId\":\"unknown-device\",\"beneficiaryAccountId\":\"${DST}\",\"amount\":4800.00}")
 
+echo "→ verifying the seeded credentials log in"
+LOGIN=$(curl -fsS -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"tenantId\":\"${TENANT}\",\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}")
+echo "$LOGIN" | jget "['token']" >/dev/null && LOGIN_OK="yes" || LOGIN_OK="NO"
+
 cat <<EOF
 
 ✅ Demo tenant ready.
    Console login : ${EMAIL} / ${PASSWORD}
+   Tenant ID     : ${TENANT}     (the console login form needs this)
+   Login verified: ${LOGIN_OK}
    Source account: ${SRC}
    Risk assessment for a new-device + new-beneficiary transfer:
      $(echo "$ASSESS" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("decision="+d["decision"],"score="+str(d["riskScore"]),"signals="+",".join(d["signals"]))')
