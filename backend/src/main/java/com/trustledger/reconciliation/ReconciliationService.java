@@ -30,13 +30,19 @@ public class ReconciliationService {
     private final FundReservationRepository reservations;
     private final OutboxEventRepository outbox;
     private final ReconciliationIssueRepository issues;
+    private final com.trustledger.persistence.repo.ExternalPaymentAttemptRepository externalAttempts;
+    private final com.trustledger.app.ExternalPaymentService externalPayments;
+    private final com.trustledger.rails.SandboxPaymentRailAdapter rail;
     private final ObjectMapper json;
     private final boolean enabled;
     private final int stuckOutboxRetryThreshold;
 
     public ReconciliationService(LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
                                  FundReservationRepository reservations, OutboxEventRepository outbox,
-                                 ReconciliationIssueRepository issues, ObjectMapper json,
+                                 ReconciliationIssueRepository issues,
+                                 com.trustledger.persistence.repo.ExternalPaymentAttemptRepository externalAttempts,
+                                 com.trustledger.app.ExternalPaymentService externalPayments,
+                                 com.trustledger.rails.SandboxPaymentRailAdapter rail, ObjectMapper json,
                                  @Value("${trustledger.reconciliation.enabled:true}") boolean enabled,
                                  @Value("${trustledger.reconciliation.stuck-outbox-retry-threshold:5}") int stuckOutboxRetryThreshold) {
         this.ledgerTransactions = ledgerTransactions;
@@ -44,6 +50,9 @@ public class ReconciliationService {
         this.reservations = reservations;
         this.outbox = outbox;
         this.issues = issues;
+        this.externalAttempts = externalAttempts;
+        this.externalPayments = externalPayments;
+        this.rail = rail;
         this.json = json;
         this.enabled = enabled;
         this.stuckOutboxRetryThreshold = stuckOutboxRetryThreshold;
@@ -62,7 +71,46 @@ public class ReconciliationService {
     /** Runs all checks; returns the number of new issues raised. */
     @Transactional
     public int runReconciliation() {
-        return checkUnbalancedLedgerTransactions() + checkExpiredReservations() + checkStuckOutbox();
+        resolvePendingUnknownPayments(); // settlement reconciliation (resolves, doesn't raise issues)
+        return checkUnbalancedLedgerTransactions() + checkExpiredReservations() + checkStuckOutbox()
+            + detectExternalStatusMismatch();
+    }
+
+    /** Settlement reconciliation: ask the provider what really happened to PENDING_UNKNOWN payments. */
+    private void resolvePendingUnknownPayments() {
+        for (var attempt : externalAttempts.findByStatus(com.trustledger.rails.ExternalPaymentStatus.PENDING_UNKNOWN)) {
+            String providerStatus = rail.getPaymentStatus(attempt.getProviderReference());
+            if (com.trustledger.rails.ExternalPaymentStatus.SETTLED.equals(providerStatus)) {
+                externalPayments.settle(attempt);
+            } else if (com.trustledger.rails.ExternalPaymentStatus.FAILED.equals(providerStatus)) {
+                externalPayments.fail(attempt);
+            }
+            // still unknown -> leave reserved for the next sweep
+        }
+    }
+
+    /** Provider's authoritative status disagrees with our terminal local status -> raise an issue. */
+    private int detectExternalStatusMismatch() {
+        int created = 0;
+        for (String localTerminal : new String[]{com.trustledger.rails.ExternalPaymentStatus.SETTLED,
+                                                  com.trustledger.rails.ExternalPaymentStatus.FAILED}) {
+            for (var attempt : externalAttempts.findByStatus(localTerminal)) {
+                String providerStatus = rail.getPaymentStatus(attempt.getProviderReference());
+                boolean mismatch =
+                    (com.trustledger.rails.ExternalPaymentStatus.SETTLED.equals(localTerminal)
+                        && com.trustledger.rails.ExternalPaymentStatus.FAILED.equals(providerStatus))
+                    || (com.trustledger.rails.ExternalPaymentStatus.FAILED.equals(localTerminal)
+                        && com.trustledger.rails.ExternalPaymentStatus.SETTLED.equals(providerStatus));
+                if (mismatch) {
+                    created += raise(attempt.getTenantId(), "CRITICAL", "EXTERNAL_STATUS_MISMATCH",
+                        "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localTerminal,
+                        "provider=" + providerStatus,
+                        Map.of("providerReference", attempt.getProviderReference(),
+                               "localStatus", localTerminal, "providerStatus", providerStatus));
+                }
+            }
+        }
+        return created;
     }
 
     /** Invariant 2: every posted ledger transaction must have debits == credits. */
