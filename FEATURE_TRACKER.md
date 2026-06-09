@@ -30,7 +30,7 @@ Last updated: 2026-06-09
 | REST API `POST /api/v1/transfers` (wired end-to-end) | **VERIFIED** | `TransferApiIntegrationTest` over real HTTP+PG: 200 complete / 409 idempotency conflict / 422 insufficient funds; `RestExceptionHandler` + dev-open `SecurityConfig` |
 | REST API (ledger/fraud read endpoints) | PLANNED | only the transfer write path is wired so far |
 | Persistent hold/reservation + fraud case + approve/reject | **VERIFIED** | V2 `transfers` table + `FundReservation`/`FraudCase` entities; hold reserves + opens case, approve consumes + posts, reject releases — service tests (3) + HTTP approve test; `FraudCaseController` |
-| Outbox → Kafka/Redpanda publisher | IN PROGRESS | outbox rows persisted in-tx; publisher + Testcontainers-Redpanda test next |
+| Outbox → Kafka/Redpanda publisher | **VERIFIED** | `OutboxPublisher` (scheduled, at-least-once, marks PUBLISHED only on broker ack) + explicit `KafkaConfig`; Testcontainers-Redpanda test proves real delivery + replay-safety |
 | Fraud signals table (`fraud_signals`) | PLANNED | signals stored in `fraud_cases.evidence` JSON for now; dedicated table deferred |
 | Docker Compose stack up | PLANNED | compose files present; not started |
 | Next.js operations cockpit | PLANNED | scaffold only; `npm run build` not run |

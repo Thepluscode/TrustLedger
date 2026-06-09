@@ -13,6 +13,15 @@ spring:
     enabled: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        max.block.ms: 5000
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
 
 management:
   endpoints:
@@ -27,3 +36,8 @@ trustledger:
     reject-threshold: 95
   ledger:
     allow-negative-balances: false
+  outbox:
+    topic: trustledger.events
+    publisher:
+      enabled: true
+      interval-ms: 2000
