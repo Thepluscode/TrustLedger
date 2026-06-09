@@ -30,15 +30,13 @@ public class TransferController {
             body.beneficiaryId(), body.amount(), body.currency(), body.reference(), idempotencyKey,
             body.deviceId(), body.currentCountry());
 
-        // Until a server-side risk context (device/session/velocity) is wired, score against a
-        // baseline low-risk context. The fraud engine still applies amount/beneficiary rules.
         Money median = Money.of("100000.00", body.currency());
         PersistentTransferResponse result = transferService.transfer(request, FraudContext.lowRisk(), median);
 
         HttpStatus status = switch (result.status()) {
             case "COMPLETED" -> HttpStatus.OK;
             case "HELD_FOR_REVIEW", "MFA_REQUIRED" -> HttpStatus.ACCEPTED;
-            default -> HttpStatus.OK; // REJECTED carries its reason in the body
+            default -> HttpStatus.OK;
         };
         return ResponseEntity.status(status).body(result);
     }

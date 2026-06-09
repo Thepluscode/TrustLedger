@@ -1,5 +1,6 @@
 import type {
   AccountView,
+  AssessResponse,
   AuthResponse,
   BeneficiaryView,
   DashboardSummary,
@@ -80,6 +81,12 @@ export const api = {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(body),
+    }),
+
+  assessRisk: (deviceId: string, beneficiaryAccountId: string, amount: string) =>
+    request<AssessResponse>("/api/v1/fraud/assess", {
+      method: "POST",
+      body: JSON.stringify({ deviceId, beneficiaryAccountId, amount }),
     }),
 
   listFraudCases: () => request<FraudCaseView[]>("/api/v1/fraud/cases"),

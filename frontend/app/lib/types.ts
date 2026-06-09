@@ -32,6 +32,12 @@ export interface ExternalPaymentResponse {
   message: string;
 }
 
+export interface AssessResponse {
+  riskScore: number;
+  decision: string;
+  signals: string[];
+}
+
 export interface FraudCaseView {
   id: string;
   transactionId: string;

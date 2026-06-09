@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Shell from "../components/Shell";
 import { api } from "../lib/api";
-import type { AccountView, ExternalPaymentResponse, TransferResponse } from "../lib/types";
+import type { AccountView, AssessResponse, ExternalPaymentResponse, TransferResponse } from "../lib/types";
 
 export default function TransfersPage() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
@@ -17,6 +17,17 @@ export default function TransfersPage() {
   const [extScenario, setExtScenario] = useState("success");
   const [extResult, setExtResult] = useState<ExternalPaymentResponse | null>(null);
   const [extError, setExtError] = useState<string | null>(null);
+
+  const [assessResult, setAssessResult] = useState<AssessResponse | null>(null);
+
+  async function runAssess() {
+    setAssessResult(null);
+    try {
+      setAssessResult(await api.assessRisk("web-device", destination, amount));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function submitExternal(e: FormEvent) {
     e.preventDefault();
@@ -89,10 +100,20 @@ export default function TransfersPage() {
           </select>
           <label>Amount</label>
           <input value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 16 }} className="row">
             <button type="submit">Send transfer</button>
+            <button type="button" className="secondary" onClick={runAssess}>Explain risk</button>
           </div>
         </form>
+        {assessResult && (
+          <div style={{ padding: "0 16px 16px" }}>
+            <p>
+              Risk <strong>{assessResult.riskScore}</strong> · decision{" "}
+              <span className="badge">{assessResult.decision}</span>
+            </p>
+            <p className="muted">Signals: {assessResult.signals.length ? assessResult.signals.join(", ") : "none"}</p>
+          </div>
+        )}
         {error && <p className="error" style={{ padding: "0 16px 16px" }}>{error}</p>}
         {result && (
           <div style={{ padding: "0 16px 16px" }}>

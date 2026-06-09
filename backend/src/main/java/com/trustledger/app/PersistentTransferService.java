@@ -63,8 +63,18 @@ public class PersistentTransferService {
         this.json = json;
     }
 
+    /** Convenience overload: score with the base rule engine, then post. */
     @Transactional
     public PersistentTransferResponse transfer(PersistentTransferRequest req, FraudContext fraudContext, Money userMedian) {
+        TransferCommand command = new TransferCommand(req.tenantId(), req.userId(), req.sourceAccountId(),
+            req.destinationAccountId(), req.beneficiaryId(), Money.of(req.amount().toPlainString(), req.currency()),
+            req.reference(), req.idempotencyKey(), req.deviceId(), req.currentCountry(), Instant.now());
+        return transfer(req, fraudEngine.score(command, fraudContext, userMedian));
+    }
+
+    /** Posts a transfer using a pre-computed fraud decision (e.g. from the intelligence layer). */
+    @Transactional
+    public PersistentTransferResponse transfer(PersistentTransferRequest req, FraudDecision decision) {
         if (req.sourceAccountId().equals(req.destinationAccountId())) {
             throw new IllegalArgumentException("Source and destination accounts must differ");
         }
@@ -87,10 +97,6 @@ public class PersistentTransferService {
         idempotencyKeys.saveAndFlush(idem);
 
         Money amount = Money.of(req.amount().toPlainString(), req.currency());
-        TransferCommand command = new TransferCommand(req.tenantId(), req.userId(), req.sourceAccountId(),
-            req.destinationAccountId(), req.beneficiaryId(), amount, req.reference(), req.idempotencyKey(),
-            req.deviceId(), req.currentCountry(), Instant.now());
-        FraudDecision decision = fraudEngine.score(command, fraudContext, userMedian);
         UUID transferId = UUID.randomUUID();
         audit(req.tenantId(), "SYSTEM", null, "TRANSFER_RISK_SCORED", "TRANSFER", transferId,
             Map.of("riskScore", decision.riskScore(), "decision", decision.decision().name()));

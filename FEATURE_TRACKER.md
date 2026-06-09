@@ -62,6 +62,21 @@ Last updated: 2026-06-09
 | Frontend external-payment panel | **VERIFIED (build)** | transfers page: scenario picker + status; `npm run build` clean |
 | Backend suite | **VERIFIED** | 66 tests, 0 failures |
 
+## v2.3 — advanced fraud intelligence
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Behavioural profiles + device fingerprints + beneficiary risk (V7) | **VERIFIED** | `FraudIntelligenceService` + `*RiskProfile`/`DeviceFingerprint` entities |
+| Risk-based decision (allow / monitor / MFA / hold / reject) | **VERIFIED** | `FraudIntelligenceIntegrationTest`: new-device+new-ben+high→HOLD, trusted+known+normal→ALLOW, new-device+new-ben+normal→MFA |
+| Account-takeover sequence → critical | **VERIFIED** | recent password change + new device + new beneficiary → REJECT |
+| Fraud-linked beneficiary hard-stop | **VERIFIED** | → REJECT |
+| Mule pattern (≥5 distinct senders) | **VERIFIED** | signal raised |
+| Fraud case linking (V8) | **VERIFIED** | `FraudCaseLinkingService` (same recipient → linked, bidirectional), wired into hold path; `FraudCaseLinkingIntegrationTest` |
+| Dual approval (V9) — requester can't self-approve | **VERIFIED** | `DualApprovalService` + `ApprovalController`; `DualApprovalIntegrationTest`: self-approve 403, second user 200 |
+| Explainable assessment endpoint (`POST /fraud/assess`) | **VERIFIED** | drives analyst UI; live transfer scoring remains the base engine (intelligence exposed for explainability + risk-based MFA) |
+| Frontend "Explain risk" tool | **VERIFIED (build)** | transfers page shows decision + signals |
+| Backend suite | **VERIFIED** | 76 tests, 0 failures |
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.
