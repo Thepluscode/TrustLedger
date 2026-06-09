@@ -18,6 +18,8 @@ export default function FraudCasesPage() {
   const [note, setNote] = useState<string | null>(null);
 
   async function act(caseId: string, action: "approve" | "reject") {
+    // Dangerous, money-moving action — never one-click.
+    if (!window.confirm(`Confirm: ${action} this held transfer? This is an audited, dual-approval-eligible action.`)) return;
     setBusy(caseId);
     setError(null);
     try {
@@ -32,6 +34,7 @@ export default function FraudCasesPage() {
   }
 
   async function exportEvidence(caseId: string) {
+    if (!window.confirm("Export an audited evidence pack for this case?")) return;
     setError(null);
     setNote(null);
     try {

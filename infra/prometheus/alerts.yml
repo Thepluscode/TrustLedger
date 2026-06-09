@@ -1,0 +1,38 @@
+groups:
+  - name: trustledger-financial-integrity
+    rules:
+      - alert: LedgerReconciliationIssuesRising
+        expr: increase(trustledger_reconciliation_issues_total[10m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Reconciliation raised new issues"
+          runbook: "Inspect /api/v1/reconciliation; an unbalanced ledger tx or stuck state was detected."
+      - alert: PendingUnknownTransactionsHigh
+        expr: trustledger_external_pending_unknown_total > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Many external payments stuck in PENDING_UNKNOWN"
+          runbook: "Reconciliation should resolve via provider; check rail availability."
+
+  - name: trustledger-availability
+    rules:
+      - alert: TransferApiLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri="/api/v1/transfers"}[5m])) by (le)) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 transfer API latency over SLO (500ms)"
+      - alert: OutboxLagHigh
+        expr: trustledger_outbox_pending_total > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Outbox backlog growing — broker may be down"
+      - alert: BackendDown
+        expr: up{job="trustledger-backend"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "TrustLedger backend is not scraping"
