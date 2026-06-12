@@ -197,6 +197,24 @@ Deferred (honest, in docs): a live two-region deployment + Route 53 failover (pa
 
 Honest finding logged: the public transfer endpoint scores `lowRisk`, so the seed does **not** auto-open a held fraud case — wiring the intelligence layer as the live transfer gate remains a v2.3/v2.8 deferral (the demo shows fraud via `/fraud/assess` + the sample evidence pack). No buyer-facing claim exceeds what CI proves.
 
+## v3.0 — console redesign (design.md UI/UX spec)
+
+The full v3.0 UI/UX spec lives at `design.md` (with an honest backend-coverage map in its
+implementation-notes header). Built in verified slices, live-wired only — no mock layer.
+
+| Slice | Status | Evidence |
+|-------|--------|----------|
+| A — spec + app shell + design system (semantic colours, tabular numerals, grouped nav, env badge, session identity, ConfirmModal/RiskBadge/pills kit; zero new deps) | **VERIFIED (live)** | tsc+build green; logged into demo tenant, screenshot-checked dashboard + fraud queue |
+| B — dashboard cockpit (§7), fraud queue typed confirmations (§10), 3-step transfer flow with live risk preview (§8.3/§22.1) | **VERIFIED (live)** | Walked the flow: /fraud/assess returned Medium·45 STEP_UP_MFA with real signals; submit produced the balanced-ledger success screen |
+| C — ledger explorer with §9.4 debit/credit split + balanced invariant; audit logs page (§16) | **VERIFIED (live)** | Inspected a posted transfer: £100.00 == £100.00 ✓ Balanced; audit page shows the risk-scored → ledger-posted chain for the same txn |
+| D — accounts/evidence/ML/admin restyle; §12.3 shadow-mode banner; plan change confirm-gated | **VERIFIED (live)** | build green (13 routes); ML page visually checked |
+
+Deferred (no backend endpoint — never faked in UI, see design.md coverage map): transfer
+list/detail (§8), risk profiles (§11), reconciliation UI (§14), webhook event list (§13.5),
+onboarding (§18), developer/API keys (§19), monitoring JSON (§20), command palette (§23.1),
+users & roles admin (§17.3). Held-case approve/reject modal is built but not live-testable
+until the intelligence layer gates the public transfer endpoint (v2.3/v2.8 deferral).
+
 ## Next increments (per the v2.0 build phases)
 
 1. Persist the domain spine (JPA entities + repositories) and prove it with Testcontainers-PostgreSQL — including the concurrent-transfer / no-double-spend stress test.
