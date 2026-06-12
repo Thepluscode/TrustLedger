@@ -1,12 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import Shell from "../components/Shell";
+import { EmptyState, SkeletonRows, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
+import { money, shortId } from "../lib/format";
 import type { AccountView } from "../lib/types";
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<AccountView[]>([]);
+  const [accounts, setAccounts] = useState<AccountView[] | null>(null);
   const [currency, setCurrency] = useState("GBP");
   const [opening, setOpening] = useState("1000.00");
   const [error, setError] = useState<string | null>(null);
@@ -31,8 +34,9 @@ export default function AccountsPage() {
     <Shell active="/accounts">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Accounts</p>
+          <p className="eyebrow">Money</p>
           <h1>Accounts</h1>
+          <p className="sub">Available is spendable now; pending is reserved by holds or in-flight external payments.</p>
         </div>
       </header>
 
@@ -40,37 +44,53 @@ export default function AccountsPage() {
         <div className="panelHeader">
           <h2>Open an account</h2>
         </div>
-        <form className="row" onSubmit={create} style={{ padding: "0 16px 16px" }}>
-          <div>
-            <label>Currency</label>
-            <input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
-          </div>
-          <div>
-            <label>Opening balance</label>
-            <input value={opening} onChange={(e) => setOpening(e.target.value)} />
-          </div>
-          <button type="submit">Create</button>
-        </form>
-        {error && <p className="error" style={{ padding: "0 16px" }}>{error}</p>}
+        <div className="panelBody">
+          <form className="row" onSubmit={create}>
+            <div>
+              <label htmlFor="ccy" style={{ marginTop: 0 }}>Currency</label>
+              <input id="ccy" value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} style={{ width: 110 }} maxLength={3} />
+            </div>
+            <div>
+              <label htmlFor="open" style={{ marginTop: 0 }}>Opening balance</label>
+              <input id="open" value={opening} onChange={(e) => setOpening(e.target.value)} inputMode="decimal" style={{ width: 160 }} />
+            </div>
+            <button type="submit">Create account</button>
+          </form>
+          {error && <p className="error">{error}</p>}
+        </div>
       </section>
 
       <section className="panel" style={{ marginTop: 18 }}>
         <table>
           <thead>
-            <tr><th>Account</th><th>Currency</th><th>Available</th><th>Pending</th><th>Status</th></tr>
+            <tr>
+              <th>Account</th>
+              <th>Currency</th>
+              <th className="num">Available</th>
+              <th className="num">Pending</th>
+              <th className="num">Posted</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {accounts.map((a) => (
+            {accounts === null && <SkeletonRows cols={7} />}
+            {accounts?.map((a) => (
               <tr key={a.id}>
-                <td>{a.id.slice(0, 8)}…</td>
+                <td className="mono">{shortId(a.id)}</td>
                 <td>{a.currency}</td>
-                <td>{a.availableBalance}</td>
-                <td>{a.pendingBalance}</td>
-                <td><span className="badge">{a.status}</span></td>
+                <td className="num amount">{money(a.availableBalance, a.currency)}</td>
+                <td className="num amount">{money(a.pendingBalance, a.currency)}</td>
+                <td className="num amount">{money(a.postedBalance, a.currency)}</td>
+                <td><StatusPill value={a.status} /></td>
+                <td><Link href="/ledger">Ledger →</Link></td>
               </tr>
             ))}
           </tbody>
         </table>
+        {accounts !== null && accounts.length === 0 && (
+          <EmptyState title="No accounts yet" hint="Open a funded account above, then create your first transfer." />
+        )}
       </section>
     </Shell>
   );
