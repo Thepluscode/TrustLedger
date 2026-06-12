@@ -76,7 +76,7 @@ nav.sidenav a {
 nav.sidenav a:hover { color: var(--text); background: var(--surface-2); }
 nav.sidenav a.active { color: var(--text); background: var(--surface-2); border-color: var(--line); }
 nav.sidenav a.active::before { content: ""; width: 3px; height: 16px; border-radius: 2px; background: var(--accent); margin-left: -10px; }
-.sidebar-footer { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.sidebar-footer { margin-top: auto; border-top: 1px solid var(--line); padding: 12px 0 4px; display: grid; gap: 8px; position: sticky; bottom: -18px; background: #0c1220; }
 .userline { display: flex; align-items: center; gap: 10px; padding: 4px 10px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--surface-3); display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--accent); flex: none; }
 .userline .who { min-width: 0; flex: 1; display: grid; }

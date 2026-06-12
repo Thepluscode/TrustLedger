@@ -71,6 +71,34 @@ export interface EvidenceExportView {
   checksum: string;
 }
 
+export interface LedgerEntryView {
+  id: string;
+  ledgerTransactionId: string;
+  accountId: string;
+  direction: "DEBIT" | "CREDIT";
+  amount: string;
+  currency: string;
+  entryType: string;
+}
+
+export interface LedgerTransactionView {
+  id: string;
+  type: string;
+  status: string;
+  currency: string;
+  entries: LedgerEntryView[];
+}
+
+export interface AuditLogView {
+  id: string;
+  actorType: string;
+  actorId: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  createdAt: string;
+}
+
 export interface ApiError {
   code: string;
   error: string;

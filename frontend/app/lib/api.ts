@@ -1,12 +1,15 @@
 import type {
   AccountView,
   AssessResponse,
+  AuditLogView,
   AuthResponse,
   BeneficiaryView,
   DashboardSummary,
   EvidenceExportView,
   ExternalPaymentResponse,
   FraudCaseView,
+  LedgerEntryView,
+  LedgerTransactionView,
   TransferResponse,
 } from "./types";
 
@@ -93,6 +96,14 @@ export const api = {
     }),
 
   listBeneficiaries: () => request<BeneficiaryView[]>("/api/v1/beneficiaries"),
+
+  accountLedger: (accountId: string) =>
+    request<LedgerEntryView[]>(`/api/v1/accounts/${accountId}/ledger`),
+
+  ledgerTransaction: (id: string) =>
+    request<LedgerTransactionView>(`/api/v1/ledger/transactions/${id}`),
+
+  listAuditLogs: () => request<AuditLogView[]>("/api/v1/audit-logs"),
 
   createTransfer: (idempotencyKey: string, body: Record<string, unknown>) =>
     request<TransferResponse>("/api/v1/transfers", {

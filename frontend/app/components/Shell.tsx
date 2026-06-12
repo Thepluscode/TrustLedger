@@ -13,6 +13,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
     links: [
       ["Accounts", "/accounts"],
       ["Transfers", "/transfers"],
+      ["Ledger", "/ledger"],
     ],
   },
   {
@@ -22,7 +23,13 @@ const NAV: { label: string; links: [string, string][] }[] = [
       ["ML Monitoring", "/ml"],
     ],
   },
-  { label: "Compliance", links: [["Evidence", "/evidence"]] },
+  {
+    label: "Compliance",
+    links: [
+      ["Evidence", "/evidence"],
+      ["Audit Logs", "/audit-logs"],
+    ],
+  },
   { label: "Organisation", links: [["Tenant Admin", "/admin"]] },
 ];
 
