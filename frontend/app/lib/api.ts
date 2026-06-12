@@ -12,6 +12,14 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 const TOKEN_KEY = "trustledger.token";
+const SESSION_KEY = "trustledger.session";
+
+/** Non-secret session display info (email/role/tenant) for the shell. The JWT stays the only credential. */
+export interface SessionInfo {
+  email: string;
+  role: string;
+  tenantId: string;
+}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -22,6 +30,22 @@ export function setToken(token: string | null): void {
   if (typeof window === "undefined") return;
   if (token) window.localStorage.setItem(TOKEN_KEY, token);
   else window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getSession(): SessionInfo | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as SessionInfo) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSession(info: SessionInfo | null): void {
+  if (typeof window === "undefined") return;
+  if (info) window.localStorage.setItem(SESSION_KEY, JSON.stringify(info));
+  else window.localStorage.removeItem(SESSION_KEY);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
