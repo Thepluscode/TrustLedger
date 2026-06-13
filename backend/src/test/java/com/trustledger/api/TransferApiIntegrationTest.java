@@ -51,6 +51,7 @@ class TransferApiIntegrationTest {
     @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
     @Autowired DeviceFingerprintRepository devices;
     @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
+    @Autowired com.trustledger.app.TenantFraudPolicyService policyService;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -192,6 +193,28 @@ class TransferApiIntegrationTest {
 
         // Trusted device + brand-new payee = 20 -> completes (would be 45 -> MFA without trust).
         HttpResponse<String> newPayee = postTransfer(s.token(), src, payeeB, "100.00", "trust-newpayee");
+        assertEquals(200, newPayee.statusCode(), newPayee.body());
+        assertTrue(newPayee.body().contains("COMPLETED"), newPayee.body());
+    }
+
+    /** A tenant can override trust-after-N: with the override set to 1, a single successful transfer
+     * trusts the device, so a brand-new payee then completes (vs the global default of 3). */
+    @Test
+    void perTenantOverrideTrustsDeviceSooner() throws Exception {
+        Session s = register();
+        policyService.upsert(s.tenantId(), 25, 45, 65, 85, false, 1); // trust this tenant's devices after 1 transfer
+        AccountEntity src = account(s.tenantId(), "5000.0000");
+        AccountEntity payeeA = account(s.tenantId(), "0.0000");
+        AccountEntity payeeB = account(s.tenantId(), "0.0000");
+        seedKnownBeneficiary(s.tenantId(), payeeA.getId());
+
+        HttpResponse<String> one = postTransfer(s.token(), src, payeeA, "100.00", "ov-1");
+        assertEquals(200, one.statusCode(), one.body());
+        assertTrue(one.body().contains("COMPLETED"), one.body());
+        assertTrue(devices.findByUserIdAndDeviceId(s.userId(), "device").orElseThrow().isTrusted(),
+            "override=1 must trust the device after a single transfer");
+
+        HttpResponse<String> newPayee = postTransfer(s.token(), src, payeeB, "100.00", "ov-2");
         assertEquals(200, newPayee.statusCode(), newPayee.body());
         assertTrue(newPayee.body().contains("COMPLETED"), newPayee.body());
     }

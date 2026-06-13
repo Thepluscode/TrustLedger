@@ -20,7 +20,9 @@ public class TenantPolicyController {
         this.access = access;
     }
 
-    public record FraudPolicyRequest(int monitor, int mfa, int hold, int reject, boolean autoFreezeEnabled) {}
+    /** deviceTrustAfter is optional: omit it to leave the tenant's current value unchanged. */
+    public record FraudPolicyRequest(int monitor, int mfa, int hold, int reject, boolean autoFreezeEnabled,
+                                     Integer deviceTrustAfter) {}
 
     @GetMapping
     public Thresholds get() {
@@ -31,7 +33,11 @@ public class TenantPolicyController {
     @PutMapping
     public Thresholds update(@RequestBody FraudPolicyRequest body) {
         access.require(Permission.FRAUD_POLICY_MANAGE);
-        policies.upsert(CurrentUser.tenantId(), body.monitor(), body.mfa(), body.hold(), body.reject(), body.autoFreezeEnabled());
+        int deviceTrustAfter = body.deviceTrustAfter() != null
+            ? body.deviceTrustAfter()
+            : policies.thresholds(CurrentUser.tenantId()).deviceTrustAfter(); // preserve when omitted
+        policies.upsert(CurrentUser.tenantId(), body.monitor(), body.mfa(), body.hold(), body.reject(),
+            body.autoFreezeEnabled(), deviceTrustAfter);
         return policies.thresholds(CurrentUser.tenantId());
     }
 }

@@ -34,6 +34,10 @@ public class TenantFraudPolicyEntity {
     @Column(name = "auto_freeze_enabled", nullable = false)
     private boolean autoFreezeEnabled;
 
+    /** Auto-trust a device after this many successful transfers (per-tenant trust-after-N). */
+    @Column(name = "device_trust_after", nullable = false)
+    private int deviceTrustAfter = 3;
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     private Instant updatedAt;
@@ -48,10 +52,12 @@ public class TenantFraudPolicyEntity {
     public int getHoldScoreThreshold() { return holdScoreThreshold; }
     public int getRejectScoreThreshold() { return rejectScoreThreshold; }
     public boolean isAutoFreezeEnabled() { return autoFreezeEnabled; }
+    public int getDeviceTrustAfter() { return deviceTrustAfter; }
     public void setMonitorScoreThreshold(int v) { this.monitorScoreThreshold = v; }
     public void setMfaScoreThreshold(int v) { this.mfaScoreThreshold = v; }
     public void setHoldScoreThreshold(int v) { this.holdScoreThreshold = v; }
     public void setRejectScoreThreshold(int v) { this.rejectScoreThreshold = v; }
     public void setDualApprovalAmountThreshold(BigDecimal v) { this.dualApprovalAmountThreshold = v; }
     public void setAutoFreezeEnabled(boolean v) { this.autoFreezeEnabled = v; }
+    public void setDeviceTrustAfter(int v) { this.deviceTrustAfter = v; }
 }

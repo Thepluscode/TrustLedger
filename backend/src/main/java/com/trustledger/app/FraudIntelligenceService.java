@@ -16,7 +16,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,10 +33,6 @@ public class FraudIntelligenceService {
     private final DeviceFingerprintRepository devices;
     private final BeneficiaryRiskProfileRepository beneficiaries;
     private final TenantFraudPolicyService policies;
-
-    /** Auto-trust a device after this many successful transfers (trust-after-N). 0 disables. */
-    @Value("${trustledger.fraud.device-trust-after:3}")
-    int deviceTrustAfter;
 
     public FraudIntelligenceService(UserRiskProfileRepository userProfiles, DeviceFingerprintRepository devices,
                                     BeneficiaryRiskProfileRepository beneficiaries, TenantFraudPolicyService policies) {
@@ -142,7 +137,8 @@ public class FraudIntelligenceService {
                 .orElseGet(() -> devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), tenantId, userId, deviceId, false)));
             device.setLastSeenAt(Instant.now());
             device.setTransferCount(device.getTransferCount() + 1);
-            if (!device.isTrusted() && deviceTrustAfter > 0 && device.getTransferCount() >= deviceTrustAfter) {
+            int trustAfter = policies.thresholds(tenantId).deviceTrustAfter(); // per-tenant override / global default
+            if (!device.isTrusted() && trustAfter > 0 && device.getTransferCount() >= trustAfter) {
                 device.setTrusted(true);
                 log.info("Auto-trusted device {} for user {} after {} successful transfers",
                     deviceId, userId, device.getTransferCount());

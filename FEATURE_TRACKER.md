@@ -273,11 +273,21 @@ T4 to a brand-new payee scored 20 → COMPLETED (would have been 45 → MFA). Ba
 `TransferApiIntegrationTest.deviceBecomesTrustedAfterThreeTransfersThenNewPayeeSucceeds` (asserts
 `device.isTrusted()` + the new-payee completion); full suite **115/115 green**.
 
-Remaining follow-ups (logged, not blocking): (1) `device-trust-after` is a global default — a
-per-tenant override (alongside the score thresholds in `tenant_fraud_policy`) would let tenants tune
-it; (2) external held approval re-submits with the sandbox "success" scenario (the original scenario
-isn't persisted) — fine for the sandbox rail, revisit for a real rail; (3) inline MFA is internal-only
-by design — external stepped-up payouts go to analyst review rather than self-service OTP.
+**Per-tenant device-trust override (2026-06-13).** `tenant_fraud_policies.device_trust_after` (V19)
+lets a tenant override the global `trustledger.fraud.device-trust-after` default. `TenantFraudPolicyService`
+resolves the per-tenant value (or the configured default for tenants without a policy row);
+`FraudIntelligenceService.recordTransfer` reads it per tenant. `PUT /api/v1/tenant/fraud-policy`
+accepts an optional `deviceTrustAfter` (omitted = unchanged, so existing callers/the demo seed are
+backward-compatible). **Live evidence:** a tenant set `deviceTrustAfter:1`, then after one verified
+transfer the device was trusted and a brand-new payee scored 20 → COMPLETED (default 3 would still
+step up). Backed by `TransferApiIntegrationTest.perTenantOverrideTrustsDeviceSooner`; full suite
+**116/116 green**.
+
+Remaining follow-ups (logged, not blocking): (1) external held approval re-submits with the sandbox
+"success" scenario (the original scenario isn't persisted) — fine for the sandbox rail, revisit for a
+real rail; (2) inline MFA is internal-only by design — external stepped-up payouts go to analyst
+review rather than self-service OTP; (3) the console admin page doesn't yet expose the fraud-policy
+editor (thresholds + device-trust-after) — settable via the API today, a UI panel is the next step.
 
 ## Next increments (per the v2.0 build phases)
 

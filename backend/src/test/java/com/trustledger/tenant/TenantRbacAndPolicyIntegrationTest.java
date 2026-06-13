@@ -83,7 +83,7 @@ class TenantRbacAndPolicyIntegrationTest {
         userMedian(tenantA, userA);
         userMedian(tenantB, userB);
         // Tenant B raises its MFA threshold to 60 (more permissive).
-        policies.upsert(tenantB, 25, 60, 80, 95, false);
+        policies.upsert(tenantB, 25, 60, 80, 95, false, 3);
 
         // Score 45 (new device 25 + new beneficiary 20, normal amount).
         var a = intelligence.assess(new AssessInput(tenantA, userA, "new-device", UUID.randomUUID(), new BigDecimal("200.00"), Instant.now()));
