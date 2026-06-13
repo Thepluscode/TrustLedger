@@ -217,13 +217,25 @@ the intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral a
 
 ### v3.0 follow-up: intelligence gate live (2026-06-13)
 
-`IntelligentTransferGateway` makes the persisted intelligence layer the live decision for every
-internal transfer. Known follow-ups (logged, not blocking): (1) external-rail `/transfers/external`
-still scores via the base `FraudContext` stub — gate it next for parity (its beneficiary model
-differs); (2) no inline step-up (MFA) channel — verdicts degrade to a hold; adding a transfer-MFA
-challenge/verify/resume flow would let stepped-up transfers complete without an analyst; (3)
-analyst-approved held transfers don't yet feed the behavioural baseline (`TransferEntity` doesn't
-persist `deviceId`) — recording on approve would stop an approved payee being re-held.
+`IntelligentTransferGateway` makes the persisted intelligence layer the live decision for **both**
+internal transfers (`POST /transfers`) and external payouts (`POST /transfers/external`).
+
+**External rail gated (2026-06-13).** `gateway.submitExternal` scores external payouts through the
+same intelligence layer (recipient = the external beneficiary id; null = new payee). Because
+outbound money leaves the platform and is hard to claw back, `ExternalPaymentService.initiate(req,
+decision)` **declines (does not submit, does not reserve) any verdict above monitoring** — reject,
+step-up, or manual review — which also fixed a latent bug where a `HOLD_FOR_REVIEW` verdict
+previously fell through to submission. **Live evidence:** an external payout from an untrusted
+device scored 45 → `REJECTED` (decision HOLD_FOR_REVIEW), source balance unchanged (funds never
+reserved). Backed by `ExternalPaymentIntegrationTest.externalPaymentFromUntrustedDeviceIsDeclined`;
+full suite **110/110 green**.
+
+Remaining follow-ups (logged, not blocking): (1) no inline step-up (MFA) channel — verdicts degrade
+to a hold/decline; a transfer-MFA challenge/verify/resume flow would let stepped-up transfers
+proceed without an analyst; (2) external hold-review-resubmit lifecycle (today external risky
+payouts are declined outright, not queued for review); (3) analyst-approved held internal transfers
+don't yet feed the behavioural baseline (`TransferEntity` doesn't persist `deviceId`) — recording on
+approve would stop an approved payee being re-held.
 
 ## Next increments (per the v2.0 build phases)
 

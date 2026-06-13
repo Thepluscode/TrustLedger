@@ -1,5 +1,7 @@
 package com.trustledger.app;
 
+import com.trustledger.app.ExternalPaymentService.ExternalPaymentResponse;
+import com.trustledger.app.ExternalPaymentService.ExternalTransferRequest;
 import com.trustledger.app.FraudIntelligenceService.AssessInput;
 import com.trustledger.core.fraud.FraudDecision;
 import com.trustledger.core.model.FraudDecisionType;
@@ -32,20 +34,18 @@ public class IntelligentTransferGateway {
 
     private final FraudIntelligenceService intelligence;
     private final PersistentTransferService transfers;
+    private final ExternalPaymentService externalPayments;
 
-    public IntelligentTransferGateway(FraudIntelligenceService intelligence, PersistentTransferService transfers) {
+    public IntelligentTransferGateway(FraudIntelligenceService intelligence, PersistentTransferService transfers,
+                                      ExternalPaymentService externalPayments) {
         this.intelligence = intelligence;
         this.transfers = transfers;
+        this.externalPayments = externalPayments;
     }
 
     public PersistentTransferResponse submit(PersistentTransferRequest req) {
-        FraudDecision decision = intelligence.assessAsDecision(new AssessInput(
-            req.tenantId(), req.userId(), req.deviceId(), req.destinationAccountId(), req.amount(), Instant.now()));
-
-        if (decision.decision() == FraudDecisionType.STEP_UP_MFA) {
-            // No inline step-up channel -> escalate to manual review instead of dead-ending.
-            decision = new FraudDecision(decision.riskScore(), FraudDecisionType.HOLD_FOR_REVIEW, decision.signals());
-        }
+        FraudDecision decision = gate(intelligence.assessAsDecision(new AssessInput(
+            req.tenantId(), req.userId(), req.deviceId(), req.destinationAccountId(), req.amount(), Instant.now())));
 
         PersistentTransferResponse resp = transfers.transfer(req, decision);
 
@@ -60,5 +60,26 @@ public class IntelligentTransferGateway {
             }
         }
         return resp;
+    }
+
+    /**
+     * External (off-platform) payments scored by the same intelligence layer. The recipient is the
+     * external beneficiary id (no internal destination account); a null id scores as a new payee.
+     * {@link ExternalPaymentService#initiate(ExternalTransferRequest, FraudDecision)} declines any
+     * non-allow verdict rather than submitting to the rail, so no profile baseline is recorded here
+     * (external completion is asynchronous, via webhook/reconciliation).
+     */
+    public ExternalPaymentResponse submitExternal(ExternalTransferRequest req) {
+        FraudDecision decision = gate(intelligence.assessAsDecision(new AssessInput(
+            req.tenantId(), req.userId(), req.deviceId(), req.beneficiaryId(), req.amount(), Instant.now())));
+        return externalPayments.initiate(req, decision);
+    }
+
+    /** No inline step-up channel is wired, so a step-up verdict escalates to manual review. */
+    private static FraudDecision gate(FraudDecision decision) {
+        if (decision.decision() == FraudDecisionType.STEP_UP_MFA) {
+            return new FraudDecision(decision.riskScore(), FraudDecisionType.HOLD_FOR_REVIEW, decision.signals());
+        }
+        return decision;
     }
 }

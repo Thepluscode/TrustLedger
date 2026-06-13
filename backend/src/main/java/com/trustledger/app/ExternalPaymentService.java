@@ -74,8 +74,25 @@ public class ExternalPaymentService {
     public record ExternalPaymentResponse(UUID transactionId, String providerReference, String status,
                                           int riskScore, String decision, String message) {}
 
+    /** Convenience overload: score with the base rule engine, then initiate. */
     @Transactional
     public ExternalPaymentResponse initiate(ExternalTransferRequest req, FraudContext fraudContext, Money userMedian) {
+        Money amount = Money.of(req.amount().toPlainString(), req.currency());
+        TransferCommand command = new TransferCommand(req.tenantId(), req.userId(), req.sourceAccountId(),
+            req.sourceAccountId(), req.beneficiaryId() == null ? UUID.randomUUID() : req.beneficiaryId(),
+            amount, req.reference(), req.idempotencyKey(), req.deviceId(), req.currentCountry(), Instant.now());
+        return initiate(req, fraudEngine.score(command, fraudContext, userMedian));
+    }
+
+    /**
+     * Initiate an external payment using a pre-computed fraud decision (e.g. from the intelligence
+     * gate). Outbound money leaves the platform and is hard to claw back, so any verdict above
+     * monitoring — reject, step-up, or manual review — is <b>declined and never submitted to the
+     * rail</b> (the safe direction; a hold-review-resubmit lifecycle for external is a future
+     * enhancement). Only ALLOW / ALLOW_WITH_MONITORING reach the rail.
+     */
+    @Transactional
+    public ExternalPaymentResponse initiate(ExternalTransferRequest req, FraudDecision decision) {
         String hash = IdempotencyService.sha256(String.join(":", req.tenantId().toString(), req.userId().toString(),
             req.sourceAccountId().toString(), req.amount().toPlainString(), req.currency(), "EXTERNAL"));
         Optional<IdempotencyKeyEntity> existing =
@@ -91,10 +108,6 @@ public class ExternalPaymentService {
         idempotencyKeys.saveAndFlush(idem);
 
         Money amount = Money.of(req.amount().toPlainString(), req.currency());
-        TransferCommand command = new TransferCommand(req.tenantId(), req.userId(), req.sourceAccountId(),
-            req.sourceAccountId(), req.beneficiaryId() == null ? UUID.randomUUID() : req.beneficiaryId(),
-            amount, req.reference(), req.idempotencyKey(), req.deviceId(), req.currentCountry(), Instant.now());
-        FraudDecision decision = fraudEngine.score(command, fraudContext, userMedian);
         UUID transferId = UUID.randomUUID();
         if (decision.rejects()) {
             saveTransfer(req, transferId, "REJECTED", decision);
@@ -105,6 +118,12 @@ public class ExternalPaymentService {
             saveTransfer(req, transferId, "MFA_REQUIRED", decision);
             return finish(idem, new ExternalPaymentResponse(transferId, null, "MFA_REQUIRED", decision.riskScore(),
                 decision.decision().name(), "Step-up MFA required"));
+        }
+        if (decision.requiresManualReview()) {
+            // Outbound payment flagged for review: decline rather than submit (funds untouched).
+            saveTransfer(req, transferId, "REJECTED", decision);
+            return finish(idem, new ExternalPaymentResponse(transferId, null, "REJECTED", decision.riskScore(),
+                decision.decision().name(), "Flagged for review — not submitted to the payment rail"));
         }
 
         AccountEntity source = lock(req.sourceAccountId());

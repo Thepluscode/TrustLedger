@@ -1,10 +1,8 @@
 package com.trustledger.api;
 
-import com.trustledger.app.ExternalPaymentService;
 import com.trustledger.app.ExternalPaymentService.ExternalPaymentResponse;
 import com.trustledger.app.ExternalPaymentService.ExternalTransferRequest;
-import com.trustledger.core.fraud.FraudContext;
-import com.trustledger.core.model.Money;
+import com.trustledger.app.IntelligentTransferGateway;
 import com.trustledger.security.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,10 +10,10 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/transfers")
 public class ExternalPaymentController {
 
-    private final ExternalPaymentService externalPayments;
+    private final IntelligentTransferGateway gateway;
 
-    public ExternalPaymentController(ExternalPaymentService externalPayments) {
-        this.externalPayments = externalPayments;
+    public ExternalPaymentController(IntelligentTransferGateway gateway) {
+        this.gateway = gateway;
     }
 
     @PostMapping("/external")
@@ -26,6 +24,7 @@ public class ExternalPaymentController {
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.beneficiaryId(),
             body.amount(), body.currency(), body.reference(), idempotencyKey, body.deviceId(),
             body.currentCountry(), body.scenario());
-        return externalPayments.initiate(req, FraudContext.lowRisk(), Money.of("100000.00", body.currency()));
+        // Live intelligence gate: external payouts are scored; non-allow verdicts are declined, not submitted.
+        return gateway.submitExternal(req);
     }
 }

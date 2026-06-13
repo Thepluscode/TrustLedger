@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
 import com.trustledger.persistence.entity.AccountEntity;
+import com.trustledger.persistence.entity.DeviceFingerprintEntity;
 import com.trustledger.persistence.repo.*;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -47,11 +48,12 @@ class ExternalPaymentIntegrationTest {
     @Autowired ExternalPaymentAttemptRepository attempts;
     @Autowired TransferRepository transfers;
     @Autowired LedgerEntryRepository ledgerEntries;
+    @Autowired DeviceFingerprintRepository devices;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
 
-    private record Session(String token, UUID tenantId) {}
+    private record Session(String token, UUID tenantId, UUID userId) {}
 
     private Session register() throws Exception {
         String body = json.writeValueAsString(Map.of("tenantName", "T-" + UUID.randomUUID(),
@@ -60,7 +62,10 @@ class ExternalPaymentIntegrationTest {
             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
             HttpResponse.BodyHandlers.ofString());
         AuthResponse a = json.readValue(r.body(), AuthResponse.class);
-        return new Session(a.token(), a.tenantId());
+        // These tests exercise the rail mechanics, not the fraud gate: trust the "web" device so the
+        // live intelligence gate scores these payments ALLOW and they reach the rail.
+        devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), a.tenantId(), a.userId(), "web", true));
+        return new Session(a.token(), a.tenantId(), a.userId());
     }
 
     private AccountEntity account(UUID tenantId, String opening) {
@@ -96,6 +101,27 @@ class ExternalPaymentIntegrationTest {
     }
     private String attemptStatus(String ref) {
         return attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref).orElseThrow().getStatus();
+    }
+
+    /** The live intelligence gate: an external payout from an untrusted device to a new payee is
+     * declined (not submitted to the rail) and the source funds are never reserved. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void externalPaymentFromUntrustedDeviceIsDeclined() throws Exception {
+        Session s = register(); // trusts "web"; this payment uses a different, untrusted device
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String body = json.writeValueAsString(Map.of("sourceAccountId", src.getId().toString(),
+            "amount", "200.00", "currency", "GBP", "reference", "ext", "deviceId", "untrusted-laptop",
+            "currentCountry", "GB", "scenario", "success"));
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/transfers/external"))
+            .header("Content-Type", "application/json").header("Authorization", "Bearer " + s.token())
+            .header("Idempotency-Key", "ext-untrusted").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, r.statusCode(), r.body());
+        Map<String, Object> res = json.readValue(r.body(), Map.class);
+        assertEquals("REJECTED", res.get("status"), r.body());
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds must not be reserved");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
     }
 
     @Test
