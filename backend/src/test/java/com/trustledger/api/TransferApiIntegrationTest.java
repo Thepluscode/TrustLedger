@@ -130,6 +130,34 @@ class TransferApiIntegrationTest {
             "a held cold-start transfer must open an OPEN fraud case");
     }
 
+    /** Approving a held transfer feeds the behavioural baseline, so the next transfer to the same
+     * payee from the same device is no longer held — it completes. */
+    @Test
+    void approvedHeldTransferFeedsBaselineSoNextTransferSucceeds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+
+        // 1) Cold start (new device + new payee) -> held for review.
+        HttpResponse<String> first = postTransfer(s.token(), src, dst, "120.00", "feed-1");
+        assertEquals(202, first.statusCode(), first.body());
+        assertTrue(first.body().contains("HELD_FOR_REVIEW"), first.body());
+        UUID caseId = fraudCases.findByTenantId(s.tenantId()).stream()
+            .filter(c -> "OPEN".equals(c.getStatus())).findFirst().orElseThrow().getId();
+
+        // 2) Analyst approves -> posts the ledger AND records the device/payee/amount baseline.
+        HttpResponse<String> approve = http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/approve"))
+            .header("Authorization", "Bearer " + s.token()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, approve.statusCode(), approve.body());
+        assertTrue(approve.body().contains("COMPLETED"), approve.body());
+
+        // 3) Same device + same payee is now a known baseline -> completes, not held.
+        HttpResponse<String> second = postTransfer(s.token(), src, dst, "120.00", "feed-2");
+        assertEquals(200, second.statusCode(), second.body());
+        assertTrue(second.body().contains("COMPLETED"), second.body());
+    }
+
     @Test
     void sameIdempotencyKeyDifferentPayloadReturns409() throws Exception {
         Session s = register();

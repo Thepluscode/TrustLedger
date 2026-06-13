@@ -84,9 +84,24 @@ public class IntelligentTransferGateway {
      * payment rail; an internal transfer posts the balanced ledger movement.
      */
     public PersistentTransferResponse approveHeldTransfer(UUID tenantId, UUID transferId, String actor) {
-        return isExternal(transferId)
-            ? externalPayments.approveHeldExternal(tenantId, transferId, actor)
-            : transfers.approveHeldTransfer(tenantId, transferId, actor);
+        if (isExternal(transferId)) {
+            return externalPayments.approveHeldExternal(tenantId, transferId, actor);
+        }
+        PersistentTransferResponse resp = transfers.approveHeldTransfer(tenantId, transferId, actor);
+        // An analyst-approved transfer is a legitimate sighting: feed the behavioural baseline
+        // (device + beneficiary + amount) so the same user+payee isn't held again. Separate
+        // transaction, non-fatal — a profile-update failure must not undo a posted approval (Rule 9).
+        if ("COMPLETED".equals(resp.status())) {
+            transferRepository.findById(transferId).ifPresent(t -> {
+                try {
+                    intelligence.recordTransfer(tenantId, t.getUserId(), t.getDeviceId(),
+                        t.getDestinationAccountId(), t.getAmount());
+                } catch (RuntimeException e) {
+                    log.warn("Baseline update after approving held transfer {} failed (non-fatal)", transferId, e);
+                }
+            });
+        }
+        return resp;
     }
 
     /** Analyst rejects a held transfer (both channels release the reservation back to available). */

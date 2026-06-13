@@ -313,6 +313,7 @@ public class ExternalPaymentService {
             req.sourceAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
             decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
         t.setChannel("EXTERNAL");
+        t.setDeviceId(req.deviceId());
         transfers.save(t);
     }
 

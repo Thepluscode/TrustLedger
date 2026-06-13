@@ -252,9 +252,11 @@ public class PersistentTransferService {
     }
 
     private void saveTransfer(PersistentTransferRequest req, UUID transferId, String status, FraudDecision decision) {
-        transfers.save(new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
+        TransferEntity t = new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
             req.destinationAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
-            decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference()));
+            decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
+        t.setDeviceId(req.deviceId());
+        transfers.save(t);
     }
 
     private AccountEntity lock(UUID id) {

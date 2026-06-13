@@ -241,13 +241,22 @@ HELD (available 1000→800, pending 200), then analyst-approved → PENDING_SETT
 `ExternalPaymentIntegrationTest` (held-for-review, approve→submit→settle-on-webhook, reject→release);
 full suite **112/112 green**.
 
+**Approved held transfers feed the baseline (2026-06-13).** `TransferEntity` now persists the
+originating `device_id` (V16), and `IntelligentTransferGateway.approveHeldTransfer` records the
+device/beneficiary/amount baseline after an internal approval (separate transaction, non-fatal —
+Rule 9). So an analyst-approved transfer is treated as a legitimate sighting and the same user+payee
+isn't held again. **Live evidence:** a cold-start transfer scored 45 → HELD → approved → a second
+transfer to the same payee from the same device scored 25 → ALLOW_WITH_MONITORING → COMPLETED.
+Backed by `TransferApiIntegrationTest.approvedHeldTransferFeedsBaselineSoNextTransferSucceeds`; full
+suite **113/113 green**.
+
 Remaining follow-ups (logged, not blocking): (1) no inline step-up (MFA) channel — verdicts degrade
 to a hold; a transfer-MFA challenge/verify/resume flow would let stepped-up transfers proceed
-without an analyst; (2) analyst-approved held *internal* transfers don't yet feed the behavioural
-baseline (`TransferEntity` doesn't persist `deviceId`) — recording on approve would stop an approved
-payee being re-held; (3) external held approval re-submits with the sandbox "success" scenario (the
-original scenario isn't persisted on the held transfer) — fine for the sandbox rail, revisit for a
-real rail.
+without an analyst; (2) approving a held transfer records a device *sighting* but never *trusts* the
+device, so a transfer from that same device to a brand-new payee is still held (a trust-after-N or
+trust-on-Nth-approval policy would relax this); (3) external held approval re-submits with the
+sandbox "success" scenario (the original scenario isn't persisted on the held transfer) — fine for
+the sandbox rail, revisit for a real rail.
 
 ## Next increments (per the v2.0 build phases)
 

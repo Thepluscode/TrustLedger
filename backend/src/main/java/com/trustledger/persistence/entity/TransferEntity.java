@@ -56,6 +56,10 @@ public class TransferEntity {
     @Column(nullable = false, length = 16)
     private String channel = "INTERNAL";
 
+    /** Originating device id; lets an approved held transfer feed the behavioural baseline. */
+    @Column(name = "device_id", length = 120)
+    private String deviceId;
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -86,6 +90,7 @@ public class TransferEntity {
 
     public UUID getId() { return id; }
     public UUID getTenantId() { return tenantId; }
+    public UUID getUserId() { return userId; }
     public UUID getSourceAccountId() { return sourceAccountId; }
     public UUID getDestinationAccountId() { return destinationAccountId; }
     public BigDecimal getAmount() { return amount; }
@@ -97,4 +102,6 @@ public class TransferEntity {
     public String getIdempotencyKey() { return idempotencyKey; }
     public String getChannel() { return channel; }
     public void setChannel(String channel) { this.channel = channel; }
+    public String getDeviceId() { return deviceId; }
+    public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
 }
