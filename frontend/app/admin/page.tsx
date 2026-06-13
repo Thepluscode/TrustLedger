@@ -4,8 +4,16 @@ import { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { ConfirmModal, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
+import type { FraudPolicy } from "../lib/types";
 
 const PLANS = ["FREE_SANDBOX", "PILOT", "PROFESSIONAL", "ENTERPRISE", "INTERNAL"];
+
+const POLICY_FIELDS: { key: keyof Pick<FraudPolicy, "monitor" | "mfa" | "hold" | "reject">; label: string; hint: string }[] = [
+  { key: "monitor", label: "Monitor", hint: "≥ this score is allowed but flagged for monitoring" },
+  { key: "mfa", label: "Step-up (MFA)", hint: "≥ this score requires inline step-up verification" },
+  { key: "hold", label: "Hold", hint: "≥ this score is held for analyst review" },
+  { key: "reject", label: "Reject", hint: "≥ this score is declined outright" },
+];
 
 export default function AdminPage() {
   const [transfers, setTransfers] = useState<number | null>(null);
@@ -14,6 +22,7 @@ export default function AdminPage() {
   const [configs, setConfigs] = useState<{ provider: string; environment: string; enabled: boolean }[]>([]);
   const [plan, setPlan] = useState("PILOT");
   const [confirmPlan, setConfirmPlan] = useState(false);
+  const [policy, setPolicy] = useState<FraudPolicy | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,8 +32,38 @@ export default function AdminPage() {
     api.getTenantQuota().then(setQuota).catch((e) => setError((e as Error).message));
     api.getBillingEvents().then(setEvents).catch(() => {});
     api.listProviderConfigs().then(setConfigs).catch(() => {});
+    api.getFraudPolicy().then(setPolicy).catch((e) => setError((e as Error).message));
   }
   useEffect(load, []);
+
+  // The bands must be a non-decreasing ladder, each within 0–100.
+  const policyValid =
+    !!policy &&
+    [policy.monitor, policy.mfa, policy.hold, policy.reject].every((v) => v >= 0 && v <= 100) &&
+    policy.monitor <= policy.mfa &&
+    policy.mfa <= policy.hold &&
+    policy.hold <= policy.reject &&
+    policy.deviceTrustAfter >= 0;
+
+  function setPolicyField(key: keyof FraudPolicy, value: number | boolean) {
+    setPolicy((p) => (p ? { ...p, [key]: value } : p));
+  }
+
+  async function savePolicy() {
+    if (!policy || !policyValid) return;
+    setBusy(true);
+    setNote(null);
+    setError(null);
+    try {
+      const saved = await api.updateFraudPolicy(policy);
+      setPolicy(saved);
+      setNote("Fraud policy updated — applies to new transfers immediately.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function applyPlan() {
     setBusy(true);
@@ -88,6 +127,78 @@ export default function AdminPage() {
             <p className="hint" style={{ marginTop: 10 }}>
               Recent billing events: {events.slice(0, 6).join(", ")}
             </p>
+          )}
+        </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: 18 }}>
+        <div className="panelHeader">
+          <div>
+            <h2>Fraud policy</h2>
+            <p className="sub">
+              Per-tenant risk appetite. A transfer&apos;s risk score maps to a band; higher bands add friction.
+            </p>
+          </div>
+        </div>
+        <div className="panelBody">
+          {!policy ? (
+            <div className="skeleton" style={{ maxWidth: 420, minHeight: 22 }} />
+          ) : (
+            <>
+              <div className="row" style={{ gap: 18, flexWrap: "wrap" }}>
+                {POLICY_FIELDS.map((f) => (
+                  <div key={f.key} style={{ minWidth: 130 }}>
+                    <label htmlFor={f.key} style={{ marginTop: 0 }}>{f.label}</label>
+                    <input
+                      id={f.key}
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={policy[f.key]}
+                      onChange={(e) => setPolicyField(f.key, Number(e.target.value))}
+                      style={{ width: 110 }}
+                    />
+                    <p className="hint" style={{ maxWidth: 150 }}>{f.hint}</p>
+                  </div>
+                ))}
+                <div style={{ minWidth: 150 }}>
+                  <label htmlFor="deviceTrustAfter" style={{ marginTop: 0 }}>Trust device after</label>
+                  <input
+                    id="deviceTrustAfter"
+                    type="number"
+                    min={0}
+                    value={policy.deviceTrustAfter}
+                    onChange={(e) => setPolicyField("deviceTrustAfter", Number(e.target.value))}
+                    style={{ width: 110 }}
+                  />
+                  <p className="hint" style={{ maxWidth: 160 }}>
+                    successful transfers before a device is trusted (0 = never)
+                  </p>
+                </div>
+              </div>
+              <label className="row" style={{ gap: 8, marginTop: 14, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={policy.autoFreezeEnabled}
+                  onChange={(e) => setPolicyField("autoFreezeEnabled", e.target.checked)}
+                  style={{ width: "auto" }}
+                />
+                Auto-freeze accounts on critical fraud signals
+              </label>
+              {!policyValid && (
+                <p className="error">Bands must be a non-decreasing ladder (monitor ≤ step-up ≤ hold ≤ reject), each 0–100.</p>
+              )}
+              <div className="notice" style={{ marginTop: 12 }}>
+                Current ladder: <b>&lt;{policy.monitor}</b> allow · <b>{policy.monitor}–{policy.mfa - 1}</b> monitor ·{" "}
+                <b>{policy.mfa}–{policy.hold - 1}</b> step-up · <b>{policy.hold}–{policy.reject - 1}</b> hold ·{" "}
+                <b>≥{policy.reject}</b> reject.
+              </div>
+              <div className="row" style={{ marginTop: 14 }}>
+                <button onClick={savePolicy} disabled={busy || !policyValid}>
+                  {busy ? "Saving…" : "Save policy"}
+                </button>
+              </div>
+            </>
           )}
         </div>
       </section>

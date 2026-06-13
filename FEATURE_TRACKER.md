@@ -283,11 +283,19 @@ transfer the device was trusted and a brand-new payee scored 20 → COMPLETED (d
 step up). Backed by `TransferApiIntegrationTest.perTenantOverrideTrustsDeviceSooner`; full suite
 **116/116 green**.
 
+**Console fraud-policy editor (2026-06-13).** The Tenant Admin page now has a Fraud-policy panel that
+reads `GET /api/v1/tenant/fraud-policy` and writes `PUT` — monitor / step-up(MFA) / hold / reject
+thresholds, the device trust-after-N, and the auto-freeze toggle, with a live band-ladder preview and
+non-decreasing-ladder validation. `Thresholds` was extended to return `autoFreezeEnabled` so the
+editor round-trips without clobbering it (no test asserted the old shape). **Live evidence (console):**
+loaded the live policy, changed step-up 45→55 and trust-after 3→2, saved, and the reloaded editor
+showed the persisted values + updated ladder (`25–54 monitor · 55–64 step-up`). Frontend tsc + build
+green; backend full suite **116/116 green**.
+
 Remaining follow-ups (logged, not blocking): (1) external held approval re-submits with the sandbox
 "success" scenario (the original scenario isn't persisted) — fine for the sandbox rail, revisit for a
 real rail; (2) inline MFA is internal-only by design — external stepped-up payouts go to analyst
-review rather than self-service OTP; (3) the console admin page doesn't yet expose the fraud-policy
-editor (thresholds + device-trust-after) — settable via the API today, a UI panel is the next step.
+review rather than self-service OTP.
 
 ## Next increments (per the v2.0 build phases)
 

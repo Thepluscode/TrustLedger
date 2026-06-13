@@ -99,6 +99,15 @@ export interface AuditLogView {
   createdAt: string;
 }
 
+export interface FraudPolicy {
+  monitor: number;
+  mfa: number;
+  hold: number;
+  reject: number;
+  deviceTrustAfter: number;
+  autoFreezeEnabled: boolean;
+}
+
 export interface ApiError {
   code: string;
   error: string;

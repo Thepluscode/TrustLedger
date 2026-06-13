@@ -11,8 +11,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TenantFraudPolicyService {
 
-    /** Score band cut-points (below monitor => ALLOW) plus the device trust-after-N threshold. */
-    public record Thresholds(int monitor, int mfa, int hold, int reject, int deviceTrustAfter) {}
+    /** Score band cut-points (below monitor => ALLOW), the device trust-after-N threshold, and the
+     * auto-freeze flag — the full risk-appetite the console editor reads and writes. */
+    public record Thresholds(int monitor, int mfa, int hold, int reject, int deviceTrustAfter,
+                             boolean autoFreezeEnabled) {}
 
     private final TenantFraudPolicyRepository policies;
 
@@ -28,8 +30,9 @@ public class TenantFraudPolicyService {
     public Thresholds thresholds(UUID tenantId) {
         return policies.findById(tenantId)
             .map(p -> new Thresholds(p.getMonitorScoreThreshold(), p.getMfaScoreThreshold(),
-                p.getHoldScoreThreshold(), p.getRejectScoreThreshold(), p.getDeviceTrustAfter()))
-            .orElseGet(() -> new Thresholds(25, 45, 65, 85, defaultDeviceTrustAfter));
+                p.getHoldScoreThreshold(), p.getRejectScoreThreshold(), p.getDeviceTrustAfter(),
+                p.isAutoFreezeEnabled()))
+            .orElseGet(() -> new Thresholds(25, 45, 65, 85, defaultDeviceTrustAfter, false));
     }
 
     @Transactional

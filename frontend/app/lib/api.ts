@@ -8,6 +8,7 @@ import type {
   EvidenceExportView,
   ExternalPaymentResponse,
   FraudCaseView,
+  FraudPolicy,
   LedgerEntryView,
   LedgerTransactionView,
   TransferResponse,
@@ -165,6 +166,10 @@ export const api = {
   getBillingEvents: () => request<string[]>("/api/v1/tenant/billing/events"),
   listProviderConfigs: () =>
     request<{ provider: string; environment: string; enabled: boolean }[]>("/api/v1/tenant/provider-configs"),
+
+  getFraudPolicy: () => request<FraudPolicy>("/api/v1/tenant/fraud-policy"),
+  updateFraudPolicy: (body: FraudPolicy) =>
+    request<FraudPolicy>("/api/v1/tenant/fraud-policy", { method: "PUT", body: JSON.stringify(body) }),
 
   listMlModels: () =>
     request<{ id: string; modelName: string; version: string; status: string; deploymentMode: string }[]>("/api/v2/ml/models"),
