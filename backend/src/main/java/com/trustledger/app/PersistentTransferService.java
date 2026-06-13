@@ -108,12 +108,6 @@ public class PersistentTransferService {
             return finish(idem, new PersistentTransferResponse(transferId, "REJECTED",
                 decision.riskScore(), decision.decision().name(), "Transfer rejected by fraud controls"));
         }
-        if (decision.requiresMfa()) {
-            saveTransfer(req, transferId, "MFA_REQUIRED", decision);
-            return finish(idem, new PersistentTransferResponse(transferId, "MFA_REQUIRED",
-                decision.riskScore(), decision.decision().name(), "Step-up MFA required"));
-        }
-
         boolean sourceFirst = req.sourceAccountId().compareTo(req.destinationAccountId()) < 0;
         UUID firstId = sourceFirst ? req.sourceAccountId() : req.destinationAccountId();
         UUID secondId = sourceFirst ? req.destinationAccountId() : req.sourceAccountId();
@@ -127,15 +121,27 @@ public class PersistentTransferService {
         requireCurrency(source, req.currency());
         requireCurrency(destination, req.currency());
 
-        if (decision.requiresManualReview()) {
+        if (decision.requiresMfa() || decision.requiresManualReview()) {
             Money srcAvail = money(source.getAvailableBalance(), source.getCurrency());
             if (srcAvail.compareTo(amount) < 0) throw new IllegalStateException("Insufficient available funds");
             source.setAvailableBalance(srcAvail.minus(amount).amount());
             source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).plus(amount).amount());
 
-            saveTransfer(req, transferId, "HELD_FOR_REVIEW", decision);
+            // MFA and manual-review both reserve funds and pause; an MFA transfer resumes on inline
+            // step-up verification, a held transfer on analyst approval. Reservation TTL: 15m / 24h.
+            boolean stepUp = decision.requiresMfa();
+            saveTransfer(req, transferId, stepUp ? "MFA_REQUIRED" : "HELD_FOR_REVIEW", decision);
             reservations.save(new FundReservationEntity(UUID.randomUUID(), req.tenantId(), transferId,
-                source.getId(), amount.amount(), req.currency(), "ACTIVE", Instant.now().plus(24, ChronoUnit.HOURS)));
+                source.getId(), amount.amount(), req.currency(), "ACTIVE",
+                Instant.now().plus(stepUp ? 15 : 1440, ChronoUnit.MINUTES)));
+
+            if (stepUp) {
+                audit(req.tenantId(), "SYSTEM", null, "TRANSFER_MFA_REQUIRED", "TRANSFER", transferId,
+                    Map.of("amount", amount.toString()));
+                return finish(idem, new PersistentTransferResponse(transferId, "MFA_REQUIRED",
+                    decision.riskScore(), decision.decision().name(), "Step-up verification required"));
+            }
+
             UUID caseId = UUID.randomUUID();
             fraudCases.save(new FraudCaseEntity(caseId, req.tenantId(), transferId, req.userId(),
                 "OPEN", severityFor(decision.riskScore()), decision.riskScore(),
@@ -247,7 +253,12 @@ public class PersistentTransferService {
         TransferEntity t = transfers.findById(transferId)
             .orElseThrow(() -> new IllegalArgumentException("Transfer not found: " + transferId));
         if (!t.getTenantId().equals(tenantId)) throw new IllegalArgumentException("Tenant mismatch");
-        if (!"HELD_FOR_REVIEW".equals(t.getStatus())) throw new IllegalStateException("Transfer is not held for review");
+        String st = t.getStatus();
+        // Both an analyst-held transfer and an MFA-pending transfer are "reserved, awaiting resolution";
+        // approve/reject (resume/release) act on either.
+        if (!"HELD_FOR_REVIEW".equals(st) && !"MFA_REQUIRED".equals(st)) {
+            throw new IllegalStateException("Transfer is not awaiting review or step-up");
+        }
         return t;
     }
 

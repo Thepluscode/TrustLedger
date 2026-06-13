@@ -250,13 +250,26 @@ transfer to the same payee from the same device scored 25 → ALLOW_WITH_MONITOR
 Backed by `TransferApiIntegrationTest.approvedHeldTransferFeedsBaselineSoNextTransferSucceeds`; full
 suite **113/113 green**.
 
-Remaining follow-ups (logged, not blocking): (1) no inline step-up (MFA) channel — verdicts degrade
-to a hold; a transfer-MFA challenge/verify/resume flow would let stepped-up transfers proceed
-without an analyst; (2) approving a held transfer records a device *sighting* but never *trusts* the
-device, so a transfer from that same device to a brand-new payee is still held (a trust-after-N or
-trust-on-Nth-approval policy would relax this); (3) external held approval re-submits with the
-sandbox "success" scenario (the original scenario isn't persisted on the held transfer) — fine for
-the sandbox rail, revisit for a real rail.
+**Inline MFA challenge/verify/resume (2026-06-13).** An internal transfer that scores into the MFA
+band now reserves funds and pauses at `MFA_REQUIRED` with an inline step-up challenge
+(`transfer_mfa_challenges`, V17): a 6-digit code, hash-stored, bounded to 3 attempts + a 15-min TTL.
+`POST /api/v1/transfers/{id}/mfa/verify` resumes the transfer on a correct code (posts the ledger +
+feeds the baseline, via the same path as approve) or releases the reservation + rejects on
+exhaustion/expiry (same path as reject). The console transfers page renders the step-up input and
+verifies inline. The code is delivered out-of-band in prod; `trustledger.mfa.expose-dev-code` (dev
+default true) surfaces it for the sandbox. External payouts still degrade step-up to an analyst hold
+(off-platform money — review over self-service OTP). **Live evidence:** transfer → MFA_REQUIRED (dev
+code) → wrong code 401 → correct code → COMPLETED (dst credited) → next same-device+payee transfer
+scored 25 → COMPLETED (no step-up); verified in the console UI too. Backed by
+`TransferApiIntegrationTest` (cold-start→MFA, verify→resume+baseline, wrong-code→exhaust→release);
+full suite **114/114 green**.
+
+Remaining follow-ups (logged, not blocking): (1) approving/verifying a held transfer records a
+device *sighting* but never *trusts* the device, so that device → a brand-new payee still steps up (a
+trust-after-N policy would relax this); (2) external held approval re-submits with the sandbox
+"success" scenario (the original scenario isn't persisted) — fine for the sandbox rail, revisit for a
+real rail; (3) inline MFA is internal-only by design — external stepped-up payouts go to analyst
+review rather than self-service OTP.
 
 ## Next increments (per the v2.0 build phases)
 

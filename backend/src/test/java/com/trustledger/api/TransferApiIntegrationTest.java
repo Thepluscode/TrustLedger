@@ -112,50 +112,81 @@ class TransferApiIntegrationTest {
         assertBalance(dst.getId(), "120.0000");
     }
 
-    /** The headline change: with the live intelligence gate, a cold-start transfer (new device +
-     * new payee) is held for analyst review and opens a fraud case — no longer auto-completed. */
+    /** With the live gate, a cold-start transfer (new device + new payee = MFA band) pauses for inline
+     * step-up: funds reserved, MFA_REQUIRED, no fraud case (step-up isn't an analyst case). */
     @Test
-    void coldStartTransferIsHeldByTheIntelligenceGate() throws Exception {
+    void coldStartTransferRequiresStepUpMfa() throws Exception {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "500.0000");
         AccountEntity dst = account(s.tenantId(), "0.0000");
 
-        HttpResponse<String> res = postTransfer(s.token(), src, dst, "120.00", "api-coldstart");
+        HttpResponse<String> res = postTransfer(s.token(), src, dst, "120.00", "api-mfa-cold");
         assertEquals(202, res.statusCode(), res.body());
-        assertTrue(res.body().contains("HELD_FOR_REVIEW"), res.body());
-        // funds reserved, not moved: available debited, destination untouched until approval
-        assertBalance(src.getId(), "380.0000");
-        assertBalance(dst.getId(), "0.0000");
-        assertTrue(fraudCases.findByTenantId(s.tenantId()).stream().anyMatch(c -> "OPEN".equals(c.getStatus())),
-            "a held cold-start transfer must open an OPEN fraud case");
+        assertTrue(res.body().contains("MFA_REQUIRED"), res.body());
+        assertBalance(src.getId(), "380.0000");      // funds reserved
+        assertBalance(dst.getId(), "0.0000");        // destination untouched until verified
+        assertTrue(fraudCases.findByTenantId(s.tenantId()).isEmpty(), "step-up must not open a fraud case");
     }
 
-    /** Approving a held transfer feeds the behavioural baseline, so the next transfer to the same
-     * payee from the same device is no longer held — it completes. */
+    /** Inline MFA verify resumes the transfer (posts the ledger) AND feeds the baseline, so the next
+     * transfer to the same payee from the same device no longer needs step-up. */
     @Test
-    void approvedHeldTransferFeedsBaselineSoNextTransferSucceeds() throws Exception {
+    void mfaVerifyResumesPostsAndFeedsBaseline() throws Exception {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "1000.0000");
         AccountEntity dst = account(s.tenantId(), "0.0000");
 
-        // 1) Cold start (new device + new payee) -> held for review.
-        HttpResponse<String> first = postTransfer(s.token(), src, dst, "120.00", "feed-1");
-        assertEquals(202, first.statusCode(), first.body());
-        assertTrue(first.body().contains("HELD_FOR_REVIEW"), first.body());
-        UUID caseId = fraudCases.findByTenantId(s.tenantId()).stream()
-            .filter(c -> "OPEN".equals(c.getStatus())).findFirst().orElseThrow().getId();
+        Map<String, Object> first = bodyOf(postTransfer(s.token(), src, dst, "120.00", "mfa-ok"));
+        assertEquals("MFA_REQUIRED", first.get("status"), first.toString());
+        UUID txn = UUID.fromString(first.get("transactionId").toString());
 
-        // 2) Analyst approves -> posts the ledger AND records the device/payee/amount baseline.
-        HttpResponse<String> approve = http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/approve"))
-            .header("Authorization", "Bearer " + s.token()).POST(HttpRequest.BodyPublishers.noBody()).build(),
-            HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, approve.statusCode(), approve.body());
-        assertTrue(approve.body().contains("COMPLETED"), approve.body());
+        HttpResponse<String> verify = verifyMfa(s.token(), txn, mfaCode(first.get("message").toString()));
+        assertEquals(200, verify.statusCode(), verify.body());
+        assertTrue(verify.body().contains("COMPLETED"), verify.body());
+        assertBalance(dst.getId(), "120.0000");      // posted on verify
 
-        // 3) Same device + same payee is now a known baseline -> completes, not held.
-        HttpResponse<String> second = postTransfer(s.token(), src, dst, "120.00", "feed-2");
+        // Baseline fed: same device + same payee now completes without step-up.
+        HttpResponse<String> second = postTransfer(s.token(), src, dst, "120.00", "mfa-ok-2");
         assertEquals(200, second.statusCode(), second.body());
         assertTrue(second.body().contains("COMPLETED"), second.body());
+    }
+
+    /** Three wrong codes exhaust the challenge: the transfer is rejected and the reservation released. */
+    @Test
+    void mfaWrongCodeExhaustsAndReleasesFunds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+
+        Map<String, Object> first = bodyOf(postTransfer(s.token(), src, dst, "120.00", "mfa-bad"));
+        UUID txn = UUID.fromString(first.get("transactionId").toString());
+        String wrong = "000000".equals(mfaCode(first.get("message").toString())) ? "111111" : "000000";
+
+        assertEquals(401, verifyMfa(s.token(), txn, wrong).statusCode());
+        assertEquals(401, verifyMfa(s.token(), txn, wrong).statusCode());
+        HttpResponse<String> third = verifyMfa(s.token(), txn, wrong);
+        assertEquals(422, third.statusCode(), third.body());
+        assertTrue(third.body().contains("REJECTED"), third.body());
+        assertBalance(src.getId(), "1000.0000");     // reservation released
+        assertBalance(dst.getId(), "0.0000");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> bodyOf(HttpResponse<String> r) throws Exception {
+        return json.readValue(r.body(), Map.class);
+    }
+
+    private String mfaCode(String message) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{6})").matcher(message);
+        assertTrue(m.find(), "expected a dev code in: " + message);
+        return m.group(1);
+    }
+
+    private HttpResponse<String> verifyMfa(String token, UUID transferId, String code) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri("/api/v1/transfers/" + transferId + "/mfa/verify"))
+            .header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
+            .POST(HttpRequest.BodyPublishers.ofString("{\"code\":\"" + code + "\"}")).build(),
+            HttpResponse.BodyHandlers.ofString());
     }
 
     @Test

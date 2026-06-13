@@ -119,6 +119,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  verifyMfa: (transactionId: string, code: string) =>
+    request<TransferResponse>(`/api/v1/transfers/${transactionId}/mfa/verify`, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+
   assessRisk: (deviceId: string, beneficiaryAccountId: string, amount: string) =>
     request<AssessResponse>("/api/v1/fraud/assess", {
       method: "POST",

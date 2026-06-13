@@ -26,6 +26,7 @@ export default function TransfersPage() {
   const [result, setResult] = useState<TransferResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
 
   // External sandbox rail (unchanged behaviour, restyled)
   const [extAmount, setExtAmount] = useState("200.00");
@@ -91,6 +92,23 @@ export default function TransfersPage() {
     setAssess(null);
     setStep(0);
     setReference("");
+    setMfaCode("");
+    setError(null);
+  }
+
+  // §2.3 inline step-up: a stepped-up transfer pauses at MFA_REQUIRED; verifying resumes (posts) it.
+  async function verifyMfa() {
+    if (!result) return;
+    setError(null);
+    setBusy(true);
+    try {
+      setResult(await api.verifyMfa(result.transactionId, mfaCode.trim()));
+      setMfaCode("");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitExternal(e: FormEvent) {
@@ -155,12 +173,36 @@ export default function TransfersPage() {
                 reject it from the Cases queue. Decision {result.decision}.
               </div>
             )}
-            <div className="row" style={{ marginTop: 16 }}>
-              <button onClick={reset}>New transfer</button>
-              <a className="btn secondary" href="/fraud-cases" style={{ textDecoration: "none" }}>
-                Open case queue
-              </a>
-            </div>
+            {result.status === "MFA_REQUIRED" && (
+              <div>
+                <div className="notice warn">
+                  <b>Step-up verification required.</b> Funds are reserved — enter the verification code to
+                  authorise this transfer (3 attempts).
+                </div>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <input
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="6-digit code"
+                    inputMode="numeric"
+                    aria-label="Verification code"
+                    style={{ maxWidth: 160 }}
+                  />
+                  <button onClick={verifyMfa} disabled={busy || mfaCode.trim().length < 6}>
+                    {busy ? "Verifying…" : "Verify & authorise"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {error && <p className="error">{error}</p>}
+            {result.status !== "MFA_REQUIRED" && (
+              <div className="row" style={{ marginTop: 16 }}>
+                <button onClick={reset}>New transfer</button>
+                <a className="btn secondary" href="/fraud-cases" style={{ textDecoration: "none" }}>
+                  Open case queue
+                </a>
+              </div>
+            )}
           </div>
         </section>
       ) : (

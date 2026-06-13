@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -38,32 +39,64 @@ public class IntelligentTransferGateway {
     private final PersistentTransferService transfers;
     private final ExternalPaymentService externalPayments;
     private final TransferRepository transferRepository;
+    private final TransferMfaService mfa;
+
+    @Value("${trustledger.mfa.expose-dev-code:true}")
+    boolean exposeMfaDevCode;
 
     public IntelligentTransferGateway(FraudIntelligenceService intelligence, PersistentTransferService transfers,
-                                      ExternalPaymentService externalPayments, TransferRepository transferRepository) {
+                                      ExternalPaymentService externalPayments, TransferRepository transferRepository,
+                                      TransferMfaService mfa) {
         this.intelligence = intelligence;
         this.transfers = transfers;
         this.externalPayments = externalPayments;
         this.transferRepository = transferRepository;
+        this.mfa = mfa;
     }
 
     public PersistentTransferResponse submit(PersistentTransferRequest req) {
-        FraudDecision decision = gate(intelligence.assessAsDecision(new AssessInput(
-            req.tenantId(), req.userId(), req.deviceId(), req.destinationAccountId(), req.amount(), Instant.now())));
+        // Internal transfers carry the raw verdict (no MFA->hold degrade): a step-up verdict gets the
+        // inline MFA challenge below; external payouts (submitExternal) still degrade MFA to a hold.
+        FraudDecision decision = intelligence.assessAsDecision(new AssessInput(
+            req.tenantId(), req.userId(), req.deviceId(), req.destinationAccountId(), req.amount(), Instant.now()));
 
         PersistentTransferResponse resp = transfers.transfer(req, decision);
 
-        // Learn the behavioural/device/recipient baseline only from clean, completed transfers —
-        // never from held/rejected ones, which would teach the model that suspicious is normal.
         if ("COMPLETED".equals(resp.status())) {
+            // Learn the behavioural/device/recipient baseline only from clean, completed transfers.
             try {
                 intelligence.recordTransfer(req.tenantId(), req.userId(), req.deviceId(),
                     req.destinationAccountId(), req.amount());
             } catch (RuntimeException e) {
                 log.warn("Profile update after completed transfer {} failed (non-fatal)", resp.transactionId(), e);
             }
+        } else if ("MFA_REQUIRED".equals(resp.status())) {
+            // Issue the inline step-up challenge; the user verifies via POST /transfers/{id}/mfa/verify.
+            String code = mfa.issue(req.tenantId(), req.userId(), resp.transactionId());
+            String message = exposeMfaDevCode
+                ? "Step-up verification required. Dev code: " + code
+                : "Step-up verification required — a code has been sent.";
+            return new PersistentTransferResponse(resp.transactionId(), "MFA_REQUIRED",
+                resp.riskScore(), resp.decision(), message);
         }
         return resp;
+    }
+
+    /**
+     * Verify an inline step-up code and resume the transfer: a correct code posts it (and feeds the
+     * baseline, like an approval); an exhausted/expired challenge releases the reservation and rejects
+     * it; a wrong-but-not-exhausted code leaves the transfer pending for another attempt.
+     */
+    public record MfaOutcome(TransferMfaService.Result result, PersistentTransferResponse transfer) {}
+
+    public MfaOutcome verifyMfaAndResume(UUID tenantId, UUID transferId, String code) {
+        TransferMfaService.Result result = mfa.verify(tenantId, transferId, code);
+        PersistentTransferResponse transfer = switch (result) {
+            case VERIFIED -> approveHeldTransfer(tenantId, transferId, "mfa");          // resume = post + baseline
+            case EXPIRED, EXHAUSTED -> rejectHeldTransfer(tenantId, transferId, "mfa-" + result.name().toLowerCase());
+            case INVALID_CODE, NO_CHALLENGE -> null;                                    // leave the transfer pending
+        };
+        return new MfaOutcome(result, transfer);
     }
 
     /**
