@@ -171,6 +171,37 @@ class TransferApiIntegrationTest {
         assertBalance(dst.getId(), "0.0000");
     }
 
+    /** Trust-after-N: after 3 successful transfers a device is auto-trusted, so a transfer from it to
+     * a brand-new payee scores 20 (new payee only) and completes — where an untrusted device would
+     * have scored 45 and stepped up. */
+    @Test
+    void deviceBecomesTrustedAfterThreeTransfersThenNewPayeeSucceeds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "5000.0000");
+        AccountEntity payeeA = account(s.tenantId(), "0.0000");
+        AccountEntity payeeB = account(s.tenantId(), "0.0000");
+        seedKnownBeneficiary(s.tenantId(), payeeA.getId()); // known payee -> these transfers score on device only
+
+        for (int i = 1; i <= 3; i++) {
+            HttpResponse<String> r = postTransfer(s.token(), src, payeeA, "100.00", "trust-" + i);
+            assertEquals(200, r.statusCode(), r.body());
+            assertTrue(r.body().contains("COMPLETED"), r.body());
+        }
+        assertTrue(devices.findByUserIdAndDeviceId(s.userId(), "device").orElseThrow().isTrusted(),
+            "device must be auto-trusted after 3 successful transfers");
+
+        // Trusted device + brand-new payee = 20 -> completes (would be 45 -> MFA without trust).
+        HttpResponse<String> newPayee = postTransfer(s.token(), src, payeeB, "100.00", "trust-newpayee");
+        assertEquals(200, newPayee.statusCode(), newPayee.body());
+        assertTrue(newPayee.body().contains("COMPLETED"), newPayee.body());
+    }
+
+    private void seedKnownBeneficiary(UUID tenantId, UUID destinationAccountId) {
+        BeneficiaryRiskProfileEntity b = new BeneficiaryRiskProfileEntity(UUID.randomUUID(), tenantId, destinationAccountId);
+        b.setTotalTransfers(3);
+        beneficiaryProfiles.save(b);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> bodyOf(HttpResponse<String> r) throws Exception {
         return json.readValue(r.body(), Map.class);

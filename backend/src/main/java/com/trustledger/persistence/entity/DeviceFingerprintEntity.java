@@ -41,6 +41,10 @@ public class DeviceFingerprintEntity {
     @Column(name = "risk_score", nullable = false)
     private int riskScore;
 
+    /** Count of successful transfers from this device; drives trust-after-N auto-trust. */
+    @Column(name = "transfer_count", nullable = false)
+    private int transferCount;
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "first_seen_at", nullable = false, insertable = false, updatable = false)
     private Instant firstSeenAt;
@@ -65,6 +69,8 @@ public class DeviceFingerprintEntity {
     public void setTrusted(boolean v) { this.trusted = v; }
     public int getRiskScore() { return riskScore; }
     public void setRiskScore(int v) { this.riskScore = v; }
+    public int getTransferCount() { return transferCount; }
+    public void setTransferCount(int v) { this.transferCount = v; }
     public void setLastSeenAt(Instant v) { this.lastSeenAt = v; }
     public void setCountry(String v) { this.country = v; }
     public void setIpAddress(String v) { this.ipAddress = v; }

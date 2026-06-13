@@ -264,12 +264,20 @@ scored 25 → COMPLETED (no step-up); verified in the console UI too. Backed by
 `TransferApiIntegrationTest` (cold-start→MFA, verify→resume+baseline, wrong-code→exhaust→release);
 full suite **114/114 green**.
 
-Remaining follow-ups (logged, not blocking): (1) approving/verifying a held transfer records a
-device *sighting* but never *trusts* the device, so that device → a brand-new payee still steps up (a
-trust-after-N policy would relax this); (2) external held approval re-submits with the sandbox
-"success" scenario (the original scenario isn't persisted) — fine for the sandbox rail, revisit for a
-real rail; (3) inline MFA is internal-only by design — external stepped-up payouts go to analyst
-review rather than self-service OTP.
+**Trust-after-N device policy (2026-06-13).** `device_fingerprints.transfer_count` (V18) counts a
+device's successful transfers; `FraudIntelligenceService.recordTransfer` auto-trusts a device once it
+crosses `trustledger.fraud.device-trust-after` (default 3, 0 disables). A trusted device drops the
+new-device signal, so a transfer from it to a brand-new payee no longer steps up. **Live evidence:**
+T1 cold-start → MFA → verified → COMPLETED; T2/T3 → COMPLETED (25); after 3, the device is trusted, so
+T4 to a brand-new payee scored 20 → COMPLETED (would have been 45 → MFA). Backed by
+`TransferApiIntegrationTest.deviceBecomesTrustedAfterThreeTransfersThenNewPayeeSucceeds` (asserts
+`device.isTrusted()` + the new-payee completion); full suite **115/115 green**.
+
+Remaining follow-ups (logged, not blocking): (1) `device-trust-after` is a global default — a
+per-tenant override (alongside the score thresholds in `tenant_fraud_policy`) would let tenants tune
+it; (2) external held approval re-submits with the sandbox "success" scenario (the original scenario
+isn't persisted) — fine for the sandbox rail, revisit for a real rail; (3) inline MFA is internal-only
+by design — external stepped-up payouts go to analyst review rather than self-service OTP.
 
 ## Next increments (per the v2.0 build phases)
 

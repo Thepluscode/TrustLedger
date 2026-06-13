@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,10 +28,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FraudIntelligenceService {
 
+    private static final Logger log = LoggerFactory.getLogger(FraudIntelligenceService.class);
+
     private final UserRiskProfileRepository userProfiles;
     private final DeviceFingerprintRepository devices;
     private final BeneficiaryRiskProfileRepository beneficiaries;
     private final TenantFraudPolicyService policies;
+
+    /** Auto-trust a device after this many successful transfers (trust-after-N). 0 disables. */
+    @Value("${trustledger.fraud.device-trust-after:3}")
+    int deviceTrustAfter;
 
     public FraudIntelligenceService(UserRiskProfileRepository userProfiles, DeviceFingerprintRepository devices,
                                     BeneficiaryRiskProfileRepository beneficiaries, TenantFraudPolicyService policies) {
@@ -126,10 +135,18 @@ public class FraudIntelligenceService {
     @Transactional
     public void recordTransfer(UUID tenantId, UUID userId, String deviceId, UUID beneficiaryAccountId, BigDecimal amount) {
         // Device: create on first sight, touch last-seen otherwise (device_id is NOT NULL, so skip if absent).
+        // Trust-after-N: once a device has enough successful transfers, auto-trust it so it stops
+        // adding the new-device risk (a transfer from it to a brand-new payee no longer steps up).
         if (deviceId != null) {
             DeviceFingerprintEntity device = devices.findByUserIdAndDeviceId(userId, deviceId)
                 .orElseGet(() -> devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), tenantId, userId, deviceId, false)));
             device.setLastSeenAt(Instant.now());
+            device.setTransferCount(device.getTransferCount() + 1);
+            if (!device.isTrusted() && deviceTrustAfter > 0 && device.getTransferCount() >= deviceTrustAfter) {
+                device.setTrusted(true);
+                log.info("Auto-trusted device {} for user {} after {} successful transfers",
+                    deviceId, userId, device.getTransferCount());
+            }
         }
 
         // User baseline: count + a simple running median approximation + max.
