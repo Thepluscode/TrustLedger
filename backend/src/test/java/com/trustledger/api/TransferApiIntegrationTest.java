@@ -4,7 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
 import com.trustledger.persistence.entity.AccountEntity;
+import com.trustledger.persistence.entity.BeneficiaryRiskProfileEntity;
+import com.trustledger.persistence.entity.DeviceFingerprintEntity;
 import com.trustledger.persistence.repo.AccountRepository;
+import com.trustledger.persistence.repo.BeneficiaryRiskProfileRepository;
+import com.trustledger.persistence.repo.DeviceFingerprintRepository;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -45,10 +49,12 @@ class TransferApiIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired com.trustledger.app.PersistentTransferService transferService;
     @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
+    @Autowired DeviceFingerprintRepository devices;
+    @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
-    private record Session(String token, UUID tenantId) {}
+    private record Session(String token, UUID tenantId, UUID userId) {}
 
     private Session register() throws Exception {
         String body = json.writeValueAsString(Map.of(
@@ -60,7 +66,19 @@ class TransferApiIntegrationTest {
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, r.statusCode(), r.body());
         AuthResponse a = json.readValue(r.body(), AuthResponse.class);
-        return new Session(a.token(), a.tenantId());
+        return new Session(a.token(), a.tenantId(), a.userId());
+    }
+
+    /**
+     * Seed a known baseline so the live intelligence gate scores a transfer at 0 (trusted device +
+     * already-seen recipient) and it completes. Mirrors a returning user transacting with a known
+     * payee — without this, a cold-start transfer (new device + new payee) scores 45 and is held.
+     */
+    private void establishTrust(UUID tenantId, UUID userId, String deviceId, UUID destinationAccountId) {
+        devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), tenantId, userId, deviceId, true));
+        BeneficiaryRiskProfileEntity ben = new BeneficiaryRiskProfileEntity(UUID.randomUUID(), tenantId, destinationAccountId);
+        ben.setTotalTransfers(3);
+        beneficiaryProfiles.save(ben);
     }
 
     private AccountEntity account(UUID tenantId, String opening) {
@@ -85,6 +103,7 @@ class TransferApiIntegrationTest {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "500.0000");
         AccountEntity dst = account(s.tenantId(), "0.0000");
+        establishTrust(s.tenantId(), s.userId(), "device", dst.getId()); // known device + payee -> completes
 
         HttpResponse<String> res = postTransfer(s.token(), src, dst, "120.00", "api-ok-1");
         assertEquals(200, res.statusCode(), res.body());
@@ -93,11 +112,30 @@ class TransferApiIntegrationTest {
         assertBalance(dst.getId(), "120.0000");
     }
 
+    /** The headline change: with the live intelligence gate, a cold-start transfer (new device +
+     * new payee) is held for analyst review and opens a fraud case — no longer auto-completed. */
+    @Test
+    void coldStartTransferIsHeldByTheIntelligenceGate() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "500.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+
+        HttpResponse<String> res = postTransfer(s.token(), src, dst, "120.00", "api-coldstart");
+        assertEquals(202, res.statusCode(), res.body());
+        assertTrue(res.body().contains("HELD_FOR_REVIEW"), res.body());
+        // funds reserved, not moved: available debited, destination untouched until approval
+        assertBalance(src.getId(), "380.0000");
+        assertBalance(dst.getId(), "0.0000");
+        assertTrue(fraudCases.findByTenantId(s.tenantId()).stream().anyMatch(c -> "OPEN".equals(c.getStatus())),
+            "a held cold-start transfer must open an OPEN fraud case");
+    }
+
     @Test
     void sameIdempotencyKeyDifferentPayloadReturns409() throws Exception {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "500.0000");
         AccountEntity dst = account(s.tenantId(), "0.0000");
+        establishTrust(s.tenantId(), s.userId(), "device", dst.getId());
         assertEquals(200, postTransfer(s.token(), src, dst, "100.00", "api-conflict").statusCode());
         HttpResponse<String> conflict = postTransfer(s.token(), src, dst, "200.00", "api-conflict");
         assertEquals(409, conflict.statusCode());

@@ -57,18 +57,21 @@ BASE=http://localhost:8080 ./pilot/demo-seed.sh
 The script prints the seeded **owner login** (email + password) to use in the console. A new tenant
 is created per run, so re-running IS the reset.
 
-> **Honest note:** the public transfer endpoint currently scores with the base rules engine in a
-> low-risk default, so the seed does **not** auto-open a held fraud case. Wiring the intelligence
-> layer as the live transfer gate is a logged item (`FEATURE_TRACKER.md` v2.3/v2.8 deferrals). For
-> the fraud→evidence portion of the demo, use the representative pack in `pilot/sample-evidence/`
-> and the explainable assessment the seed prints.
+> **Live fraud gate (v3.0):** the public `/transfers` endpoint is now scored by the **intelligence
+> layer** (behaviour / device trust / recipient risk), not a low-risk stub. The seed therefore opens
+> a **real held fraud case** — a £900 transfer to a new payee from an unknown device scores 75
+> (NEW_OR_UNTRUSTED_DEVICE 25 + NEW_BENEFICIARY 20 + AMOUNT_5X_MEDIAN 30) → HELD_FOR_REVIEW → an OPEN
+> case you can approve/reject in the console. The seed prints the case id. (No inline step-up channel
+> is wired yet, so a STEP_UP_MFA verdict is escalated to a hold; the seed raises the tenant's MFA
+> threshold to 50 so routine onboarding transfers complete-with-monitoring instead of dead-ending.)
 
 ## Pre-demo smoke check
 - [ ] `GET /api/health` → 200
 - [ ] `GET /actuator/health/readiness` → UP
 - [ ] Log in with the seeded owner; Dashboard + Accounts load with the seeded data
 - [ ] Transfers page shows the completed transfers
-- [ ] The seed printed a risk assessment with `decision` + `signals` (e.g. STEP_UP_MFA, NEW_BENEFICIARY)
+- [ ] Fraud Cases shows an OPEN case (the seed's £900 held transfer, score 75) — approve/reject works
+- [ ] The seed printed a risk assessment with `decision` + `signals` (e.g. HOLD_FOR_REVIEW, NEW_BENEFICIARY)
 - [ ] ML page lists the registered model + governance state
 
 ## Safety

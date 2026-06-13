@@ -195,7 +195,7 @@ Deferred (honest, in docs): a live two-region deployment + Route 53 failover (pa
 | Demo seed script | **VERIFIED (live)** | `pilot/demo-seed.sh` ran end-to-end against a live instance: tenant+accounts+transfers, COMPLETED ledger (750/250), login verified, risk assessment STEP_UP_MFA |
 | Sample evidence packs | **DONE** | `pilot/sample-evidence/` — exact `EvidenceService` schema (JSON valid) |
 
-Honest finding logged: the public transfer endpoint scores `lowRisk`, so the seed does **not** auto-open a held fraud case — wiring the intelligence layer as the live transfer gate remains a v2.3/v2.8 deferral (the demo shows fraud via `/fraud/assess` + the sample evidence pack). No buyer-facing claim exceeds what CI proves.
+~~Honest finding logged: the public transfer endpoint scores `lowRisk`, so the seed does not auto-open a held fraud case — wiring the intelligence layer as the live transfer gate remains a v2.3/v2.8 deferral.~~ **CLOSED (v3.0, 2026-06-13).** `/api/v1/transfers` now scores through the context-aware intelligence layer via `IntelligentTransferGateway` (assess → decision → post → record baseline on completion). A `STEP_UP_MFA` verdict degrades to `HOLD_FOR_REVIEW` (no inline step-up channel yet — safe direction). **Live evidence:** the demo seed posted a real £900 transfer that scored **75 (NEW_OR_UNTRUSTED_DEVICE+NEW_BENEFICIARY+AMOUNT_5X_MEDIAN) → HELD_FOR_REVIEW**, opening a real OPEN fraud case (not a DB edit); 3×£120 onboarding transfers scored 45 → ALLOW_WITH_MONITORING → COMPLETED. Backed by `TransferApiIntegrationTest.coldStartTransferIsHeldByTheIntelligenceGate` (HTTP → gateway → Postgres → 202 + OPEN case). Full suite **109/109 green**. The `/fraud/assess` endpoint is unchanged (still reports the raw verdict), and tenants can raise their MFA threshold so cold-start transfers complete instead.
 
 ## v3.0 — console redesign (design.md UI/UX spec)
 
@@ -212,8 +212,18 @@ implementation-notes header). Built in verified slices, live-wired only — no m
 Deferred (no backend endpoint — never faked in UI, see design.md coverage map): transfer
 list/detail (§8), risk profiles (§11), reconciliation UI (§14), webhook event list (§13.5),
 onboarding (§18), developer/API keys (§19), monitoring JSON (§20), command palette (§23.1),
-users & roles admin (§17.3). Held-case approve/reject modal is built but not live-testable
-until the intelligence layer gates the public transfer endpoint (v2.3/v2.8 deferral).
+users & roles admin (§17.3). The held-case approve/reject modal is now **live-testable end-to-end**:
+the intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
+
+### v3.0 follow-up: intelligence gate live (2026-06-13)
+
+`IntelligentTransferGateway` makes the persisted intelligence layer the live decision for every
+internal transfer. Known follow-ups (logged, not blocking): (1) external-rail `/transfers/external`
+still scores via the base `FraudContext` stub — gate it next for parity (its beneficiary model
+differs); (2) no inline step-up (MFA) channel — verdicts degrade to a hold; adding a transfer-MFA
+challenge/verify/resume flow would let stepped-up transfers complete without an analyst; (3)
+analyst-approved held transfers don't yet feed the behavioural baseline (`TransferEntity` doesn't
+persist `deviceId`) — recording on approve would stop an approved payee being re-held.
 
 ## Next increments (per the v2.0 build phases)
 

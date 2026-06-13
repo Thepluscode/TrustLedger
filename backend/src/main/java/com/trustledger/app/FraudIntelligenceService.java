@@ -1,6 +1,9 @@
 package com.trustledger.app;
 
+import com.trustledger.core.fraud.FraudDecision;
+import com.trustledger.core.fraud.FraudSignal;
 import com.trustledger.core.model.FraudDecisionType;
+import com.trustledger.core.model.FraudSeverity;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import java.math.BigDecimal;
@@ -8,6 +11,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -85,6 +89,25 @@ public class FraudIntelligenceService {
         return new Assessment(score, bandFor(score, in.tenantId()), signals);
     }
 
+    /**
+     * The same context-aware assessment, expressed as the {@link FraudDecision} the transfer
+     * pipeline consumes. Per-signal score deltas aren't surfaced by {@link Assessment} (it returns
+     * signal types + a total), so each signal carries a 0 delta here — the analyst sees the signal
+     * types and the overall score, which is what drives the case view.
+     */
+    @Transactional(readOnly = true)
+    public FraudDecision assessAsDecision(AssessInput in) {
+        Assessment a = assess(in);
+        FraudSeverity severity = a.score() >= 85 ? FraudSeverity.CRITICAL
+            : a.score() >= 65 ? FraudSeverity.HIGH
+            : a.score() >= 45 ? FraudSeverity.MEDIUM
+            : FraudSeverity.LOW;
+        List<FraudSignal> signals = a.signals().stream()
+            .map(s -> FraudSignal.of(s, 0, severity, s.replace('_', ' ').toLowerCase(), Map.of()))
+            .toList();
+        return new FraudDecision(a.score(), a.decision(), signals);
+    }
+
     private FraudDecisionType bandFor(int score, UUID tenantId) {
         var t = policies.thresholds(tenantId);
         if (score >= t.reject()) return FraudDecisionType.REJECT;
@@ -94,13 +117,20 @@ public class FraudIntelligenceService {
         return FraudDecisionType.ALLOW;
     }
 
-    /** Updates behavioural/device/beneficiary profiles after a transfer is accepted. */
+    /**
+     * Updates behavioural/device/beneficiary profiles after a transfer is accepted. A null deviceId
+     * (e.g. recording an analyst-approved held transfer, where the originating device isn't
+     * persisted on the transfer row) skips only the device sighting; the user + beneficiary
+     * baselines still update.
+     */
     @Transactional
     public void recordTransfer(UUID tenantId, UUID userId, String deviceId, UUID beneficiaryAccountId, BigDecimal amount) {
-        // Device: create on first sight, touch last-seen otherwise.
-        DeviceFingerprintEntity device = devices.findByUserIdAndDeviceId(userId, deviceId)
-            .orElseGet(() -> devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), tenantId, userId, deviceId, false)));
-        device.setLastSeenAt(Instant.now());
+        // Device: create on first sight, touch last-seen otherwise (device_id is NOT NULL, so skip if absent).
+        if (deviceId != null) {
+            DeviceFingerprintEntity device = devices.findByUserIdAndDeviceId(userId, deviceId)
+                .orElseGet(() -> devices.save(new DeviceFingerprintEntity(UUID.randomUUID(), tenantId, userId, deviceId, false)));
+            device.setLastSeenAt(Instant.now());
+        }
 
         // User baseline: count + a simple running median approximation + max.
         UserRiskProfileEntity user = userProfiles.findById(userId)
