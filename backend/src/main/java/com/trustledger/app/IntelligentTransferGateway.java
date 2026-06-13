@@ -5,7 +5,9 @@ import com.trustledger.app.ExternalPaymentService.ExternalTransferRequest;
 import com.trustledger.app.FraudIntelligenceService.AssessInput;
 import com.trustledger.core.fraud.FraudDecision;
 import com.trustledger.core.model.FraudDecisionType;
+import com.trustledger.persistence.repo.TransferRepository;
 import java.time.Instant;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,12 +37,14 @@ public class IntelligentTransferGateway {
     private final FraudIntelligenceService intelligence;
     private final PersistentTransferService transfers;
     private final ExternalPaymentService externalPayments;
+    private final TransferRepository transferRepository;
 
     public IntelligentTransferGateway(FraudIntelligenceService intelligence, PersistentTransferService transfers,
-                                      ExternalPaymentService externalPayments) {
+                                      ExternalPaymentService externalPayments, TransferRepository transferRepository) {
         this.intelligence = intelligence;
         this.transfers = transfers;
         this.externalPayments = externalPayments;
+        this.transferRepository = transferRepository;
     }
 
     public PersistentTransferResponse submit(PersistentTransferRequest req) {
@@ -73,6 +77,27 @@ public class IntelligentTransferGateway {
         FraudDecision decision = gate(intelligence.assessAsDecision(new AssessInput(
             req.tenantId(), req.userId(), req.deviceId(), req.beneficiaryId(), req.amount(), Instant.now())));
         return externalPayments.initiate(req, decision);
+    }
+
+    /**
+     * Analyst approves a held transfer, routed by channel: an external payout submits to the
+     * payment rail; an internal transfer posts the balanced ledger movement.
+     */
+    public PersistentTransferResponse approveHeldTransfer(UUID tenantId, UUID transferId, String actor) {
+        return isExternal(transferId)
+            ? externalPayments.approveHeldExternal(tenantId, transferId, actor)
+            : transfers.approveHeldTransfer(tenantId, transferId, actor);
+    }
+
+    /** Analyst rejects a held transfer (both channels release the reservation back to available). */
+    public PersistentTransferResponse rejectHeldTransfer(UUID tenantId, UUID transferId, String actor) {
+        return isExternal(transferId)
+            ? externalPayments.rejectHeldExternal(tenantId, transferId, actor)
+            : transfers.rejectHeldTransfer(tenantId, transferId, actor);
+    }
+
+    private boolean isExternal(UUID transferId) {
+        return transferRepository.findById(transferId).map(t -> "EXTERNAL".equals(t.getChannel())).orElse(false);
     }
 
     /** No inline step-up channel is wired, so a step-up verdict escalates to manual review. */

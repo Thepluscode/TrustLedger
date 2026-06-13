@@ -1,8 +1,8 @@
 package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.FraudCaseView;
+import com.trustledger.app.IntelligentTransferGateway;
 import com.trustledger.app.PersistentTransferResponse;
-import com.trustledger.app.PersistentTransferService;
 import com.trustledger.persistence.entity.FraudCaseEntity;
 import com.trustledger.persistence.repo.FraudCaseRepository;
 import com.trustledger.security.CurrentUser;
@@ -17,11 +17,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/fraud/cases")
 public class FraudCaseController {
 
-    private final PersistentTransferService transferService;
+    private final IntelligentTransferGateway gateway;
     private final FraudCaseRepository fraudCases;
 
-    public FraudCaseController(PersistentTransferService transferService, FraudCaseRepository fraudCases) {
-        this.transferService = transferService;
+    public FraudCaseController(IntelligentTransferGateway gateway, FraudCaseRepository fraudCases) {
+        this.gateway = gateway;
         this.fraudCases = fraudCases;
     }
 
@@ -44,7 +44,7 @@ public class FraudCaseController {
             @PathVariable UUID caseId,
             @RequestHeader(value = "X-Actor", defaultValue = "analyst") String actor) {
         FraudCaseEntity c = requireCase(caseId);
-        return ResponseEntity.ok(transferService.approveHeldTransfer(c.getTenantId(), c.getTransactionId(), actor));
+        return ResponseEntity.ok(gateway.approveHeldTransfer(c.getTenantId(), c.getTransactionId(), actor));
     }
 
     @PostMapping("/{caseId}/reject")
@@ -52,7 +52,7 @@ public class FraudCaseController {
             @PathVariable UUID caseId,
             @RequestHeader(value = "X-Actor", defaultValue = "analyst") String actor) {
         FraudCaseEntity c = requireCase(caseId);
-        return ResponseEntity.ok(transferService.rejectHeldTransfer(c.getTenantId(), c.getTransactionId(), actor));
+        return ResponseEntity.ok(gateway.rejectHeldTransfer(c.getTenantId(), c.getTransactionId(), actor));
     }
 
     private FraudCaseEntity requireCase(UUID caseId) {

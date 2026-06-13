@@ -52,6 +52,10 @@ public class TransferEntity {
     @Column(columnDefinition = "text")
     private String reference;
 
+    /** INTERNAL (default) or EXTERNAL — drives held-case approval routing (ledger post vs rail submit). */
+    @Column(nullable = false, length = 16)
+    private String channel = "INTERNAL";
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -91,4 +95,6 @@ public class TransferEntity {
     public int getRiskScore() { return riskScore; }
     public String getFraudDecision() { return fraudDecision; }
     public String getIdempotencyKey() { return idempotencyKey; }
+    public String getChannel() { return channel; }
+    public void setChannel(String channel) { this.channel = channel; }
 }

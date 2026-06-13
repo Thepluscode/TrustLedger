@@ -230,12 +230,24 @@ device scored 45 → `REJECTED` (decision HOLD_FOR_REVIEW), source balance uncha
 reserved). Backed by `ExternalPaymentIntegrationTest.externalPaymentFromUntrustedDeviceIsDeclined`;
 full suite **110/110 green**.
 
+**External hold-review-resubmit lifecycle (2026-06-13).** A risky external payout is no longer
+declined outright — it is **held for review** (funds reserved, NOT submitted) and opens a fraud
+case. `FraudCaseController` routes approve/reject through `IntelligentTransferGateway`, which
+dispatches by the new `transfers.channel` column (V15): an external hold **submits to the rail on
+approve** (`ExternalPaymentService.approveHeldExternal` → `submitToRail`, funds stay reserved until
+the settle webhook), or **releases the reservation on reject** (`rejectHeldExternal`); an internal
+hold still posts the balanced ledger movement. **Live evidence:** an external untrusted payout was
+HELD (available 1000→800, pending 200), then analyst-approved → PENDING_SETTLEMENT. Backed by
+`ExternalPaymentIntegrationTest` (held-for-review, approve→submit→settle-on-webhook, reject→release);
+full suite **112/112 green**.
+
 Remaining follow-ups (logged, not blocking): (1) no inline step-up (MFA) channel — verdicts degrade
-to a hold/decline; a transfer-MFA challenge/verify/resume flow would let stepped-up transfers
-proceed without an analyst; (2) external hold-review-resubmit lifecycle (today external risky
-payouts are declined outright, not queued for review); (3) analyst-approved held internal transfers
-don't yet feed the behavioural baseline (`TransferEntity` doesn't persist `deviceId`) — recording on
-approve would stop an approved payee being re-held.
+to a hold; a transfer-MFA challenge/verify/resume flow would let stepped-up transfers proceed
+without an analyst; (2) analyst-approved held *internal* transfers don't yet feed the behavioural
+baseline (`TransferEntity` doesn't persist `deviceId`) — recording on approve would stop an approved
+payee being re-held; (3) external held approval re-submits with the sandbox "success" scenario (the
+original scenario isn't persisted on the held transfer) — fine for the sandbox rail, revisit for a
+real rail.
 
 ## Next increments (per the v2.0 build phases)
 

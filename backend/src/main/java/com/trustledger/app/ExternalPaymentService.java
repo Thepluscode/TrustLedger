@@ -45,6 +45,7 @@ public class ExternalPaymentService {
     private final LedgerEntryRepository ledgerEntries;
     private final OutboxEventRepository outbox;
     private final AuditLogRepository auditLogs;
+    private final FraudCaseRepository fraudCases;
     private final FraudEngine fraudEngine;
     private final SandboxPaymentRailAdapter rail;
     private final ObjectMapper json;
@@ -52,8 +53,8 @@ public class ExternalPaymentService {
     public ExternalPaymentService(AccountRepository accounts, TransferRepository transfers,
                                   ExternalPaymentAttemptRepository attempts, IdempotencyKeyRepository idempotencyKeys,
                                   LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
-                                  OutboxEventRepository outbox, AuditLogRepository auditLogs, FraudEngine fraudEngine,
-                                  SandboxPaymentRailAdapter rail, ObjectMapper json) {
+                                  OutboxEventRepository outbox, AuditLogRepository auditLogs, FraudCaseRepository fraudCases,
+                                  FraudEngine fraudEngine, SandboxPaymentRailAdapter rail, ObjectMapper json) {
         this.accounts = accounts;
         this.transfers = transfers;
         this.attempts = attempts;
@@ -62,6 +63,7 @@ public class ExternalPaymentService {
         this.ledgerEntries = ledgerEntries;
         this.outbox = outbox;
         this.auditLogs = auditLogs;
+        this.fraudCases = fraudCases;
         this.fraudEngine = fraudEngine;
         this.rail = rail;
         this.json = json;
@@ -119,57 +121,114 @@ public class ExternalPaymentService {
             return finish(idem, new ExternalPaymentResponse(transferId, null, "MFA_REQUIRED", decision.riskScore(),
                 decision.decision().name(), "Step-up MFA required"));
         }
-        if (decision.requiresManualReview()) {
-            // Outbound payment flagged for review: decline rather than submit (funds untouched).
-            saveTransfer(req, transferId, "REJECTED", decision);
-            return finish(idem, new ExternalPaymentResponse(transferId, null, "REJECTED", decision.riskScore(),
-                decision.decision().name(), "Flagged for review — not submitted to the payment rail"));
-        }
-
+        // Reserve funds (available -> pending) for both the held-for-review and allowed paths.
         AccountEntity source = lock(req.sourceAccountId());
         requireActive(source);
         requireCurrency(source, req.currency());
         Money avail = money(source.getAvailableBalance(), source.getCurrency());
         if (avail.compareTo(amount) < 0) throw new IllegalStateException("Insufficient available funds");
-        // Reserve: available -> pending.
         source.setAvailableBalance(avail.minus(amount).amount());
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).plus(amount).amount());
 
+        if (decision.requiresManualReview()) {
+            // Hold for analyst review: funds reserved, NOT yet submitted to the rail. An analyst
+            // approves (-> submit) or rejects (-> release) it from the fraud-case queue.
+            saveTransfer(req, transferId, "HELD_FOR_REVIEW", decision);
+            UUID caseId = UUID.randomUUID();
+            fraudCases.save(new FraudCaseEntity(caseId, req.tenantId(), transferId, req.userId(), "OPEN",
+                severityFor(decision.riskScore()), decision.riskScore(), "Auto-opened for held external payout",
+                writeJson(Map.of("signals", decision.signals(), "riskScore", decision.riskScore(),
+                    "decision", decision.decision().name(), "channel", "EXTERNAL"))));
+            audit(req.tenantId(), "EXTERNAL_PAYMENT_HELD_FOR_REVIEW", "TRANSFER", transferId, Map.of("amount", amount.toString()));
+            enqueue(req.tenantId(), "FRAUD_CASE", transferId, "FRAUD_CASE_CREATED", Map.of("transactionId", transferId.toString()));
+            return finish(idem, new ExternalPaymentResponse(transferId, null, "HELD_FOR_REVIEW", decision.riskScore(),
+                decision.decision().name(), "External payment held for review and funds reserved"));
+        }
+
+        // Allowed: submit to the rail now.
+        RailOutcome out = submitToRail(req.tenantId(), transferId, source, amount, req.currency(), req.scenario());
+        saveTransfer(req, transferId, out.status(), decision);
+        return finish(idem, new ExternalPaymentResponse(transferId, out.providerReference(), out.status(),
+            decision.riskScore(), decision.decision().name(), "External payment " + out.status()));
+    }
+
+    /** Analyst approves a held external payout: submit it to the rail (funds are already reserved). */
+    @Transactional
+    public PersistentTransferResponse approveHeldExternal(UUID tenantId, UUID transferId, String actor) {
+        TransferEntity transfer = requireHeldExternal(tenantId, transferId);
+        AccountEntity source = lock(transfer.getSourceAccountId());
+        // Approved payout submits normally; reserved funds stay in pending until the rail settles them.
+        RailOutcome out = submitToRail(tenantId, transferId, source,
+            money(transfer.getAmount(), transfer.getCurrency()), transfer.getCurrency(), "success");
+        transfer.setStatus(out.status());
+        fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("APPROVED"));
+        audit(tenantId, "EXTERNAL_PAYMENT_APPROVED", "TRANSFER", transferId, Map.of("actor", actor, "status", out.status()));
+        return new PersistentTransferResponse(transferId, out.status(), transfer.getRiskScore(),
+            transfer.getFraudDecision(), "External payment approved and submitted to the rail (" + out.status() + ")");
+    }
+
+    /** Analyst rejects a held external payout: release the reservation back to available. */
+    @Transactional
+    public PersistentTransferResponse rejectHeldExternal(UUID tenantId, UUID transferId, String actor) {
+        TransferEntity transfer = requireHeldExternal(tenantId, transferId);
+        AccountEntity source = lock(transfer.getSourceAccountId());
+        releaseToAvailable(source, money(transfer.getAmount(), transfer.getCurrency()));
+        transfer.setStatus("REJECTED");
+        fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
+        audit(tenantId, "EXTERNAL_PAYMENT_REJECTED", "TRANSFER", transferId, Map.of("actor", actor));
+        return new PersistentTransferResponse(transferId, "REJECTED", transfer.getRiskScore(),
+            transfer.getFraudDecision(), "External payment rejected and reservation released");
+    }
+
+    private TransferEntity requireHeldExternal(UUID tenantId, UUID transferId) {
+        TransferEntity t = transfers.findById(transferId)
+            .orElseThrow(() -> new IllegalArgumentException("Transfer not found: " + transferId));
+        if (!t.getTenantId().equals(tenantId)) throw new IllegalArgumentException("Tenant mismatch");
+        if (!"EXTERNAL".equals(t.getChannel())) throw new IllegalStateException("Transfer is not an external payment");
+        if (!"HELD_FOR_REVIEW".equals(t.getStatus())) throw new IllegalStateException("External payment is not held for review");
+        return t;
+    }
+
+    private record RailOutcome(String status, String providerReference) {}
+
+    /** Submit a (funds-already-reserved) external payment to the rail; on FAILED, release the reservation. */
+    private RailOutcome submitToRail(UUID tenantId, UUID transferId, AccountEntity source, Money amount,
+                                     String currency, String scenario) {
         String providerReference = "sbx_" + UUID.randomUUID();
-        ExternalPaymentAttemptEntity attempt = new ExternalPaymentAttemptEntity(UUID.randomUUID(), req.tenantId(),
+        ExternalPaymentAttemptEntity attempt = new ExternalPaymentAttemptEntity(UUID.randomUUID(), tenantId,
             transferId, rail.rail(), providerReference, ExternalPaymentStatus.SUBMITTED, amount.amount(),
-            req.currency(), writeJson(Map.of("scenario", String.valueOf(req.scenario()))), Instant.now());
+            currency, writeJson(Map.of("scenario", String.valueOf(scenario))), Instant.now());
         attempts.save(attempt);
 
         String status;
         try {
             var result = rail.initiatePayment(new PaymentRailAdapter.PaymentSubmitRequest(
-                req.tenantId(), transferId, providerReference, amount.amount(), req.currency(), req.scenario()));
+                tenantId, transferId, providerReference, amount.amount(), currency, scenario));
             attempt.setResponsePayload(writeJson(Map.of("status", result.status())));
             if (ExternalPaymentStatus.FAILED.equals(result.status())) {
-                // Immediate rejection: release the reservation now.
-                releaseToAvailable(source, amount);
+                releaseToAvailable(source, amount); // immediate rejection: release the reservation now
                 attempt.setStatus(ExternalPaymentStatus.FAILED);
                 status = "FAILED";
-                saveTransfer(req, transferId, "FAILED", decision);
             } else {
                 attempt.setStatus(ExternalPaymentStatus.PENDING_SETTLEMENT);
                 status = "PENDING_SETTLEMENT";
-                saveTransfer(req, transferId, "PENDING_SETTLEMENT", decision);
             }
         } catch (PaymentRailTimeoutException timeout) {
             // Do NOT assume failure. Hold the reservation; reconciliation will resolve it.
             attempt.setStatus(ExternalPaymentStatus.PENDING_UNKNOWN);
             attempt.setLastError(timeout.getMessage());
             status = "PENDING_UNKNOWN";
-            saveTransfer(req, transferId, "PENDING_UNKNOWN", decision);
         }
-        attempts.save(attempt); // persist final attempt status + response payload
+        attempts.save(attempt);
+        audit(tenantId, "EXTERNAL_PAYMENT_SUBMITTED", "TRANSFER", transferId, Map.of("status", status, "ref", providerReference));
+        enqueue(tenantId, "TRANSFER", transferId, "EXTERNAL_PAYMENT_" + status, Map.of("ref", providerReference));
+        return new RailOutcome(status, providerReference);
+    }
 
-        audit(req.tenantId(), "EXTERNAL_PAYMENT_SUBMITTED", "TRANSFER", transferId, Map.of("status", status, "ref", providerReference));
-        enqueue(req.tenantId(), "TRANSFER", transferId, "EXTERNAL_PAYMENT_" + status, Map.of("ref", providerReference));
-        return finish(idem, new ExternalPaymentResponse(transferId, providerReference, status,
-            decision.riskScore(), decision.decision().name(), "External payment " + status));
+    private static String severityFor(int score) {
+        if (score >= 85) return "CRITICAL";
+        if (score >= 65) return "HIGH";
+        return "MEDIUM";
     }
 
     /** Provider confirmed settlement: consume the reservation and post Debit source / Credit clearing. Idempotent. */
@@ -250,9 +309,11 @@ public class ExternalPaymentService {
     }
 
     private void saveTransfer(ExternalTransferRequest req, UUID transferId, String status, FraudDecision decision) {
-        transfers.save(new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
+        TransferEntity t = new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
             req.sourceAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
-            decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference()));
+            decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
+        t.setChannel("EXTERNAL");
+        transfers.save(t);
     }
 
     private AccountEntity lock(UUID id) {

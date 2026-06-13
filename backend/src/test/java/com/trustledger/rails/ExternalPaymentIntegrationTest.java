@@ -49,6 +49,7 @@ class ExternalPaymentIntegrationTest {
     @Autowired TransferRepository transfers;
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired DeviceFingerprintRepository devices;
+    @Autowired FraudCaseRepository fraudCases;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
@@ -103,25 +104,79 @@ class ExternalPaymentIntegrationTest {
         return attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref).orElseThrow().getStatus();
     }
 
-    /** The live intelligence gate: an external payout from an untrusted device to a new payee is
-     * declined (not submitted to the rail) and the source funds are never reserved. */
+    /** The live intelligence gate: an external payout from an untrusted device is held for review
+     * (funds reserved, NOT submitted to the rail) and opens an OPEN fraud case. */
     @Test
-    @SuppressWarnings("unchecked")
-    void externalPaymentFromUntrustedDeviceIsDeclined() throws Exception {
+    void externalPaymentFromUntrustedDeviceIsHeldForReview() throws Exception {
         Session s = register(); // trusts "web"; this payment uses a different, untrusted device
         AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> res = initiateUntrusted(s.token(), src, "200.00", "ext-held");
+        assertEquals("HELD_FOR_REVIEW", res.get("status"), res.toString());
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")), "funds reserved");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
+        UUID txn = UUID.fromString(res.get("transactionId").toString());
+        assertEquals("OPEN", fraudCases.findByTransactionId(txn).orElseThrow().getStatus());
+    }
+
+    /** Analyst approves a held external payout: it submits to the rail and then settles on webhook. */
+    @Test
+    void heldExternalPaymentApprovedSubmitsToRailThenSettles() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> held = initiateUntrusted(s.token(), src, "200.00", "ext-held-approve");
+        UUID txn = UUID.fromString(held.get("transactionId").toString());
+        UUID caseId = fraudCases.findByTransactionId(txn).orElseThrow().getId();
+
+        HttpResponse<String> approve = caseAction(s.token(), caseId, "approve");
+        assertEquals(200, approve.statusCode(), approve.body());
+        assertTrue(approve.body().contains("PENDING_SETTLEMENT"), approve.body());
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")), "still reserved after submit");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
+
+        String ref = attempts.findByTransactionId(txn).orElseThrow().getProviderReference();
+        assertEquals(200, webhook(ref, "SETTLED", "evt-held-settle", true));
+        assertEquals("SETTLED", attemptStatus(ref));
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")), "reservation consumed");
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")));
+        assertEquals(1, sourceDebits(src.getId()));
+        assertEquals("APPROVED", fraudCases.findByTransactionId(txn).orElseThrow().getStatus());
+    }
+
+    /** Analyst rejects a held external payout: the reservation is released and nothing is submitted. */
+    @Test
+    void heldExternalPaymentRejectedReleasesFunds() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> held = initiateUntrusted(s.token(), src, "200.00", "ext-held-reject");
+        UUID txn = UUID.fromString(held.get("transactionId").toString());
+        UUID caseId = fraudCases.findByTransactionId(txn).orElseThrow().getId();
+
+        HttpResponse<String> reject = caseAction(s.token(), caseId, "reject");
+        assertEquals(200, reject.statusCode(), reject.body());
+        assertTrue(reject.body().contains("REJECTED"), reject.body());
+        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds released");
+        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
+        assertEquals(0, sourceDebits(src.getId()), "nothing posted to the ledger");
+        assertEquals("REJECTED", fraudCases.findByTransactionId(txn).orElseThrow().getStatus());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> initiateUntrusted(String token, AccountEntity src, String amount, String key) throws Exception {
         String body = json.writeValueAsString(Map.of("sourceAccountId", src.getId().toString(),
-            "amount", "200.00", "currency", "GBP", "reference", "ext", "deviceId", "untrusted-laptop",
+            "amount", amount, "currency", "GBP", "reference", "ext", "deviceId", "untrusted-laptop",
             "currentCountry", "GB", "scenario", "success"));
         HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/transfers/external"))
-            .header("Content-Type", "application/json").header("Authorization", "Bearer " + s.token())
-            .header("Idempotency-Key", "ext-untrusted").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+            .header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
+            .header("Idempotency-Key", key).POST(HttpRequest.BodyPublishers.ofString(body)).build(),
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, r.statusCode(), r.body());
-        Map<String, Object> res = json.readValue(r.body(), Map.class);
-        assertEquals("REJECTED", res.get("status"), r.body());
-        assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds must not be reserved");
-        assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
+        return json.readValue(r.body(), Map.class);
+    }
+
+    private HttpResponse<String> caseAction(String token, UUID caseId, String action) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/" + action))
+            .header("Authorization", "Bearer " + token).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.ofString());
     }
 
     @Test
