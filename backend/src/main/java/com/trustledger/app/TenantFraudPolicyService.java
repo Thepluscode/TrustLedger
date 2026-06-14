@@ -2,6 +2,10 @@ package com.trustledger.app;
 
 import com.trustledger.persistence.entity.TenantFraudPolicyEntity;
 import com.trustledger.persistence.repo.TenantFraudPolicyRepository;
+import com.trustledger.persistence.repo.TransferRepository;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -16,14 +20,48 @@ public class TenantFraudPolicyService {
     public record Thresholds(int monitor, int mfa, int hold, int reject, int deviceTrustAfter,
                              boolean autoFreezeEnabled) {}
 
+    /** How a window of transfers distributes across the risk bands under a given threshold set. */
+    public record BandCounts(int total, int allow, int monitor, int mfa, int hold, int reject) {}
+
+    /** Current vs candidate band distribution over the tenant's recent transfers. */
+    public record PolicyImpact(int windowDays, BandCounts current, BandCounts candidate) {}
+
+    private static final int IMPACT_WINDOW_DAYS = 30;
+
     private final TenantFraudPolicyRepository policies;
+    private final TransferRepository transfers;
 
     /** Global default for device trust-after-N, applied to tenants without a policy row (0 disables). */
     @Value("${trustledger.fraud.device-trust-after:3}")
     int defaultDeviceTrustAfter;
 
-    public TenantFraudPolicyService(TenantFraudPolicyRepository policies) {
+    public TenantFraudPolicyService(TenantFraudPolicyRepository policies, TransferRepository transfers) {
         this.policies = policies;
+        this.transfers = transfers;
+    }
+
+    /**
+     * Re-band the tenant's transfers from the last {@value #IMPACT_WINDOW_DAYS} days under the current
+     * thresholds and a candidate set, so the operator sees how the candidate would shift classifications.
+     * Re-bands the stored risk scores (does not re-score) — an honest "had this policy been in effect".
+     */
+    @Transactional(readOnly = true)
+    public PolicyImpact impact(UUID tenantId, Thresholds candidate) {
+        List<Integer> scores = transfers.findRiskScoresByTenantSince(
+            tenantId, Instant.now().minus(IMPACT_WINDOW_DAYS, ChronoUnit.DAYS));
+        return new PolicyImpact(IMPACT_WINDOW_DAYS, count(scores, thresholds(tenantId)), count(scores, candidate));
+    }
+
+    private static BandCounts count(List<Integer> scores, Thresholds t) {
+        int allow = 0, monitor = 0, mfa = 0, hold = 0, reject = 0;
+        for (int s : scores) {
+            if (s >= t.reject()) reject++;
+            else if (s >= t.hold()) hold++;
+            else if (s >= t.mfa()) mfa++;
+            else if (s >= t.monitor()) monitor++;
+            else allow++;
+        }
+        return new BandCounts(scores.size(), allow, monitor, mfa, hold, reject);
     }
 
     @Transactional(readOnly = true)

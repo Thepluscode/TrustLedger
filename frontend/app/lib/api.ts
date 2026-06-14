@@ -9,6 +9,7 @@ import type {
   ExternalPaymentResponse,
   FraudCaseView,
   FraudPolicy,
+  PolicyImpact,
   LedgerEntryView,
   LedgerTransactionView,
   TransferResponse,
@@ -170,6 +171,8 @@ export const api = {
   getFraudPolicy: () => request<FraudPolicy>("/api/v1/tenant/fraud-policy"),
   updateFraudPolicy: (body: FraudPolicy) =>
     request<FraudPolicy>("/api/v1/tenant/fraud-policy", { method: "PUT", body: JSON.stringify(body) }),
+  previewFraudPolicyImpact: (body: FraudPolicy) =>
+    request<PolicyImpact>("/api/v1/tenant/fraud-policy/impact", { method: "POST", body: JSON.stringify(body) }),
 
   listMlModels: () =>
     request<{ id: string; modelName: string; version: string; status: string; deploymentMode: string }[]>("/api/v2/ml/models"),

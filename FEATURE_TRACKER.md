@@ -292,6 +292,15 @@ loaded the live policy, changed step-up 45→55 and trust-after 3→2, saved, an
 showed the persisted values + updated ladder (`25–54 monitor · 55–64 step-up`). Frontend tsc + build
 green; backend full suite **116/116 green**.
 
+**Fraud-policy impact preview (2026-06-14, design.md §17.4).** A "Preview impact" action re-bands the
+tenant's last-30-day transfers under the candidate thresholds and shows the current → candidate shift
+per band. `POST /api/v1/tenant/fraud-policy/impact` (read-only, FRAUD_CASE_VIEW) re-bands the stored
+`risk_score`s (honest "had this policy been in effect" — it does not re-score);
+`TransferRepository.findRiskScoresByTenantSince` + `TenantFraudPolicyService.impact` do the counting.
+**Live evidence:** 3 transfers at score 45 → raising MFA 45→55 showed Step-up 3→0 / Monitor 0→3 both
+via curl and in the console (Δ colour-coded). Backed by
+`TransferApiIntegrationTest.fraudPolicyImpactRebandsRecentTransfers`; full suite **117/117 green**.
+
 Remaining follow-ups (logged, not blocking): (1) external held approval re-submits with the sandbox
 "success" scenario (the original scenario isn't persisted) — fine for the sandbox rail, revisit for a
 real rail; (2) inline MFA is internal-only by design — external stepped-up payouts go to analyst

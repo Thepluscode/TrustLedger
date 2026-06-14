@@ -108,6 +108,21 @@ export interface FraudPolicy {
   autoFreezeEnabled: boolean;
 }
 
+export interface BandCounts {
+  total: number;
+  allow: number;
+  monitor: number;
+  mfa: number;
+  hold: number;
+  reject: number;
+}
+
+export interface PolicyImpact {
+  windowDays: number;
+  current: BandCounts;
+  candidate: BandCounts;
+}
+
 export interface ApiError {
   code: string;
   error: string;

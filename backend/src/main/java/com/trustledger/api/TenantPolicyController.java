@@ -2,6 +2,7 @@ package com.trustledger.api;
 
 import com.trustledger.app.AccessControlService;
 import com.trustledger.app.TenantFraudPolicyService;
+import com.trustledger.app.TenantFraudPolicyService.PolicyImpact;
 import com.trustledger.app.TenantFraudPolicyService.Thresholds;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
@@ -39,5 +40,13 @@ public class TenantPolicyController {
         policies.upsert(CurrentUser.tenantId(), body.monitor(), body.mfa(), body.hold(), body.reject(),
             body.autoFreezeEnabled(), deviceTrustAfter);
         return policies.thresholds(CurrentUser.tenantId());
+    }
+
+    /** Preview how a candidate threshold set would re-band recent transfers (read-only, saves nothing). */
+    @PostMapping("/impact")
+    public PolicyImpact impact(@RequestBody FraudPolicyRequest body) {
+        access.require(Permission.FRAUD_CASE_VIEW);
+        return policies.impact(CurrentUser.tenantId(),
+            new Thresholds(body.monitor(), body.mfa(), body.hold(), body.reject(), 0, false));
     }
 }

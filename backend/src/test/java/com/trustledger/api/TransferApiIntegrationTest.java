@@ -52,6 +52,7 @@ class TransferApiIntegrationTest {
     @Autowired DeviceFingerprintRepository devices;
     @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
     @Autowired com.trustledger.app.TenantFraudPolicyService policyService;
+    @Autowired com.trustledger.persistence.repo.TransferRepository transferRepo;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -217,6 +218,39 @@ class TransferApiIntegrationTest {
         HttpResponse<String> newPayee = postTransfer(s.token(), src, payeeB, "100.00", "ov-2");
         assertEquals(200, newPayee.statusCode(), newPayee.body());
         assertTrue(newPayee.body().contains("COMPLETED"), newPayee.body());
+    }
+
+    /** Fraud-policy impact preview re-bands recent transfers under candidate thresholds. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void fraudPolicyImpactRebandsRecentTransfers() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+        // Seed recent transfers with known risk scores (default thresholds 25/45/65/85 in effect).
+        for (int score : new int[] {10, 50, 90}) {
+            transferRepo.save(new com.trustledger.persistence.entity.TransferEntity(UUID.randomUUID(),
+                s.tenantId(), s.userId(), src.getId(), dst.getId(), UUID.randomUUID(),
+                new BigDecimal("100.00"), "GBP", "COMPLETED", score, "ALLOW", "imp-" + UUID.randomUUID(), "ref"));
+        }
+        // Candidate raises MFA->60, hold->80, reject->95: 50 moves step-up->monitor, 90 moves reject->hold.
+        String body = json.writeValueAsString(Map.of("monitor", 25, "mfa", 60, "hold", 80, "reject", 95,
+            "autoFreezeEnabled", false));
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/tenant/fraud-policy/impact"))
+            .header("Content-Type", "application/json").header("Authorization", "Bearer " + s.token())
+            .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, r.statusCode(), r.body());
+        Map<String, Object> resp = json.readValue(r.body(), Map.class);
+        Map<String, Object> current = (Map<String, Object>) resp.get("current");
+        Map<String, Object> candidate = (Map<String, Object>) resp.get("candidate");
+
+        assertEquals(3, ((Number) candidate.get("total")).intValue());
+        assertEquals(1, ((Number) current.get("mfa")).intValue(), "score 50 is step-up under default 45");
+        assertEquals(1, ((Number) current.get("reject")).intValue(), "score 90 is reject under default 85");
+        assertEquals(0, ((Number) candidate.get("mfa")).intValue(), "50 drops out of step-up at mfa=60");
+        assertEquals(1, ((Number) candidate.get("monitor")).intValue(), "50 becomes monitor");
+        assertEquals(1, ((Number) candidate.get("hold")).intValue(), "90 becomes hold at reject=95");
+        assertEquals(0, ((Number) candidate.get("reject")).intValue(), "nothing rejected at reject=95");
     }
 
     private void seedKnownBeneficiary(UUID tenantId, UUID destinationAccountId) {

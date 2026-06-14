@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { ConfirmModal, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
-import type { FraudPolicy } from "../lib/types";
+import type { BandCounts, FraudPolicy, PolicyImpact } from "../lib/types";
 
 const PLANS = ["FREE_SANDBOX", "PILOT", "PROFESSIONAL", "ENTERPRISE", "INTERNAL"];
 
@@ -15,6 +15,14 @@ const POLICY_FIELDS: { key: keyof Pick<FraudPolicy, "monitor" | "mfa" | "hold" |
   { key: "reject", label: "Reject", hint: "≥ this score is declined outright" },
 ];
 
+const BANDS: { key: keyof Omit<BandCounts, "total">; label: string }[] = [
+  { key: "allow", label: "Allow" },
+  { key: "monitor", label: "Monitor" },
+  { key: "mfa", label: "Step-up" },
+  { key: "hold", label: "Hold" },
+  { key: "reject", label: "Reject" },
+];
+
 export default function AdminPage() {
   const [transfers, setTransfers] = useState<number | null>(null);
   const [quota, setQuota] = useState<Record<string, number> | null>(null);
@@ -23,6 +31,7 @@ export default function AdminPage() {
   const [plan, setPlan] = useState("PILOT");
   const [confirmPlan, setConfirmPlan] = useState(false);
   const [policy, setPolicy] = useState<FraudPolicy | null>(null);
+  const [impact, setImpact] = useState<PolicyImpact | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +55,18 @@ export default function AdminPage() {
     policy.deviceTrustAfter >= 0;
 
   function setPolicyField(key: keyof FraudPolicy, value: number | boolean) {
+    setImpact(null); // candidate changed — previous preview is stale
     setPolicy((p) => (p ? { ...p, [key]: value } : p));
+  }
+
+  async function previewImpact() {
+    if (!policy || !policyValid) return;
+    setError(null);
+    try {
+      setImpact(await api.previewFraudPolicyImpact(policy));
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   async function savePolicy() {
@@ -57,6 +77,7 @@ export default function AdminPage() {
     try {
       const saved = await api.updateFraudPolicy(policy);
       setPolicy(saved);
+      setImpact(null);
       setNote("Fraud policy updated — applies to new transfers immediately.");
     } catch (e) {
       setError((e as Error).message);
@@ -197,7 +218,45 @@ export default function AdminPage() {
                 <button onClick={savePolicy} disabled={busy || !policyValid}>
                   {busy ? "Saving…" : "Save policy"}
                 </button>
+                <button className="secondary" onClick={previewImpact} disabled={!policyValid}>
+                  Preview impact
+                </button>
               </div>
+
+              {impact && (
+                <div style={{ marginTop: 16 }}>
+                  <p className="sub">
+                    Impact over the last {impact.windowDays} days
+                    {impact.candidate.total === 0
+                      ? " — no transfers in this window to preview against."
+                      : ` (${impact.candidate.total} transfers, re-banded under the candidate thresholds):`}
+                  </p>
+                  {impact.candidate.total > 0 && (
+                    <table style={{ maxWidth: 420 }}>
+                      <thead>
+                        <tr><th>Band</th><th className="num">Now</th><th className="num">Would be</th><th className="num">Δ</th></tr>
+                      </thead>
+                      <tbody>
+                        {BANDS.map((b) => {
+                          const now = impact.current[b.key];
+                          const next = impact.candidate[b.key];
+                          const delta = next - now;
+                          return (
+                            <tr key={b.key}>
+                              <td>{b.label}</td>
+                              <td className="num">{now}</td>
+                              <td className="num">{next}</td>
+                              <td className="num" style={{ color: delta === 0 ? "var(--muted)" : delta > 0 ? "var(--warning)" : "var(--success)" }}>
+                                {delta > 0 ? `+${delta}` : delta}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
