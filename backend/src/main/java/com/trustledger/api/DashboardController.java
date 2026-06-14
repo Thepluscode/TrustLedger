@@ -32,6 +32,6 @@ public class DashboardController {
             transfers.countByTenantIdAndStatus(tenant, "HELD_FOR_REVIEW"),
             transfers.countByTenantIdAndStatus(tenant, "REJECTED"),
             fraudCases.countByTenantIdAndStatus(tenant, "OPEN"),
-            reconciliationIssues.countByStatus("OPEN"));
+            reconciliationIssues.countByTenantIdAndStatus(tenant, "OPEN"));
     }
 }

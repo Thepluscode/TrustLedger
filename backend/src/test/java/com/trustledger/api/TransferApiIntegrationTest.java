@@ -54,6 +54,7 @@ class TransferApiIntegrationTest {
     @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
     @Autowired com.trustledger.app.TenantFraudPolicyService policyService;
     @Autowired com.trustledger.persistence.repo.TransferRepository transferRepo;
+    @Autowired com.trustledger.persistence.repo.ReconciliationIssueRepository reconIssues;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -267,6 +268,31 @@ class TransferApiIntegrationTest {
         assertTrue(bens.stream().anyMatch(b -> dst.getId().toString().equals(b.get("beneficiaryAccountId"))), "beneficiary profile surfaced");
         List<Map<String, Object>> users = json.readValue(get(s.token(), "/api/v1/fraud/risk-profiles/users").body(), List.class);
         assertTrue(users.stream().anyMatch(u -> s.userId().toString().equals(u.get("userId"))), "user profile surfaced");
+    }
+
+    /** Reconciliation issues: tenant-scoped list/detail and an audited Resolve; cross-tenant is forbidden. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void reconciliationIssuesListResolveAndTenantScoped() throws Exception {
+        Session s = register();
+        UUID issueId = UUID.randomUUID();
+        reconIssues.save(new com.trustledger.persistence.entity.ReconciliationIssueEntity(issueId, s.tenantId(),
+            "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION", "LEDGER_TRANSACTION", UUID.randomUUID(),
+            "balanced", "off by 1.00", "{\"delta\":\"1.00\"}", "OPEN"));
+
+        List<Map<String, Object>> rows = json.readValue(get(s.token(), "/api/v1/reconciliation/issues").body(), List.class);
+        assertTrue(rows.stream().anyMatch(r -> issueId.toString().equals(r.get("id"))), "list contains the issue");
+        assertEquals("OPEN", json.readValue(get(s.token(), "/api/v1/reconciliation/issues/" + issueId).body(), Map.class).get("status"));
+
+        HttpResponse<String> resolved = http.send(HttpRequest.newBuilder(uri("/api/v1/reconciliation/issues/" + issueId + "/resolve"))
+            .header("Authorization", "Bearer " + s.token()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, resolved.statusCode(), resolved.body());
+        Map<String, Object> rd = json.readValue(resolved.body(), Map.class);
+        assertEquals("RESOLVED", rd.get("status"));
+        assertNotNull(rd.get("resolvedAt"), "resolvedAt is stamped");
+
+        assertEquals(403, get(register().token(), "/api/v1/reconciliation/issues/" + issueId).statusCode());
     }
 
     private HttpResponse<String> get(String token, String path) throws Exception {

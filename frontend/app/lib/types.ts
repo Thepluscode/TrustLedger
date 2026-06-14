@@ -161,6 +161,20 @@ export interface UserProfile {
   lastPasswordChangeAt: string | null;
 }
 
+export interface ReconciliationIssue {
+  id: string;
+  severity: string;
+  type: string;
+  entityType: string;
+  entityId: string;
+  expectedState: string | null;
+  actualState: string | null;
+  evidence: string;
+  status: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface BandCounts {
   total: number;
   allow: number;

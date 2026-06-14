@@ -12,6 +12,7 @@ import type {
   FraudCaseView,
   FraudPolicy,
   PolicyImpact,
+  ReconciliationIssue,
   UserProfile,
   LedgerEntryView,
   LedgerTransactionView,
@@ -111,6 +112,11 @@ export const api = {
     request<LedgerTransactionView>(`/api/v1/ledger/transactions/${id}`),
 
   listAuditLogs: () => request<AuditLogView[]>("/api/v1/audit-logs"),
+
+  listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
+  getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
+  resolveReconciliationIssue: (id: string) =>
+    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, { method: "POST" }),
 
   deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
   beneficiaryProfiles: () => request<BeneficiaryProfile[]>("/api/v1/fraud/risk-profiles/beneficiaries"),

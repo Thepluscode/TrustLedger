@@ -230,8 +230,19 @@ trusted (5 transfers), the recipient shows 5 senders / 500.00 / **mule pattern**
 median 100.00. Backed by `TransferApiIntegrationTest.riskProfilesSurfaceGatePopulatedData`; full
 suite **119/119 green**.
 
+**Reconciliation UI (§14) — done (2026-06-14).** `ReconciliationController` exposes the worker-raised
+issues tenant-scoped: `GET /api/v1/reconciliation/issues` (list), `GET /{id}` (detail, 403
+cross-tenant), `POST /{id}/resolve` (status→RESOLVED + resolvedAt, written to the audit log). Console
+`/reconciliation` page (Money nav): severity/status cards + issue table; `/reconciliation/[issueId]`
+detail shows expected-vs-actual, pretty-printed evidence, and a typed-confirmation Resolve. **Also
+fixed a cross-tenant leak**: the dashboard's open-issue count was global (`countByStatus`) — now
+`countByTenantIdAndStatus`. **Live evidence:** seeded 2 issues for a tenant → list showed Open 2 /
+Critical 1; opened the critical one (expected `debits == credits` vs actual `1000.00/999.00`, evidence
+JSON), resolved it → status RESOLVED + timestamp stamped. Backed by
+`TransferApiIntegrationTest.reconciliationIssuesListResolveAndTenantScoped`; full suite **120/120**.
+
 Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
-reconciliation UI (§14), webhook event list (§13.5), onboarding (§18), developer/API keys (§19),
+webhook event list (§13.5), onboarding (§18), developer/API keys (§19),
 monitoring JSON (§20), command palette (§23.1), users & roles admin (§17.3). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
 (see the closed v2.3/v2.8 deferral above).

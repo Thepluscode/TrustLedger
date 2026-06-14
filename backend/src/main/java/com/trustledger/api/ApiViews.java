@@ -47,4 +47,9 @@ public final class ApiViews {
                                          Instant firstTransferAt) {}
     public record UserProfileView(UUID userId, BigDecimal medianTransferAmount, BigDecimal maxNormalTransferAmount,
                                   long transferCount, String riskLevel, Instant lastPasswordChangeAt) {}
+
+    /** Reconciliation issue (§14): a financial/operational mismatch found by the worker. */
+    public record ReconciliationIssueView(UUID id, String severity, String type, String entityType, UUID entityId,
+                                          String expectedState, String actualState, String evidence, String status,
+                                          Instant createdAt, Instant resolvedAt) {}
 }

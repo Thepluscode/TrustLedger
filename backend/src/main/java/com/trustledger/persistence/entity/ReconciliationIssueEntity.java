@@ -73,4 +73,12 @@ public class ReconciliationIssueEntity {
     public UUID getEntityId() { return entityId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public UUID getTenantId() { return tenantId; }
+    public String getEntityType() { return entityType; }
+    public String getExpectedState() { return expectedState; }
+    public String getActualState() { return actualState; }
+    public String getEvidence() { return evidence; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getResolvedAt() { return resolvedAt; }
+    public void setResolvedAt(Instant v) { this.resolvedAt = v; }
 }
