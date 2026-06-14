@@ -108,6 +108,28 @@ export interface FraudPolicy {
   autoFreezeEnabled: boolean;
 }
 
+export interface TransferListItem {
+  id: string;
+  sourceAccountId: string;
+  destinationAccountId: string;
+  beneficiaryId: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  riskScore: number;
+  fraudDecision: string;
+  channel: string;
+  reference: string | null;
+  createdAt: string;
+}
+
+export interface TransferDetail {
+  transfer: TransferListItem;
+  fraudCase: FraudCaseView | null;
+  ledger: LedgerTransactionView[];
+  auditTrail: AuditLogView[];
+}
+
 export interface BandCounts {
   total: number;
   allow: number;

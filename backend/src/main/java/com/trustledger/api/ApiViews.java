@@ -30,4 +30,12 @@ public final class ApiViews {
 
     public record DashboardSummary(long accounts, long transfersCompleted, long transfersHeld,
                                    long transfersRejected, long fraudCasesOpen, long reconciliationIssuesOpen) {}
+
+    public record TransferView(UUID id, UUID sourceAccountId, UUID destinationAccountId, UUID beneficiaryId,
+                               BigDecimal amount, String currency, String status, int riskScore, String fraudDecision,
+                               String channel, String reference, Instant createdAt) {}
+
+    /** Transfer detail: summary + linked fraud case, posted ledger transaction(s), and audit trail. */
+    public record TransferDetailView(TransferView transfer, FraudCaseView fraudCase,
+                                     List<LedgerTransactionView> ledger, List<AuditLogView> auditTrail) {}
 }

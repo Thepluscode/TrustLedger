@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 public interface TransferRepository extends JpaRepository<TransferEntity, UUID> {
     long countByTenantIdAndStatus(UUID tenantId, String status);
     List<TransferEntity> findByDestinationAccountId(UUID destinationAccountId);
+    List<TransferEntity> findTop200ByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 
     /** Risk scores of a tenant's transfers since a point in time — for the fraud-policy impact preview. */
     @Query("select t.riskScore from TransferEntity t where t.tenantId = :tenantId and t.createdAt >= :since")

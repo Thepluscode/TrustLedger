@@ -12,6 +12,8 @@ import type {
   PolicyImpact,
   LedgerEntryView,
   LedgerTransactionView,
+  TransferDetail,
+  TransferListItem,
   TransferResponse,
 } from "./types";
 
@@ -120,6 +122,9 @@ export const api = {
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(body),
     }),
+
+  listTransfers: () => request<TransferListItem[]>("/api/v1/transfers"),
+  getTransfer: (id: string) => request<TransferDetail>(`/api/v1/transfers/${id}`),
 
   verifyMfa: (transactionId: string, code: string) =>
     request<TransferResponse>(`/api/v1/transfers/${transactionId}/mfa/verify`, {

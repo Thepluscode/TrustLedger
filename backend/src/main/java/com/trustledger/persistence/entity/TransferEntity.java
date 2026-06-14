@@ -104,4 +104,7 @@ public class TransferEntity {
     public void setChannel(String channel) { this.channel = channel; }
     public String getDeviceId() { return deviceId; }
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
+    public UUID getBeneficiaryId() { return beneficiaryId; }
+    public String getReference() { return reference; }
+    public Instant getCreatedAt() { return createdAt; }
 }

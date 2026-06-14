@@ -10,6 +10,7 @@ import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.BeneficiaryRiskProfileRepository;
 import com.trustledger.persistence.repo.DeviceFingerprintRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -218,6 +219,41 @@ class TransferApiIntegrationTest {
         HttpResponse<String> newPayee = postTransfer(s.token(), src, payeeB, "100.00", "ov-2");
         assertEquals(200, newPayee.statusCode(), newPayee.body());
         assertTrue(newPayee.body().contains("COMPLETED"), newPayee.body());
+    }
+
+    /** The cockpit read side: a completed transfer appears in the list and its detail carries the
+     * posted ledger + audit trail; another tenant cannot read it. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void transferListAndDetailAreReturnedAndTenantScoped() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+        establishTrust(s.tenantId(), s.userId(), "device", dst.getId()); // known device+payee -> completes
+        HttpResponse<String> posted = postTransfer(s.token(), src, dst, "120.00", "q-1");
+        assertEquals(200, posted.statusCode(), posted.body());
+        UUID txn = UUID.fromString(bodyOf(posted).get("transactionId").toString());
+
+        HttpResponse<String> list = get(s.token(), "/api/v1/transfers");
+        assertEquals(200, list.statusCode(), list.body());
+        List<Map<String, Object>> rows = json.readValue(list.body(), List.class);
+        assertTrue(rows.stream().anyMatch(t -> txn.toString().equals(t.get("id"))), "list must contain the transfer");
+
+        HttpResponse<String> detail = get(s.token(), "/api/v1/transfers/" + txn);
+        assertEquals(200, detail.statusCode(), detail.body());
+        Map<String, Object> d = json.readValue(detail.body(), Map.class);
+        assertEquals("COMPLETED", ((Map<String, Object>) d.get("transfer")).get("status"));
+        assertFalse(((List<?>) d.get("ledger")).isEmpty(), "completed transfer has a posted ledger transaction");
+        assertFalse(((List<?>) d.get("auditTrail")).isEmpty(), "transfer has an audit trail");
+
+        // Another tenant cannot read it.
+        Session other = register();
+        assertEquals(403, get(other.token(), "/api/v1/transfers/" + txn).statusCode());
+    }
+
+    private HttpResponse<String> get(String token, String path) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri(path)).header("Authorization", "Bearer " + token).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
     }
 
     /** Fraud-policy impact preview re-bands recent transfers under candidate thresholds. */

@@ -8,4 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AuditLogRepository extends JpaRepository<AuditLogEntity, UUID> {
     long countByTenantId(UUID tenantId);
     List<AuditLogEntity> findTop200ByTenantIdOrderByCreatedAtDesc(UUID tenantId);
+    List<AuditLogEntity> findByTenantIdAndResourceIdOrderByCreatedAtDesc(UUID tenantId, UUID resourceId);
 }

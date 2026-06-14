@@ -209,11 +209,22 @@ implementation-notes header). Built in verified slices, live-wired only — no m
 | C — ledger explorer with §9.4 debit/credit split + balanced invariant; audit logs page (§16) | **VERIFIED (live)** | Inspected a posted transfer: £100.00 == £100.00 ✓ Balanced; audit page shows the risk-scored → ledger-posted chain for the same txn |
 | D — accounts/evidence/ML/admin restyle; §12.3 shadow-mode banner; plan change confirm-gated | **VERIFIED (live)** | build green (13 routes); ML page visually checked |
 
-Deferred (no backend endpoint — never faked in UI, see design.md coverage map): transfer
-list/detail (§8), risk profiles (§11), reconciliation UI (§14), webhook event list (§13.5),
-onboarding (§18), developer/API keys (§19), monitoring JSON (§20), command palette (§23.1),
-users & roles admin (§17.3). The held-case approve/reject modal is now **live-testable end-to-end**:
-the intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
+**Transfer list + detail (§8) — done (2026-06-14).** The read side of the cockpit: `GET
+/api/v1/transfers` (top-200 newest, tenant-scoped) and `GET /api/v1/transfers/{id}` (detail =
+summary + linked fraud case + posted ledger transaction(s) + audit trail; 403 cross-tenant), via a
+new `TransferQueryController` reusing the existing ledger/case/audit view records. The console IA now
+matches the spec: `/transfers` list (status/rail/risk filters), `/transfers/new` create flow (moved),
+`/transfers/[transactionId]` detail with the §8.4 visual state machine, ledger split, and audit
+timeline; the create success screen links to the new detail. **Live evidence:** logged in, the list
+showed the tenant's transfers and the detail rendered Created→Fraud-checked→Step-up→Completed with
+the audit timeline (risk-scored → mfa-required). Backed by
+`TransferApiIntegrationTest.transferListAndDetailAreReturnedAndTenantScoped`; full suite **118/118**.
+
+Deferred (no backend endpoint — never faked in UI, see design.md coverage map): risk profiles (§11),
+reconciliation UI (§14), webhook event list (§13.5), onboarding (§18), developer/API keys (§19),
+monitoring JSON (§20), command palette (§23.1), users & roles admin (§17.3). The held-case
+approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
+(see the closed v2.3/v2.8 deferral above).
 
 ### v3.0 follow-up: intelligence gate live (2026-06-13)
 

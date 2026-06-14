@@ -125,11 +125,9 @@ export default function Shell({ children, active }: { children: ReactNode; activ
               Tenant <b className="mono">{session.tenantId.slice(0, 8)}…</b>
             </span>
           )}
-          {active !== "/transfers" && (
-            <Link href="/transfers" className="btn" style={{ textDecoration: "none" }}>
-              Create transfer
-            </Link>
-          )}
+          <Link href="/transfers/new" className="btn" style={{ textDecoration: "none" }}>
+            Create transfer
+          </Link>
         </header>
         <main className="page" id="main">
           {children}
