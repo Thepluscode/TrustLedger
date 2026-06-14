@@ -7,9 +7,12 @@ import type {
   DashboardSummary,
   EvidenceExportView,
   ExternalPaymentResponse,
+  BeneficiaryProfile,
+  DeviceProfile,
   FraudCaseView,
   FraudPolicy,
   PolicyImpact,
+  UserProfile,
   LedgerEntryView,
   LedgerTransactionView,
   TransferDetail,
@@ -108,6 +111,10 @@ export const api = {
     request<LedgerTransactionView>(`/api/v1/ledger/transactions/${id}`),
 
   listAuditLogs: () => request<AuditLogView[]>("/api/v1/audit-logs"),
+
+  deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
+  beneficiaryProfiles: () => request<BeneficiaryProfile[]>("/api/v1/fraud/risk-profiles/beneficiaries"),
+  userProfiles: () => request<UserProfile[]>("/api/v1/fraud/risk-profiles/users"),
 
   createTransfer: (idempotencyKey: string, body: Record<string, unknown>) =>
     request<TransferResponse>("/api/v1/transfers", {

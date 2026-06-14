@@ -220,7 +220,17 @@ showed the tenant's transfers and the detail rendered Created→Fraud-checked→
 the audit timeline (risk-scored → mfa-required). Backed by
 `TransferApiIntegrationTest.transferListAndDetailAreReturnedAndTenantScoped`; full suite **118/118**.
 
-Deferred (no backend endpoint — never faked in UI, see design.md coverage map): risk profiles (§11),
+**Risk profiles (§11) — done (2026-06-14).** `RiskProfileController` exposes the gate-populated
+baselines tenant-scoped: `GET /api/v1/fraud/risk-profiles/{devices,beneficiaries,users}` (device
+trust + sightings + risk; recipient volume/distinct-senders/fraud-linkage; per-user spend baseline),
+reusing `findByTenantId…` finders + new view records. Console `/risk-profiles` page (Fraud nav)
+renders all three as tables, surfacing the trusted-device pill and the mule-pattern flag (distinct
+senders ≥ 5) + fraud-linked flag. **Live evidence:** 5 transfers from device `kiosk` → it shows
+trusted (5 transfers), the recipient shows 5 senders / 500.00 / **mule pattern**, and the user shows
+median 100.00. Backed by `TransferApiIntegrationTest.riskProfilesSurfaceGatePopulatedData`; full
+suite **119/119 green**.
+
+Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
 reconciliation UI (§14), webhook event list (§13.5), onboarding (§18), developer/API keys (§19),
 monitoring JSON (§20), command palette (§23.1), users & roles admin (§17.3). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases

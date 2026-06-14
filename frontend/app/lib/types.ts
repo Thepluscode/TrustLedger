@@ -130,6 +130,37 @@ export interface TransferDetail {
   auditTrail: AuditLogView[];
 }
 
+export interface DeviceProfile {
+  id: string;
+  userId: string;
+  deviceId: string;
+  trusted: boolean;
+  transferCount: number;
+  riskScore: number;
+  country: string | null;
+  lastSeenAt: string | null;
+}
+
+export interface BeneficiaryProfile {
+  id: string;
+  beneficiaryAccountId: string;
+  totalTransfers: number;
+  distinctSenders: number;
+  totalAmountReceived: string;
+  confirmedFraudLinked: boolean;
+  riskScore: number;
+  firstTransferAt: string | null;
+}
+
+export interface UserProfile {
+  userId: string;
+  medianTransferAmount: string;
+  maxNormalTransferAmount: string;
+  transferCount: number;
+  riskLevel: string;
+  lastPasswordChangeAt: string | null;
+}
+
 export interface BandCounts {
   total: number;
   allow: number;

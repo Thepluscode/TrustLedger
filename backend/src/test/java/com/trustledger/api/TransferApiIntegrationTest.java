@@ -251,6 +251,24 @@ class TransferApiIntegrationTest {
         assertEquals(403, get(other.token(), "/api/v1/transfers/" + txn).statusCode());
     }
 
+    /** Risk-profile endpoints surface the device/beneficiary/user baselines the gate populates. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void riskProfilesSurfaceGatePopulatedData() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+        establishTrust(s.tenantId(), s.userId(), "device", dst.getId());
+        assertEquals(200, postTransfer(s.token(), src, dst, "100.00", "rp-1").statusCode());
+
+        List<Map<String, Object>> devices = json.readValue(get(s.token(), "/api/v1/fraud/risk-profiles/devices").body(), List.class);
+        assertTrue(devices.stream().anyMatch(d -> "device".equals(d.get("deviceId"))), "device profile surfaced");
+        List<Map<String, Object>> bens = json.readValue(get(s.token(), "/api/v1/fraud/risk-profiles/beneficiaries").body(), List.class);
+        assertTrue(bens.stream().anyMatch(b -> dst.getId().toString().equals(b.get("beneficiaryAccountId"))), "beneficiary profile surfaced");
+        List<Map<String, Object>> users = json.readValue(get(s.token(), "/api/v1/fraud/risk-profiles/users").body(), List.class);
+        assertTrue(users.stream().anyMatch(u -> s.userId().toString().equals(u.get("userId"))), "user profile surfaced");
+    }
+
     private HttpResponse<String> get(String token, String path) throws Exception {
         return http.send(HttpRequest.newBuilder(uri(path)).header("Authorization", "Bearer " + token).GET().build(),
             HttpResponse.BodyHandlers.ofString());

@@ -20,6 +20,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
     label: "Fraud",
     links: [
       ["Cases", "/fraud-cases"],
+      ["Risk Profiles", "/risk-profiles"],
       ["ML Monitoring", "/ml"],
     ],
   },

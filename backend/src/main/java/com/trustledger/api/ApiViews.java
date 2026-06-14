@@ -38,4 +38,13 @@ public final class ApiViews {
     /** Transfer detail: summary + linked fraud case, posted ledger transaction(s), and audit trail. */
     public record TransferDetailView(TransferView transfer, FraudCaseView fraudCase,
                                      List<LedgerTransactionView> ledger, List<AuditLogView> auditTrail) {}
+
+    // Fraud intelligence — risk profiles (§11), surfacing what the gate populates.
+    public record DeviceProfileView(UUID id, UUID userId, String deviceId, boolean trusted, int transferCount,
+                                    int riskScore, String country, Instant lastSeenAt) {}
+    public record BeneficiaryProfileView(UUID id, UUID beneficiaryAccountId, long totalTransfers, int distinctSenders,
+                                         BigDecimal totalAmountReceived, boolean confirmedFraudLinked, int riskScore,
+                                         Instant firstTransferAt) {}
+    public record UserProfileView(UUID userId, BigDecimal medianTransferAmount, BigDecimal maxNormalTransferAmount,
+                                  long transferCount, String riskLevel, Instant lastPasswordChangeAt) {}
 }

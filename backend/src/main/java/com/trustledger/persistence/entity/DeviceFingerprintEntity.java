@@ -71,6 +71,9 @@ public class DeviceFingerprintEntity {
     public void setRiskScore(int v) { this.riskScore = v; }
     public int getTransferCount() { return transferCount; }
     public void setTransferCount(int v) { this.transferCount = v; }
+    public UUID getUserId() { return userId; }
+    public String getCountry() { return country; }
+    public Instant getLastSeenAt() { return lastSeenAt; }
     public void setLastSeenAt(Instant v) { this.lastSeenAt = v; }
     public void setCountry(String v) { this.country = v; }
     public void setIpAddress(String v) { this.ipAddress = v; }

@@ -53,6 +53,7 @@ public class BeneficiaryRiskProfileEntity {
     }
 
     public UUID getId() { return id; }
+    public UUID getBeneficiaryAccountId() { return beneficiaryAccountId; }
     public Instant getFirstTransferAt() { return firstTransferAt; }
     public long getTotalTransfers() { return totalTransfers; }
     public void setTotalTransfers(long v) { this.totalTransfers = v; }
