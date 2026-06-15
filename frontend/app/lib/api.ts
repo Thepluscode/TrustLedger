@@ -5,6 +5,7 @@ import type {
   AuditLogView,
   AuthResponse,
   CreatedApiKey,
+  MonitoringSnapshot,
   BeneficiaryView,
   DashboardSummary,
   EvidenceExportView,
@@ -131,6 +132,8 @@ export const api = {
     request<CreatedApiKey>(`/api/v1/developer/api-keys/${id}/rotate`, { method: "POST" }),
   revokeApiKey: (id: string) =>
     request<ApiKey>(`/api/v1/developer/api-keys/${id}/revoke`, { method: "POST" }),
+
+  getMonitoring: () => request<MonitoringSnapshot>("/api/v1/monitoring"),
 
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 

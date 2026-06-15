@@ -295,10 +295,26 @@ revoked via the modal → row `REVOKED`, key then **401**. Backed by
 `ApiKeyManagementIntegrationTest.apiKeyLifecycleAuthenticationAndGuards` (create/list/rotate/revoke,
 secret-once, auth+RBAC, scope guards, VIEWER-403); full suite **123/123 green**.
 
-Deferred (needs net-new backend, see design.md coverage map):
-monitoring JSON (§20 — only the Prometheus scrape exists; no JSON health/latency endpoint yet). The
-held-case approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real
-held cases (see the closed v2.3/v2.8 deferral above).
+**Monitoring (§20) — done (2026-06-15).** New `MonitoringController` + `MonitoringService`
+(MONITORING_VIEW-gated; granted to OWNER/ADMIN, DEVELOPER, AUDITOR): `GET /api/v1/monitoring` returns a
+live snapshot assembled **only from real state** — a `SELECT 1` DB liveness probe (+ round-trip ms),
+transfer & fraud-scoring latency read from Actuator's `http.server.requests` timer (zero hot-path
+instrumentation — no risk to the transfer pipeline), tenant-scoped outbox lag (pending + oldest age),
+webhook failure rate, reconciliation open issues + last run, provider-confirmation backlog
+(`PENDING_UNKNOWN` transfers), and a `pg_locks` lock-wait count. Each component carries OK/WARN/CRITICAL;
+overall is **CRITICAL only when the DB is unreachable** (the one can't-serve condition), WARN on any
+degradation, else "All critical systems operational". **Nothing is synthesised** — an unmeasured signal
+shows 0/"—", never a fake number; the two design signals without a real source (export failure rate, and
+per-stage timing beyond the HTTP timer) are deliberately omitted rather than faked. Console `/monitoring`
+page (Developer nav): status banner + a card grid, manual refresh. **Live evidence (console + API):** DB
+probe 26 ms, banner OK; after 3 real `POST /fraud/assess` calls the Fraud-scoring card read **3 samples,
+mean 84.1 ms, max 229.9 ms** from the live timer; all other components OK at zero-state. Backed by
+`MonitoringIntegrationTest.monitoringSnapshotIsRealAndGated` (real DB-up snapshot, never CRITICAL when up,
+zero-state components, AUDITOR-200 / FINANCE_OPERATOR-403); full suite **124/124 green**.
+
+**Deferred-screens list is now empty.** Every design.md v3.0 console screen with a real backing endpoint
+is surfaced and live-wired. The held-case approve/reject modal is **live-testable end-to-end**: the
+intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
 
 ### v3.0 follow-up: intelligence gate live (2026-06-13)
 

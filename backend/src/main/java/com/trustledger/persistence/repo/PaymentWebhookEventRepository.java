@@ -9,4 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface PaymentWebhookEventRepository extends JpaRepository<PaymentWebhookEventEntity, UUID> {
     Optional<PaymentWebhookEventEntity> findByProviderAndEventId(String provider, String eventId);
     List<PaymentWebhookEventEntity> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
+
+    long countByTenantId(UUID tenantId);
+    long countByTenantIdAndSignatureValid(UUID tenantId, boolean signatureValid);
+    long countByTenantIdAndProcessed(UUID tenantId, boolean processed);
 }

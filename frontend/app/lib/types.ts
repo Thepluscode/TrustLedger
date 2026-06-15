@@ -237,6 +237,63 @@ export interface PolicyImpact {
   candidate: BandCounts;
 }
 
+export interface ComponentHealth {
+  status: string;
+  up: boolean;
+  latencyMs: number | null;
+}
+
+export interface LatencyStat {
+  status: string;
+  endpoint: string;
+  samples: number;
+  meanMs: number | null;
+  maxMs: number | null;
+}
+
+export interface OutboxHealth {
+  status: string;
+  pending: number;
+  oldestPendingAgeSeconds: number | null;
+}
+
+export interface WebhookHealth {
+  status: string;
+  total: number;
+  invalidSignature: number;
+  unprocessed: number;
+  failureRatePct: number;
+}
+
+export interface ReconciliationHealth {
+  status: string;
+  openIssues: number;
+  lastIssueAt: string | null;
+}
+
+export interface PaymentsHealth {
+  status: string;
+  awaitingProviderConfirmation: number;
+}
+
+export interface LockHealth {
+  status: string;
+  waitingLocks: number;
+}
+
+export interface MonitoringSnapshot {
+  overallStatus: string;
+  banner: string;
+  database: ComponentHealth;
+  transferLatency: LatencyStat;
+  fraudScoringLatency: LatencyStat;
+  outbox: OutboxHealth;
+  webhooks: WebhookHealth;
+  reconciliation: ReconciliationHealth;
+  payments: PaymentsHealth;
+  dbLockWait: LockHealth;
+}
+
 export interface ApiError {
   code: string;
   error: string;

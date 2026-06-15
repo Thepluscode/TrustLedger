@@ -18,6 +18,7 @@ public final class Permission {
     public static final String RETENTION_POLICY_MANAGE = "RETENTION_POLICY_MANAGE";
     public static final String USER_MANAGE = "USER_MANAGE";
     public static final String API_KEY_MANAGE = "API_KEY_MANAGE";
+    public static final String MONITORING_VIEW = "MONITORING_VIEW";
     public static final String BILLING_VIEW = "BILLING_VIEW";
     public static final String TENANT_ADMIN = "TENANT_ADMIN";
 }
