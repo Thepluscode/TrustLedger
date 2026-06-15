@@ -1,5 +1,6 @@
 package com.trustledger.config;
 
+import com.trustledger.security.ApiKeyAuthFilter;
 import com.trustledger.security.JwtAuthFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
@@ -28,7 +29,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter,
+                                           ApiKeyAuthFilter apiKeyAuthFilter) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(Customizer.withDefaults()) // uses the corsConfigurationSource bean below
@@ -46,7 +48,9 @@ public class SecurityConfig {
                 .frameOptions(fo -> fo.deny())
                 .referrerPolicy(rp -> rp.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                 .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'")))
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            // API-key auth runs first; it ignores Bearer tokens, leaving those to the JWT filter.
+            .addFilterBefore(apiKeyAuthFilter, JwtAuthFilter.class);
         return http.build();
     }
 
@@ -66,7 +70,7 @@ public class SecurityConfig {
         CorsConfiguration cfg = new CorsConfiguration();
         cfg.setAllowedOrigins(Arrays.stream(allowedOrigins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
+        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"));
         cfg.setExposedHeaders(List.of("X-Evidence-Checksum"));
         cfg.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

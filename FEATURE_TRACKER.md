@@ -280,11 +280,25 @@ password shown, member listed with an editable role. Backed by
 `UserManagementIntegrationTest.teamManagementListInviteRoleGuardsAndPermission` (happy path + both
 guards + VIEWER-403 + unknown-role-400); full suite **122/122 green**.
 
-Deferred (need net-new backend, see design.md coverage map):
-developer/API keys (§19 — no key issuance/storage exists),
-monitoring JSON (§20 — only the Prometheus scrape exists). The held-case
-approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
-(see the closed v2.3/v2.8 deferral above).
+**Developer API keys (§19) — done (2026-06-15).** New `ApiKeyController` + `ApiKeyService` (tenant-scoped,
+API_KEY_MANAGE-gated): `GET/POST /api/v1/developer/api-keys`, `POST /{id}/rotate`, `POST /{id}/revoke`.
+The plaintext secret (`tlk_<prefix>_<secret>`) is returned **exactly once** at create/rotate; only its
+SHA-256 hash is stored. A key carries a **scope = role** (any assignable role except OWNER), so a new
+`ApiKeyAuthFilter` (runs before the JWT filter; honours `Authorization: ApiKey <key>` / `X-API-Key`)
+populates the same `AuthPrincipal` and the existing RBAC applies unchanged. Last-used is stamped with a
+60s throttle (no per-request write storm, Rule 3); rotate/revoke kill the old secret instantly. Console
+`/developer/api-keys` page (new Developer nav): create form (secret shown once), key table, rotate/revoke
+behind the typed-confirm modal. **Live evidence (console + API):** created `CI deploy bot` (secret shown
+once) → the key returned **200** on `/transfers` (DEVELOPER has TRANSFER_VIEW) and **403** on
+`/tenant/fraud-policy` (RBAC through the key); garbage/no-auth → **401**; last-used stamped after use;
+revoked via the modal → row `REVOKED`, key then **401**. Backed by
+`ApiKeyManagementIntegrationTest.apiKeyLifecycleAuthenticationAndGuards` (create/list/rotate/revoke,
+secret-once, auth+RBAC, scope guards, VIEWER-403); full suite **123/123 green**.
+
+Deferred (needs net-new backend, see design.md coverage map):
+monitoring JSON (§20 — only the Prometheus scrape exists; no JSON health/latency endpoint yet). The
+held-case approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real
+held cases (see the closed v2.3/v2.8 deferral above).
 
 ### v3.0 follow-up: intelligence gate live (2026-06-13)
 

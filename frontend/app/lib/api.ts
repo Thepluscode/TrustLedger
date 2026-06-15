@@ -1,8 +1,10 @@
 import type {
   AccountView,
+  ApiKey,
   AssessResponse,
   AuditLogView,
   AuthResponse,
+  CreatedApiKey,
   BeneficiaryView,
   DashboardSummary,
   EvidenceExportView,
@@ -121,6 +123,14 @@ export const api = {
     request<InvitedUser>("/api/v1/users/invite", { method: "POST", body: JSON.stringify({ email, role }) }),
   changeUserRole: (id: string, role: string) =>
     request<TeamMember>(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+
+  listApiKeys: () => request<ApiKey[]>("/api/v1/developer/api-keys"),
+  createApiKey: (name: string, scope: string) =>
+    request<CreatedApiKey>("/api/v1/developer/api-keys", { method: "POST", body: JSON.stringify({ name, scope }) }),
+  rotateApiKey: (id: string) =>
+    request<CreatedApiKey>(`/api/v1/developer/api-keys/${id}/rotate`, { method: "POST" }),
+  revokeApiKey: (id: string) =>
+    request<ApiKey>(`/api/v1/developer/api-keys/${id}/revoke`, { method: "POST" }),
 
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 

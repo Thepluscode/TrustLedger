@@ -61,4 +61,11 @@ public final class ApiViews {
     /** Team member (§17.3) — never exposes the password hash. */
     public record UserView(UUID id, String email, String role, Instant createdAt) {}
     public record InvitedUserView(UUID id, String email, String role, String temporaryPassword) {}
+
+    /** Developer API key (§19) — only the public prefix; the secret is never returned here. */
+    public record ApiKeyView(UUID id, String name, String keyPrefix, String scope, UUID createdBy,
+                             Instant createdAt, Instant lastUsedAt, Instant rotatedAt, Instant revokedAt,
+                             boolean revoked) {}
+    /** Returned exactly once at create/rotate: carries the one-time plaintext secret. */
+    public record CreatedApiKeyView(UUID id, String name, String keyPrefix, String scope, String secret) {}
 }

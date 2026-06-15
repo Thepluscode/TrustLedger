@@ -10,7 +10,8 @@ public final class RolePermissions {
 
     private static final Set<String> ALL = Set.of(TRANSFER_VIEW, TRANSFER_CREATE, TRANSFER_APPROVE,
         FRAUD_CASE_VIEW, FRAUD_CASE_APPROVE, LEDGER_VIEW, LEDGER_EXPORT, AUDIT_VIEW, EVIDENCE_EXPORT,
-        PROVIDER_CONFIG_MANAGE, FRAUD_POLICY_MANAGE, RETENTION_POLICY_MANAGE, USER_MANAGE, BILLING_VIEW, TENANT_ADMIN);
+        PROVIDER_CONFIG_MANAGE, FRAUD_POLICY_MANAGE, RETENTION_POLICY_MANAGE, USER_MANAGE, API_KEY_MANAGE,
+        BILLING_VIEW, TENANT_ADMIN);
 
     public static Set<String> of(String role) {
         if (role == null) return Set.of();
@@ -22,7 +23,7 @@ public final class RolePermissions {
             case "FINANCE_OPERATOR" -> Set.of(TRANSFER_VIEW, TRANSFER_CREATE, TRANSFER_APPROVE, LEDGER_VIEW, LEDGER_EXPORT);
             case "AUDITOR" -> Set.of(AUDIT_VIEW, LEDGER_VIEW, FRAUD_CASE_VIEW, EVIDENCE_EXPORT);
             case "VIEWER" -> Set.of(TRANSFER_VIEW, FRAUD_CASE_VIEW, LEDGER_VIEW);
-            case "DEVELOPER" -> Set.of(PROVIDER_CONFIG_MANAGE, TRANSFER_VIEW);
+            case "DEVELOPER" -> Set.of(PROVIDER_CONFIG_MANAGE, API_KEY_MANAGE, TRANSFER_VIEW);
             default -> Set.of();
         };
     }

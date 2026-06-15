@@ -34,6 +34,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
       ["Audit Logs", "/audit-logs"],
     ],
   },
+  { label: "Developer", links: [["API Keys", "/developer/api-keys"]] },
   { label: "Organisation", links: [["Tenant Admin", "/admin"], ["Users & Roles", "/users"]] },
 ];
 

@@ -189,6 +189,27 @@ export interface InvitedUser {
   temporaryPassword: string;
 }
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scope: string;
+  createdBy: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  rotatedAt: string | null;
+  revokedAt: string | null;
+  revoked: boolean;
+}
+
+export interface CreatedApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scope: string;
+  secret: string;
+}
+
 export interface WebhookEvent {
   id: string;
   provider: string;
