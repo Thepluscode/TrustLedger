@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-06-09
+Last updated: 2026-06-15
 
 ## v1.0 — ledger-first domain spine
 
@@ -315,6 +315,41 @@ zero-state components, AUDITOR-200 / FINANCE_OPERATOR-403); full suite **124/124
 **Deferred-screens list is now empty.** Every design.md v3.0 console screen with a real backing endpoint
 is surfaced and live-wired. The held-case approve/reject modal is **live-testable end-to-end**: the
 intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
+
+## Session summary — 2026-06-15 (v3.0 console deferred-screens cleared)
+
+One sitting that closed out the entire design.md v3.0 deferred-console-screens list, one verified slice at
+a time. Every slice followed the same discipline: surface only what a real endpoint provides (**never fake
+data in the UI** — honest `0`/`—`/omission where there's no source), live-wired (no mock layer), a backend
+integration test, full-suite-green, live Playwright verification in the console, tracker update, then
+commit + push to the private `Thepluscode/TrustLedger` with both CI workflows (CI + Security) green.
+
+Screens delivered this session (all **VERIFIED**, see the detailed entries above):
+
+| § | Screen | Endpoint(s) | Test | Commit |
+|---|--------|-------------|------|--------|
+| §8  | Transfer query/detail | `GET /transfers`, `/transfers/{id}` | `TransferApiIntegrationTest` | — |
+| §11 | Risk profiles | `/fraud/risk-profiles/{devices,beneficiaries,users}` | `FraudIntelligenceIntegrationTest` | — |
+| §14 | Reconciliation | `/reconciliation/issues[/{id}][/resolve]` | recon suite | — |
+| §13.5 | Webhook events | `/payment-rails/webhooks` | webhook suite | — |
+| §23.1 | Command palette | (client; existing endpoints) | build + live | — |
+| §18 | Onboarding / getting started | data-derived status | live | — |
+| §17.3 | Users & roles | `/users`, `/users/invite`, `/users/{id}/role` | `UserManagementIntegrationTest` | `0545db8` |
+| §19 | Developer API keys | `/developer/api-keys[/{id}/rotate|/revoke]` | `ApiKeyManagementIntegrationTest` | `de6cc1e` |
+| §20 | Monitoring | `/monitoring` | `MonitoringIntegrationTest` | `228dc1d` |
+
+**Two genuine bugs fixed along the way** (not just feature work): a cross-tenant reconciliation count
+(`countByStatus` → `countByTenantIdAndStatus`), and a webhook `processed`-flag that never persisted
+(assigned-`@Id` entity → `save()` is a merge; must keep the returned managed instance).
+
+**New security surface added & gated:** `USER_MANAGE` (team mgmt, with anti-escalation + anti-lockout OWNER
+guards), `API_KEY_MANAGE` (keys carry a scope=role, authenticate via a new `ApiKeyAuthFilter`, secret
+SHA-256-hashed & shown once), `MONITORING_VIEW`. New migration **V20** (`api_keys`). Backend suite grew
+**116 → 124** tests, all green; frontend builds clean throughout.
+
+**State at session end:** backend (:8090), console (:3010), and the `tl-demo-pg` Postgres container (:55433)
+all **stopped** on request (container stopped, not removed — `docker start tl-demo-pg` to resume; data
+persists). No open threads; the deferred list is empty.
 
 ### v3.0 follow-up: intelligence gate live (2026-06-13)
 
