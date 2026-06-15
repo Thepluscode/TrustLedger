@@ -60,7 +60,14 @@ public class PaymentWebhookEventEntity {
     }
 
     public UUID getId() { return id; }
+    public UUID getTenantId() { return tenantId; }
+    public String getProvider() { return provider; }
+    public String getProviderReference() { return providerReference; }
     public String getEventId() { return eventId; }
+    public String getEventType() { return eventType; }
+    public String getPayload() { return payload; }
+    public boolean isSignatureValid() { return signatureValid; }
     public boolean isProcessed() { return processed; }
     public void setProcessed(boolean processed) { this.processed = processed; }
+    public Instant getCreatedAt() { return createdAt; }
 }

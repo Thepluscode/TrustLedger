@@ -25,6 +25,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
       ["ML Monitoring", "/ml"],
     ],
   },
+  { label: "Payment Rails", links: [["Webhooks", "/webhooks"]] },
   {
     label: "Compliance",
     links: [

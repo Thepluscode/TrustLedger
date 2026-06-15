@@ -14,6 +14,7 @@ import type {
   PolicyImpact,
   ReconciliationIssue,
   UserProfile,
+  WebhookEvent,
   LedgerEntryView,
   LedgerTransactionView,
   TransferDetail,
@@ -112,6 +113,8 @@ export const api = {
     request<LedgerTransactionView>(`/api/v1/ledger/transactions/${id}`),
 
   listAuditLogs: () => request<AuditLogView[]>("/api/v1/audit-logs"),
+
+  listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 
   listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),

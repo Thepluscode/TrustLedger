@@ -175,6 +175,18 @@ export interface ReconciliationIssue {
   resolvedAt: string | null;
 }
 
+export interface WebhookEvent {
+  id: string;
+  provider: string;
+  providerReference: string;
+  eventId: string;
+  eventType: string;
+  signatureValid: boolean;
+  processed: boolean;
+  payload: string;
+  createdAt: string;
+}
+
 export interface BandCounts {
   total: number;
   allow: number;

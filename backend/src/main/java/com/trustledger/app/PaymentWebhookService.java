@@ -53,14 +53,17 @@ public class PaymentWebhookService {
         if (webhookEvents.findByProviderAndEventId(SandboxPaymentRailAdapter.RAIL, eventId).isPresent()) {
             return Result.DUPLICATE;
         }
-        PaymentWebhookEventEntity event = new PaymentWebhookEventEntity(UUID.randomUUID(), null,
-            SandboxPaymentRailAdapter.RAIL, ref, eventId, eventType, rawBody, valid, false);
-        webhookEvents.save(event);
-
-        if (!valid) return Result.INVALID_SIGNATURE; // recorded, but never mutates ledger state
-
+        // Resolve the originating attempt up front so the event is stamped with its tenant (the
+        // webhook is signature-authenticated, not tenant-scoped).
         Optional<ExternalPaymentAttemptEntity> attempt =
             attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref);
+        UUID tenantId = attempt.map(ExternalPaymentAttemptEntity::getTenantId).orElse(null);
+        // Assigned @Id => save() is a merge that returns the managed copy; keep that reference so the
+        // later processed=true actually persists (the passed instance stays detached).
+        PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
+            tenantId, SandboxPaymentRailAdapter.RAIL, ref, eventId, eventType, rawBody, valid, false));
+
+        if (!valid) return Result.INVALID_SIGNATURE; // recorded, but never mutates ledger state
         if (attempt.isEmpty()) return Result.UNKNOWN_REFERENCE;
 
         switch (eventType) {
@@ -69,6 +72,7 @@ public class PaymentWebhookService {
             default -> { return Result.IGNORED; }
         }
         event.setProcessed(true);
+        webhookEvents.save(event);
         return Result.PROCESSED;
     }
 

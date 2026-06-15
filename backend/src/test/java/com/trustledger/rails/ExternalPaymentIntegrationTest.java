@@ -104,6 +104,30 @@ class ExternalPaymentIntegrationTest {
         return attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref).orElseThrow().getStatus();
     }
 
+    /** Webhook events are listed for the tenant that owns the payment, signature/processed flagged. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void webhookEventsListedAndTenantScoped() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = initiate(s.token(), src, "200.00", "success", "wh-init").get("providerReference").toString();
+        assertEquals(200, webhook(ref, "SETTLED", "wh-evt-1", true));
+
+        java.util.List<java.util.Map<String, Object>> rows = json.readValue(webhookList(s.token()).body(), java.util.List.class);
+        assertTrue(rows.stream().anyMatch(r -> "wh-evt-1".equals(r.get("eventId"))
+            && Boolean.TRUE.equals(r.get("signatureValid")) && Boolean.TRUE.equals(r.get("processed"))),
+            "the tenant's processed webhook event is listed");
+
+        // A different tenant must not see this tenant's webhook events.
+        java.util.List<java.util.Map<String, Object>> other = json.readValue(webhookList(register().token()).body(), java.util.List.class);
+        assertTrue(other.stream().noneMatch(r -> "wh-evt-1".equals(r.get("eventId"))), "webhook events are tenant-scoped");
+    }
+
+    private HttpResponse<String> webhookList(String token) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri("/api/v1/payment-rails/webhooks"))
+            .header("Authorization", "Bearer " + token).GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     /** The live intelligence gate: an external payout from an untrusted device is held for review
      * (funds reserved, NOT submitted to the rail) and opens an OPEN fraud case. */
     @Test

@@ -52,4 +52,9 @@ public final class ApiViews {
     public record ReconciliationIssueView(UUID id, String severity, String type, String entityType, UUID entityId,
                                           String expectedState, String actualState, String evidence, String status,
                                           Instant createdAt, Instant resolvedAt) {}
+
+    /** Inbound provider webhook event (§13.5). Deduped by (provider, eventId); duplicates never persist. */
+    public record WebhookEventView(UUID id, String provider, String providerReference, String eventId,
+                                   String eventType, boolean signatureValid, boolean processed, String payload,
+                                   Instant createdAt) {}
 }

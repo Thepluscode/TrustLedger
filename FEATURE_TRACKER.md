@@ -241,8 +241,21 @@ Critical 1; opened the critical one (expected `debits == credits` vs actual `100
 JSON), resolved it → status RESOLVED + timestamp stamped. Backed by
 `TransferApiIntegrationTest.reconciliationIssuesListResolveAndTenantScoped`; full suite **120/120**.
 
+**Webhook events (§13.5) — done (2026-06-15).** `WebhookEventController` exposes inbound provider
+callbacks tenant-scoped: `GET /api/v1/payment-rails/webhooks` (signature-valid + processed flags,
+payload). `PaymentWebhookService` now stamps each event's tenant from the originating attempt (the
+webhook itself is signature-authenticated, not JWT) so the list can be scoped. Console `/webhooks`
+page (Payment Rails nav): event table with signature/processed pills, expandable payload, and the
+dedup guarantee called out (replayed callbacks never persist a second row / double-post the ledger).
+**Also fixed a latent bug**: the event's `processed` flag never persisted — the assigned-`@Id` entity
+makes Spring Data `save()` a `merge()`, so the post-settle `setProcessed(true)` was applied to a
+detached copy; now we keep the managed instance. **Live evidence:** external payment →
+PENDING_SETTLEMENT → a real HMAC-signed SETTLED webhook (200) → the event lists as signature `valid` /
+`processed`. Backed by `ExternalPaymentIntegrationTest.webhookEventsListedAndTenantScoped`; full suite
+**121/121 green**.
+
 Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
-webhook event list (§13.5), onboarding (§18), developer/API keys (§19),
+onboarding (§18), developer/API keys (§19),
 monitoring JSON (§20), command palette (§23.1), users & roles admin (§17.3). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
 (see the closed v2.3/v2.8 deferral above).
