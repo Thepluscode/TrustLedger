@@ -254,9 +254,16 @@ PENDING_SETTLEMENT → a real HMAC-signed SETTLED webhook (200) → the event li
 `processed`. Backed by `ExternalPaymentIntegrationTest.webhookEventsListedAndTenantScoped`; full suite
 **121/121 green**.
 
+**Command palette (§23.1) — done (2026-06-15).** A global Cmd/Ctrl+K palette (`CommandPalette`,
+mounted in the shell + a topbar "Search ⌘K" trigger): fuzzy search over all destinations/actions by
+label or keyword, arrow-key navigation, Enter to jump, Esc to close; pasting a transaction UUID
+offers a direct "Open transfer …" jump. Frontend-only (no backend). **Live evidence (console):**
+opened it, typed "mule" → fuzzy-matched Risk profiles via keywords, Enter navigated to
+/risk-profiles. Frontend tsc + build green.
+
 Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
 onboarding (§18), developer/API keys (§19),
-monitoring JSON (§20), command palette (§23.1), users & roles admin (§17.3). The held-case
+monitoring JSON (§20), users & roles admin (§17.3). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
 (see the closed v2.3/v2.8 deferral above).
 

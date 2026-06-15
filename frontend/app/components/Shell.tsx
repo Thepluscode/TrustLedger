@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { getSession, getToken, setSession, setToken } from "../lib/api";
+import CommandPalette from "./CommandPalette";
 
 /** Grouped navigation (design.md §4.1), scoped to routes that exist and are live-wired. */
 const NAV: { label: string; links: [string, string][] }[] = [
@@ -123,6 +124,13 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           <span className="crumb">{activeTitle}</span>
           <span className={`envbadge ${ENVIRONMENT}`}>{ENVIRONMENT}</span>
           <span className="spacer" />
+          <button
+            className="cmdk-trigger"
+            aria-label="Open command palette"
+            onClick={() => window.dispatchEvent(new Event("trustledger:cmdk"))}
+          >
+            Search <kbd>⌘K</kbd>
+          </button>
           {session && (
             <span className="tenantchip" title={session.tenantId}>
               Tenant <b className="mono">{session.tenantId.slice(0, 8)}…</b>
@@ -136,6 +144,7 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           {children}
         </main>
       </div>
+      <CommandPalette />
     </div>
   );
 }
