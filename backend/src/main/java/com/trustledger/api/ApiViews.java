@@ -57,4 +57,8 @@ public final class ApiViews {
     public record WebhookEventView(UUID id, String provider, String providerReference, String eventId,
                                    String eventType, boolean signatureValid, boolean processed, String payload,
                                    Instant createdAt) {}
+
+    /** Team member (§17.3) — never exposes the password hash. */
+    public record UserView(UUID id, String email, String role, Instant createdAt) {}
+    public record InvitedUserView(UUID id, String email, String role, String temporaryPassword) {}
 }

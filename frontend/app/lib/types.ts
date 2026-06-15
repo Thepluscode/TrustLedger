@@ -175,6 +175,20 @@ export interface ReconciliationIssue {
   resolvedAt: string | null;
 }
 
+export interface TeamMember {
+  id: string;
+  email: string;
+  role: string;
+  createdAt: string;
+}
+
+export interface InvitedUser {
+  id: string;
+  email: string;
+  role: string;
+  temporaryPassword: string;
+}
+
 export interface WebhookEvent {
   id: string;
   provider: string;

@@ -269,9 +269,20 @@ only when thresholds differ from the safe defaults. Frontend-only. **Live eviden
 tenant with an account + a transfer + a customised policy showed "Core setup: 3 of 3" with those
 three auto-checked and provider/evidence as optional todos. Frontend tsc + build green.
 
-Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
-developer/API keys (§19),
-monitoring JSON (§20), users & roles admin (§17.3). The held-case
+**Users & roles (§17.3) — done (2026-06-15).** New `UserController` + `UserService` (tenant-scoped,
+USER_MANAGE-gated): `GET /api/v1/users` (never returns the password hash), `POST /api/v1/users/invite`
+(server-generated one-time temp password — no invite-email infra, shared out of band), `PATCH
+/api/v1/users/{id}/role`. Two non-negotiable guards in the service: only an OWNER can grant OWNER
+(anti-escalation → 403) and the last OWNER can't be demoted (anti-lockout → 422); all mutations
+audited. Console `/users` page (Organisation nav): invite form (temp password shown once) + member
+table with inline role selects. **Live evidence (console):** invited analyst@teamdemo.local → one-time
+password shown, member listed with an editable role. Backed by
+`UserManagementIntegrationTest.teamManagementListInviteRoleGuardsAndPermission` (happy path + both
+guards + VIEWER-403 + unknown-role-400); full suite **122/122 green**.
+
+Deferred (need net-new backend, see design.md coverage map):
+developer/API keys (§19 — no key issuance/storage exists),
+monitoring JSON (§20 — only the Prometheus scrape exists). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
 (see the closed v2.3/v2.8 deferral above).
 

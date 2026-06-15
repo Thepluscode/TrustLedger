@@ -12,7 +12,9 @@ import type {
   FraudCaseView,
   FraudPolicy,
   PolicyImpact,
+  InvitedUser,
   ReconciliationIssue,
+  TeamMember,
   UserProfile,
   WebhookEvent,
   LedgerEntryView,
@@ -113,6 +115,12 @@ export const api = {
     request<LedgerTransactionView>(`/api/v1/ledger/transactions/${id}`),
 
   listAuditLogs: () => request<AuditLogView[]>("/api/v1/audit-logs"),
+
+  listUsers: () => request<TeamMember[]>("/api/v1/users"),
+  inviteUser: (email: string, role: string) =>
+    request<InvitedUser>("/api/v1/users/invite", { method: "POST", body: JSON.stringify({ email, role }) }),
+  changeUserRole: (id: string, role: string) =>
+    request<TeamMember>(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
 
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 

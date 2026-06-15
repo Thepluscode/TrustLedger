@@ -48,4 +48,6 @@ public class UserEntity {
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public Instant getCreatedAt() { return createdAt; }
 }
