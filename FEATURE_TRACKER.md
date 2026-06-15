@@ -261,8 +261,16 @@ offers a direct "Open transfer …" jump. Frontend-only (no backend). **Live evi
 opened it, typed "mule" → fuzzy-matched Risk profiles via keywords, Enter navigated to
 /risk-profiles. Frontend tsc + build green.
 
+**Onboarding (§18) — done (2026-06-15).** Console `/onboarding` page ("Getting Started", Overview
+nav): a readiness checklist whose items **check themselves off from real data** (reusing existing
+endpoints — accounts, transfers, fraud policy, providers, evidence), with a core-progress summary and
+a per-step Go/Review link. No backend, never a faked "done": e.g. the fraud-policy step is checked
+only when thresholds differ from the safe defaults. Frontend-only. **Live evidence (console):** a
+tenant with an account + a transfer + a customised policy showed "Core setup: 3 of 3" with those
+three auto-checked and provider/evidence as optional todos. Frontend tsc + build green.
+
 Deferred (no backend endpoint — never faked in UI, see design.md coverage map):
-onboarding (§18), developer/API keys (§19),
+developer/API keys (§19),
 monitoring JSON (§20), users & roles admin (§17.3). The held-case
 approve/reject modal is now **live-testable end-to-end**: the intelligence gate opens real held cases
 (see the closed v2.3/v2.8 deferral above).

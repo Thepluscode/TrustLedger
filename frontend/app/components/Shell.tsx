@@ -8,7 +8,7 @@ import CommandPalette from "./CommandPalette";
 
 /** Grouped navigation (design.md §4.1), scoped to routes that exist and are live-wired. */
 const NAV: { label: string; links: [string, string][] }[] = [
-  { label: "Overview", links: [["Dashboard", "/dashboard"]] },
+  { label: "Overview", links: [["Dashboard", "/dashboard"], ["Getting Started", "/onboarding"]] },
   {
     label: "Money",
     links: [
