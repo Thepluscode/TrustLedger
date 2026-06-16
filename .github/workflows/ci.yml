@@ -58,7 +58,7 @@ jobs:
           helm lint deploy/helm/trustledger
           helm template tl deploy/helm/trustledger > /dev/null
           helm template tl deploy/helm/trustledger --set secret.existingSecret=trustledger-secrets > /dev/null
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform validate
         run: |
           terraform -chdir=deploy/terraform init -backend=false -input=false
