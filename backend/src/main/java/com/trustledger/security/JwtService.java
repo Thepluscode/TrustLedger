@@ -37,6 +37,8 @@ public class JwtService {
         this.json = json;
     }
 
+    public long ttlSeconds() { return ttlSeconds; }
+
     public String issue(AuthPrincipal p) {
         long now = Instant.now().getEpochSecond();
         String header = B64.encodeToString(writeJson(Map.of("alg", "HS256", "typ", "JWT")));

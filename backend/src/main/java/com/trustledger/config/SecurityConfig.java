@@ -36,7 +36,8 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults()) // uses the corsConfigurationSource bean below
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register",
+                        "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/payment-rails/webhooks/**").permitAll() // signature-authenticated
                 .requestMatchers(HttpMethod.GET, "/api/v2/payment-providers/*/callback").permitAll() // state-protected bank redirect
                 .requestMatchers(HttpMethod.GET, "/api/health", "/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
