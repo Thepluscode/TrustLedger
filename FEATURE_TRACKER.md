@@ -3,7 +3,34 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-06-15
+Last updated: 2026-06-21
+
+## Spring Boot 4.0.0 → 4.0.7 upgrade — clears the entire dependency-CVE backlog (2026-06-21) — DEPLOYED
+
+Follow-up to the CI security hardening PR (which baselined the backlog). Bumped
+`spring-boot-starter-parent` 4.0.0 → **4.0.7** (latest 4.0.x patch — same major, low risk). Java stays 17.
+
+**Measured CVE impact** (Trivy `fs` HIGH,CRITICAL, before vs after):
+
+| | HIGH | CRITICAL | total |
+|--|--|--|--|
+| before (4.0.0) | 18 | 6 | **24** |
+| after (4.0.7) | 0 | 0 | **0** |
+
+**All 24 cleared, every critical gone** — incl. embedded Tomcat `CVE-2026-43512/43515`, spring-security-web
+`CVE-2026-22732`, spring-boot `CVE-2026-40976`, kafka-clients `CVE-2026-33557`. The stragglers that
+looked like they might need explicit overrides (spring-security-config 7.0.5, kafka-clients 4.1.2,
+jackson-core 3.1.1) were all pulled transitively by 4.0.7 — **no manual version overrides needed**.
+
+**Verification:** clean `mvn clean test-compile`; full `mvn test` against real Postgres + Redpanda
+(Testcontainers) → **124 run, 0 failures, 0 errors, 0 skipped**. (A local run first showed 20
+`testcontainers/ryuk` container-launch errors — a local Docker/Ryuk hiccup, not a code regression;
+re-run with `TESTCONTAINERS_RYUK_DISABLED=true` was fully green, and CI's clean runner runs Ryuk
+normally.) Marked DEPLOYED (CI-verified); not yet observed on the live stack.
+
+> **Baseline coordination:** the security-hardening PR's `.trivyignore` baselines all 24 of these CVEs.
+> After both merge, the baseline can be **emptied/deleted** — 0 HIGH/CRIT remain (all 24 were backend
+> Maven; TrustLedger had no frontend CVEs).
 
 ## v1.0 — ledger-first domain spine
 
