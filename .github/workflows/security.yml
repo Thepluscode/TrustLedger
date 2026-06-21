@@ -15,13 +15,24 @@ jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+          fetch-depth: 0          # full history so the scan covers every commit
+      # Pinned gitleaks binary instead of gitleaks-action@v2: the action's
+      # ScanPullRequest path needs pull-requests-write GitHub API access and fails on
+      # every PR ("Resource not accessible by integration"). The binary just scans —
+      # no API call, no org-license gate, no Node-20 deprecation.
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Scan repository history
+        run: gitleaks git . --no-banner --redact --exit-code 1
 
   sast:
     name: SAST (Semgrep)
