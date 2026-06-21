@@ -23,6 +23,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Semgrep
+        run: pip install semgrep==1.167.0   # pinned; OSS registry rulesets (no login)
+      # Blocking: --error exits non-zero on any finding. Verified 0 findings at
+      # introduction, so this gates regressions rather than the existing code.
+      - name: Semgrep scan
+        run: |
+          semgrep scan --error --metrics off \
+            --config p/java --config p/javascript \
+            --config p/owasp-top-ten --config p/secrets \
+            backend frontend
+
   dependency-scan:
     name: Dependency & filesystem scan (Trivy)
     runs-on: ubuntu-latest
@@ -34,7 +53,10 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
-          exit-code: "0"   # advisory for the pilot; flip to 1 to block
+          # Blocking on NEW HIGH/CRITICAL. The pre-existing backlog is baselined in
+          # .trivyignore (cleared by the Spring Boot 4.0.6 bump, tracked separately).
+          exit-code: "1"
+          trivyignores: .trivyignore
 
   sbom:
     name: SBOM (CycloneDX)

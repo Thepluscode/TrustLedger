@@ -12,6 +12,8 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app ./
+# Run as the image's built-in unprivileged `node` user, not root.
+COPY --from=build --chown=node:node /app ./
+USER node
 EXPOSE 3000
 CMD ["npm", "start"]
