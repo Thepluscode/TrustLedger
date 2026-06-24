@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.2 external payment rail: success/failure/timeout, webhooks, duplicate protection, late events. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ExternalPaymentIntegrationTest {
 
     @Container

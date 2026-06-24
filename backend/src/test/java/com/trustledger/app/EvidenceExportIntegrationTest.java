@@ -29,7 +29,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.4: evidence packs include signals + prove ledger balance, are checksummed, audited, tenant-scoped. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class EvidenceExportIntegrationTest {
 
     @Container

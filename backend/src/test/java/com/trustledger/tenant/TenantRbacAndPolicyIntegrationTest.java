@@ -39,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.7: per-tenant fraud policy changes the decision; RBAC gates exports; denials are audited. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TenantRbacAndPolicyIntegrationTest {
 
     @Container

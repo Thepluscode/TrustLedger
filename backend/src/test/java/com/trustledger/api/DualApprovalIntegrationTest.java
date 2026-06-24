@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Dual approval: requester cannot self-approve; a second user in the tenant can. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class DualApprovalIntegrationTest {
 
     @Container

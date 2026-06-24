@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** Two suspicious transfers to the same recipient should produce linked fraud cases. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class FraudCaseLinkingIntegrationTest {
 
     @Container

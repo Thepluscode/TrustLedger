@@ -36,7 +36,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.5 hardening: heavy concurrency, frozen account, secure headers, metrics exposure. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class HardeningIntegrationTest {
 
     @Container

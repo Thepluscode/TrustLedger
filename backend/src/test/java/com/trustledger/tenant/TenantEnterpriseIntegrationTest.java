@@ -25,7 +25,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.7: usage metering, quota enforcement, billing events, production provider config disabled. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TenantEnterpriseIntegrationTest {
 
     @Container
