@@ -78,4 +78,28 @@ class FraudEngineTest {
         FraudDecision d = engine.score(cmd("100000.00"), everything, Money.of("50.00", "GBP"));
         assertTrue(d.riskScore() <= 100);
     }
+
+    @Test
+    void firstTimeUserWithNullPreviousCountryDoesNotThrowAndDoesNotFireImpossibleTravel() {
+        // A brand-new user has no previous login country (previousCountry = null).
+        // The engine must not crash (Map.of rejects null values) and must not fire
+        // IMPOSSIBLE_TRAVEL — there is no prior country to compare against.
+        // newBeneficiary(20) + newDevice(20) = 40 → ALLOW_WITH_MONITORING
+        FraudContext newUser = new FraudContext(
+            /*newBeneficiary*/ true, /*newDevice*/ true,
+            /*failedLogins*/ 0, /*transferCount*/ 0,
+            /*previousCountry*/ null, /*currentCountry*/ "GB",
+            /*minutesSincePreviousLogin*/ 0,
+            /*accountChangedLast24Hours*/ false,
+            /*knownBadDestination*/ false, /*blockedRecipient*/ false,
+            Map.of(), Instant.now());
+
+        FraudDecision d = assertDoesNotThrow(
+            () -> engine.score(cmd("100.00"), newUser, Money.of("50.00", "GBP")));
+
+        assertEquals(40, d.riskScore());
+        assertEquals(FraudDecisionType.ALLOW_WITH_MONITORING, d.decision());
+        assertTrue(d.signals().stream().noneMatch(s -> s.signalType().equals("IMPOSSIBLE_TRAVEL")),
+            "IMPOSSIBLE_TRAVEL must not fire when previousCountry is null");
+    }
 }
