@@ -8,13 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
-/**
- * Deterministic provider selector. It performs hard capability filtering first, then selects the
- * lowest routing priority and finally the canonical provider name as a stable tie-breaker.
- *
- * <p>This deliberately avoids adaptive/ML routing until TrustLedger has enough clean provider
- * outcome data to evaluate it safely.</p>
- */
+/** Deterministic provider selector: hard exclusions first, stable priority second. */
 @Component
 public class PaymentRailRouter {
 
@@ -26,6 +20,11 @@ public class PaymentRailRouter {
 
     public PaymentRouteDecision route(BigDecimal amount, String currency, String destinationCountry,
                                       String preferredProvider) {
+        return route(amount, currency, destinationCountry, preferredProvider, Map.of());
+    }
+
+    public PaymentRouteDecision route(BigDecimal amount, String currency, String destinationCountry,
+                                      String preferredProvider, Map<String, String> externalExclusions) {
         Map<String, String> excluded = new LinkedHashMap<>();
         List<PaymentRailAdapter> eligible = new ArrayList<>();
 
@@ -35,7 +34,10 @@ public class PaymentRailRouter {
         }
 
         for (PaymentRailAdapter adapter : registry.all()) {
-            String rejection = adapter.capabilities().rejectionReason(amount, currency, destinationCountry);
+            String rejection = externalExclusions.get(adapter.rail());
+            if (rejection == null) {
+                rejection = adapter.capabilities().rejectionReason(amount, currency, destinationCountry);
+            }
             if (rejection == null) eligible.add(adapter);
             else excluded.put(adapter.rail(), rejection);
         }
@@ -60,9 +62,9 @@ public class PaymentRailRouter {
     }
 
     private static PaymentRouteDecision decision(PaymentRailAdapter selected,
-                                                  List<PaymentRailAdapter> eligible,
-                                                  Map<String, String> excluded,
-                                                  String reason) {
+                                                   List<PaymentRailAdapter> eligible,
+                                                   Map<String, String> excluded,
+                                                   String reason) {
         List<String> eligibleNames = eligible.stream().map(PaymentRailAdapter::rail).sorted().toList();
         return new PaymentRouteDecision(selected.rail(), selected, eligibleNames, excluded, reason);
     }
@@ -75,8 +77,6 @@ public class PaymentRailRouter {
             this.excludedProviders = Map.copyOf(excludedProviders);
         }
 
-        public Map<String, String> excludedProviders() {
-            return excludedProviders;
-        }
+        public Map<String, String> excludedProviders() { return excludedProviders; }
     }
 }
