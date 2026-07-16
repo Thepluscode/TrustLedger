@@ -12,65 +12,27 @@ import org.hibernate.type.SqlTypes;
 @Table(name = "transfers")
 public class TransferEntity {
 
-    @Id
-    private UUID id;
-
-    @Column(name = "tenant_id", nullable = false)
-    private UUID tenantId;
-
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
-
-    @Column(name = "source_account_id", nullable = false)
-    private UUID sourceAccountId;
-
-    @Column(name = "destination_account_id", nullable = false)
-    private UUID destinationAccountId;
-
-    @Column(name = "beneficiary_id")
-    private UUID beneficiaryId;
-
-    @Column(nullable = false, precision = 19, scale = 4)
-    private BigDecimal amount;
-
+    @Id private UUID id;
+    @Column(name = "tenant_id", nullable = false) private UUID tenantId;
+    @Column(name = "user_id", nullable = false) private UUID userId;
+    @Column(name = "source_account_id", nullable = false) private UUID sourceAccountId;
+    @Column(name = "destination_account_id", nullable = false) private UUID destinationAccountId;
+    @Column(name = "beneficiary_id") private UUID beneficiaryId;
+    @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(nullable = false, length = 3)
-    private String currency;
-
-    @Column(nullable = false, length = 32)
-    private String status;
-
-    @Column(name = "risk_score", nullable = false)
-    private int riskScore;
-
-    @Column(name = "fraud_decision", nullable = false, length = 32)
-    private String fraudDecision;
-
-    @Column(name = "idempotency_key", nullable = false, length = 160)
-    private String idempotencyKey;
-
-    @Column(columnDefinition = "text")
-    private String reference;
-
-    /** INTERNAL (default) or EXTERNAL — drives held-case approval routing (ledger post vs rail submit). */
-    @Column(nullable = false, length = 16)
-    private String channel = "INTERNAL";
-
-    /** Originating device id; lets an approved held transfer feed the behavioural baseline. */
-    @Column(name = "device_id", length = 120)
-    private String deviceId;
-
-    /** Provider selected by the routing control plane before funds are submitted. */
-    @Column(name = "selected_provider", length = 48)
-    private String selectedProvider;
-
-    /** Stable explanation for the route decision, retained across manual review. */
-    @Column(name = "route_reason", length = 80)
-    private String routeReason;
-
-    /** Destination country used for provider capability and corridor eligibility. */
-    @Column(name = "destination_country", length = 2)
-    private String destinationCountry;
+    @Column(nullable = false, length = 3) private String currency;
+    @Column(nullable = false, length = 32) private String status;
+    @Column(name = "risk_score", nullable = false) private int riskScore;
+    @Column(name = "fraud_decision", nullable = false, length = 32) private String fraudDecision;
+    @Column(name = "idempotency_key", nullable = false, length = 160) private String idempotencyKey;
+    @Column(columnDefinition = "text") private String reference;
+    @Column(nullable = false, length = 16) private String channel = "INTERNAL";
+    @Column(name = "device_id", length = 120) private String deviceId;
+    @Column(name = "selected_provider", length = 48) private String selectedProvider;
+    @Column(name = "route_reason", length = 80) private String routeReason;
+    @Column(name = "destination_country", length = 2) private String destinationCountry;
+    @Column(name = "tenant_provider_config_id") private UUID tenantProviderConfigId;
+    @Column(name = "provider_environment", length = 32) private String providerEnvironment;
 
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
@@ -124,5 +86,9 @@ public class TransferEntity {
     public void setRouteReason(String routeReason) { this.routeReason = routeReason; }
     public String getDestinationCountry() { return destinationCountry; }
     public void setDestinationCountry(String destinationCountry) { this.destinationCountry = destinationCountry; }
+    public UUID getTenantProviderConfigId() { return tenantProviderConfigId; }
+    public void setTenantProviderConfigId(UUID tenantProviderConfigId) { this.tenantProviderConfigId = tenantProviderConfigId; }
+    public String getProviderEnvironment() { return providerEnvironment; }
+    public void setProviderEnvironment(String providerEnvironment) { this.providerEnvironment = providerEnvironment; }
     public Instant getCreatedAt() { return createdAt; }
 }
