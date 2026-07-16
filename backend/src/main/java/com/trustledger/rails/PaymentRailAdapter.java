@@ -33,6 +33,15 @@ public interface PaymentRailAdapter {
     /** Authoritative status query used by reconciliation to resolve PENDING_UNKNOWN. */
     String getPaymentStatus(String providerReference);
 
+    /**
+     * Provider-owned webhook authentication. Real adapters override this with the provider's exact
+     * signature algorithm and secret source; the fail-closed default prevents an unwired provider
+     * from mutating money state through an unauthenticated callback.
+     */
+    default boolean verifyWebhook(String rawBody, String signature) {
+        return false;
+    }
+
     record PaymentSubmitRequest(UUID tenantId, UUID transactionId, String providerReference,
                                 BigDecimal amount, String currency, String scenario) {}
 
