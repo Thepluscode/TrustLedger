@@ -5,16 +5,12 @@ import com.trustledger.core.idempotency.IdempotencyService;
 import com.trustledger.persistence.entity.IdempotencyKeyEntity;
 import com.trustledger.persistence.repo.*;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Primary external-payment service that short-circuits completed idempotent replays before routing,
- * reserving money, or calling a provider. The base service remains responsible for first execution.
- */
+/** Short-circuits completed idempotent replays without wrapping provider execution in a transaction. */
 @Service
 @Primary
 public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
@@ -34,15 +30,15 @@ public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
                                             TenantPaymentRouteService routes,
                                             ProviderRecipientResolver recipientResolver,
                                             ExternalRailSubmissionService submissions,
-                                            ObjectMapper json) {
+                                            ObjectMapper json,
+                                            PlatformTransactionManager transactionManager) {
         super(accounts, transfers, attempts, idempotencyKeys, ledgerTransactions, ledgerEntries, outbox,
-            auditLogs, fraudCases, fraudEngine, routes, recipientResolver, submissions, json);
+            auditLogs, fraudCases, fraudEngine, routes, recipientResolver, submissions, json, transactionManager);
         this.idempotencyKeys = idempotencyKeys;
         this.json = json;
     }
 
     @Override
-    @Transactional
     public ExternalPaymentResponse initiate(ExternalTransferRequest request, FraudDecision decision) {
         ExternalPaymentResponse replay = completedReplay(request);
         if (replay != null) return replay;
