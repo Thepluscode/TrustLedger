@@ -91,7 +91,7 @@ class TenantProviderGovernanceIntegrationTest {
 
         var response = externalPayments.initiate(new ExternalTransferRequest(tenant, user, source.getId(),
             UUID.randomUUID(), new BigDecimal("200.00"), "GBP", "governed", "governed-route",
-            "web", "GB", "GB", PROVIDER, "success"), FraudContext.lowRisk(), MEDIAN);
+            "web", "GB", "GB", PROVIDER, "SANDBOX", "success"), FraudContext.lowRisk(), MEDIAN);
 
         var transfer = transfers.findById(response.transactionId()).orElseThrow();
         var attempt = attempts.findByTransactionId(response.transactionId()).orElseThrow();
@@ -103,12 +103,29 @@ class TenantProviderGovernanceIntegrationTest {
     }
 
     @Test
+    void productionPresenceBlocksImplicitSandboxFallback() {
+        UUID tenant = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        TenantProviderConfigEntity sandbox = providerConfigs.create(tenant, actor,
+            command("SANDBOX", true, "vault://sandbox/credentials", "vault://sandbox/webhook"));
+        providerConfigs.create(tenant, actor,
+            command("PRODUCTION", true, "vault://production/credentials", "vault://production/webhook"));
+
+        assertThrows(IllegalArgumentException.class,
+            () -> routes.route(tenant, new BigDecimal("200.00"), "GBP", "GB", PROVIDER));
+
+        var explicitSandbox = routes.route(tenant, new BigDecimal("200.00"), "GBP", "GB", PROVIDER, "SANDBOX");
+        assertEquals(sandbox.getId(), explicitSandbox.tenantProviderConfigId());
+        assertEquals("SANDBOX", explicitSandbox.providerEnvironment());
+    }
+
+    @Test
     void emergencyDisableBlocksExactRouteBeforeFundsMove() {
         UUID tenant = UUID.randomUUID();
         UUID user = UUID.randomUUID();
         TenantProviderConfigEntity config = providerConfigs.create(tenant, user,
             command("SANDBOX", true, "vault://payments/credentials", "vault://payments/webhook"));
-        var selected = routes.route(tenant, new BigDecimal("200.00"), "GBP", "GB", PROVIDER);
+        var selected = routes.route(tenant, new BigDecimal("200.00"), "GBP", "GB", PROVIDER, "SANDBOX");
         providerConfigs.updateControls(tenant, user, config.getId(), true, true);
 
         assertThrows(IllegalArgumentException.class, () -> routes.revalidate(tenant,
@@ -119,7 +136,7 @@ class TenantProviderGovernanceIntegrationTest {
         assertThrows(IllegalArgumentException.class, () -> externalPayments.initiate(
             new ExternalTransferRequest(tenant, user, source.getId(), UUID.randomUUID(),
                 new BigDecimal("200.00"), "GBP", "blocked", "governed-blocked", "web", "GB", "GB",
-                PROVIDER, "success"), FraudContext.lowRisk(), MEDIAN));
+                PROVIDER, "SANDBOX", "success"), FraudContext.lowRisk(), MEDIAN));
         assertEquals(0, accounts.findById(source.getId()).orElseThrow().getAvailableBalance()
             .compareTo(new BigDecimal("1000.0000")));
     }
