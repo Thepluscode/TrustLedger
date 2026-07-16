@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** One submission to one exact tenant provider configuration and recipient mapping. */
+/** One durable submission to one exact tenant provider configuration and recipient mapping. */
 @Entity
 @Table(name = "external_payment_attempts")
 public class ExternalPaymentAttemptEntity {
@@ -30,6 +30,7 @@ public class ExternalPaymentAttemptEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "response_payload") private String responsePayload;
     @Column(name = "last_error", columnDefinition = "text") private String lastError;
+    @Column(name = "submission_attempts", nullable = false) private int submissionAttempts;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "submitted_at") private Instant submittedAt;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
@@ -62,6 +63,7 @@ public class ExternalPaymentAttemptEntity {
         this.currency = currency;
         this.requestPayload = requestPayload;
         this.submittedAt = submittedAt;
+        this.submissionAttempts = submittedAt == null ? 0 : 1;
     }
 
     public UUID getId() { return id; }
@@ -78,7 +80,16 @@ public class ExternalPaymentAttemptEntity {
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
     public String getRequestPayload() { return requestPayload; }
+    public String getResponsePayload() { return responsePayload; }
     public void setResponsePayload(String responsePayload) { this.responsePayload = responsePayload; }
+    public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
+    public int getSubmissionAttempts() { return submissionAttempts; }
+    public void incrementSubmissionAttempts() { this.submissionAttempts++; }
+    public Instant getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
+    public Instant getSettledAt() { return settledAt; }
     public void setSettledAt(Instant settledAt) { this.settledAt = settledAt; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

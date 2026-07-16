@@ -1,19 +1,22 @@
 package com.trustledger.app;
 
+import com.trustledger.core.fraud.FraudContext;
 import com.trustledger.core.fraud.FraudDecision;
 import com.trustledger.core.idempotency.IdempotencyService;
+import com.trustledger.core.model.Money;
 import com.trustledger.persistence.entity.IdempotencyKeyEntity;
 import com.trustledger.persistence.repo.*;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Primary external-payment service that short-circuits completed idempotent replays before routing,
- * reserving money, or calling a provider. The base service remains responsible for first execution.
+ * Primary payout service. Caller transactions are suspended so provider execution can never occur inside
+ * an Open Banking, fraud, API, or other upstream database transaction.
  */
 @Service
 @Primary
@@ -34,19 +37,34 @@ public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
                                             TenantPaymentRouteService routes,
                                             ProviderRecipientResolver recipientResolver,
                                             ExternalRailSubmissionService submissions,
-                                            ObjectMapper json) {
+                                            ObjectMapper json,
+                                            PlatformTransactionManager transactionManager) {
         super(accounts, transfers, attempts, idempotencyKeys, ledgerTransactions, ledgerEntries, outbox,
-            auditLogs, fraudCases, fraudEngine, routes, recipientResolver, submissions, json);
+            auditLogs, fraudCases, fraudEngine, routes, recipientResolver, submissions, json, transactionManager);
         this.idempotencyKeys = idempotencyKeys;
         this.json = json;
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ExternalPaymentResponse initiate(ExternalTransferRequest request, FraudContext fraudContext,
+                                            Money userMedian) {
+        return super.initiate(request, fraudContext, userMedian);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ExternalPaymentResponse initiate(ExternalTransferRequest request, FraudDecision decision) {
         ExternalPaymentResponse replay = completedReplay(request);
         if (replay != null) return replay;
         return super.initiate(request, decision);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PersistentTransferResponse approveHeldExternal(java.util.UUID tenantId, java.util.UUID transferId,
+                                                          String actor) {
+        return super.approveHeldExternal(tenantId, transferId, actor);
     }
 
     private ExternalPaymentResponse completedReplay(ExternalTransferRequest request) {
