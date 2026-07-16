@@ -31,7 +31,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -62,6 +64,7 @@ class DurablePayoutSubmissionIntegrationTest {
     @Autowired ExternalRailSubmissionService submissions;
     @Autowired ExternalPaymentAttemptRepository attempts;
     @Autowired AccountRepository accounts;
+    @Autowired PlatformTransactionManager transactionManager;
     @Autowired DurableBoundaryAdapter adapter;
 
     @BeforeEach
@@ -70,12 +73,17 @@ class DurablePayoutSubmissionIntegrationTest {
     }
 
     @Test
-    void providerCallRunsAfterPreparedMoneyStateCommits() {
+    void providerCallRunsAfterPreparedMoneyStateCommitsAndSuspendsCallerTransaction() {
         AccountEntity source = account();
+        TransactionTemplate caller = new TransactionTemplate(transactionManager);
 
-        ExternalPaymentResponse response = externalPayments.initiate(request(source, "success", "durable-success"),
-            FraudContext.lowRisk(), MEDIAN);
+        ExternalPaymentResponse response = caller.execute(status -> {
+            assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
+            return externalPayments.initiate(request(source, "success", "durable-success"),
+                FraudContext.lowRisk(), MEDIAN);
+        });
 
+        assertNotNull(response);
         assertEquals(ExternalPaymentStatus.PENDING_SETTLEMENT, response.status());
         assertFalse(adapter.transactionActiveDuringSubmit.get(),
             "provider network execution must not run inside a database transaction");
