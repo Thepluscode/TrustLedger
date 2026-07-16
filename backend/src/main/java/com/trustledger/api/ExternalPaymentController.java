@@ -22,8 +22,8 @@ public class ExternalPaymentController {
             @RequestBody ExternalTransferApiRequest body) {
         ExternalTransferRequest req = new ExternalTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.beneficiaryId(),
-            body.payoutInstrumentId(), body.amount(), body.currency(), body.reference(), idempotencyKey,
-            body.deviceId(), body.currentCountry(), body.destinationCountry(), body.preferredProvider(),
+            body.amount(), body.currency(), body.reference(), idempotencyKey, body.deviceId(),
+            body.currentCountry(), body.destinationCountry(), body.preferredProvider(),
             body.preferredEnvironment(), body.scenario());
         return gateway.submitExternal(req);
     }
