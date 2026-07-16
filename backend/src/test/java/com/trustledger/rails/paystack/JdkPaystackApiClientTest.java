@@ -53,7 +53,7 @@ class JdkPaystackApiClientTest {
     }
 
     @Test
-    void treatsServerFailureAsAmbiguousAndClientRejectionAsDefinitive() throws Exception {
+    void treatsUncertainResponsesAsAmbiguousAndValidationRejectionAsDefinitive() throws Exception {
         AtomicInteger responseCode = new AtomicInteger(500);
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/transfer", exchange -> respond(exchange, responseCode.get(),
@@ -63,6 +63,14 @@ class JdkPaystackApiClientTest {
         var request = new PaystackApiClient.InitiateTransferRequest(10000L, "RCP_test",
             "paystack_1234567890", "TrustLedger payout", "NGN");
 
+        assertThrows(PaystackApiClient.AmbiguousPaystackException.class,
+            () -> client.initiateTransfer("sk_test_not-real", request));
+
+        responseCode.set(408);
+        assertThrows(PaystackApiClient.AmbiguousPaystackException.class,
+            () -> client.initiateTransfer("sk_test_not-real", request));
+
+        responseCode.set(409);
         assertThrows(PaystackApiClient.AmbiguousPaystackException.class,
             () -> client.initiateTransfer("sk_test_not-real", request));
 
