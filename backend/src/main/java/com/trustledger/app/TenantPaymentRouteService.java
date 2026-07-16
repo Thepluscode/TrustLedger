@@ -61,7 +61,7 @@ public class TenantPaymentRouteService {
 
             String bestRejection = null;
             for (TenantProviderConfigEntity config : ordered) {
-                String rejection = rejectionReason(config, amount, currency, destinationCountry);
+                String rejection = rejectionReason(adapter, config, amount, currency, destinationCountry);
                 if (rejection == null) {
                     selections.put(adapter.rail(), new Selection(config.getId(), config.getEnvironment()));
                     bestRejection = null;
@@ -84,15 +84,15 @@ public class TenantPaymentRouteService {
         return new TenantPaymentRouteDecision(route, selection.configId(), selection.environment());
     }
 
-    private static String rejectionReason(TenantProviderConfigEntity config, BigDecimal amount,
-                                          String currency, String destinationCountry) {
+    private static String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
+                                          BigDecimal amount, String currency, String destinationCountry) {
         if (config.isEmergencyDisabled()) return "tenant_provider_emergency_disabled";
         if (!config.isEnabled()) return "tenant_provider_disabled";
         if (!"APPROVED".equals(config.getComplianceStatus())) return "tenant_provider_compliance_not_approved";
         if (!"ACTIVE".equals(config.getOperationalStatus())) {
             return "tenant_provider_operational_" + config.getOperationalStatus().toLowerCase(Locale.ROOT);
         }
-        if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment())) {
+        if (adapter.requiresTenantConfiguration()) {
             if (blank(config.getCredentialsSecretRef())) return "tenant_provider_credentials_not_configured";
             if (blank(config.getWebhookSecretRef())) return "tenant_provider_webhook_secret_not_configured";
         }
