@@ -21,11 +21,10 @@ public class PayoutInstrumentController {
     public record InstrumentStatusRequest(String status) {}
     public record PayoutInstrumentView(UUID id, UUID beneficiaryId, String instrumentType, String country,
                                        String currency, String accountName, String bankCode,
-                                       String maskedIdentifier, String status,
-                                       boolean verified, String verificationReference) {}
+                                       String maskedIdentifier, String status, boolean verified) {}
     public record ProviderRecipientView(UUID id, UUID payoutInstrumentId, UUID tenantProviderConfigId,
                                         String provider, String providerEnvironment,
-                                        String providerRecipientCode, String status) {}
+                                        String providerRecipientCodeSuffix, String status) {}
 
     private final PayoutInstrumentService service;
     private final AccessControlService access;
@@ -58,7 +57,7 @@ public class PayoutInstrumentController {
                                              @PathVariable UUID instrumentId,
                                              @RequestBody InstrumentStatusRequest request) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        requireBeneficiaryMatch(beneficiaryId, instrumentId);
+        service.requireInstrumentForBeneficiary(CurrentUser.tenantId(), beneficiaryId, instrumentId);
         return view(service.setInstrumentStatus(CurrentUser.tenantId(), CurrentUser.userId(), instrumentId,
             request.status()));
     }
@@ -68,7 +67,7 @@ public class PayoutInstrumentController {
                                                            @PathVariable UUID instrumentId,
                                                            @RequestBody RegisterProviderRecipientRequest request) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        requireBeneficiaryMatch(beneficiaryId, instrumentId);
+        service.requireInstrumentForBeneficiary(CurrentUser.tenantId(), beneficiaryId, instrumentId);
         ProviderRecipientMappingEntity mapping = service.registerProviderRecipient(CurrentUser.tenantId(),
             CurrentUser.userId(), instrumentId, new PayoutInstrumentService.RegisterProviderRecipientCommand(
                 request.tenantProviderConfigId(), request.providerRecipientCode()));
@@ -79,30 +78,25 @@ public class PayoutInstrumentController {
     public List<ProviderRecipientView> listProviderRecipients(@PathVariable UUID beneficiaryId,
                                                               @PathVariable UUID instrumentId) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        requireBeneficiaryMatch(beneficiaryId, instrumentId);
+        service.requireInstrumentForBeneficiary(CurrentUser.tenantId(), beneficiaryId, instrumentId);
         return service.listProviderRecipients(CurrentUser.tenantId(), instrumentId).stream()
             .map(PayoutInstrumentController::view).toList();
-    }
-
-    private void requireBeneficiaryMatch(UUID beneficiaryId, UUID instrumentId) {
-        PayoutInstrumentEntity instrument = service.requireInstrumentForBeneficiary(CurrentUser.tenantId(),
-            beneficiaryId, instrumentId);
-        if (!instrument.getBeneficiaryId().equals(beneficiaryId)) {
-            throw new IllegalArgumentException("Payout instrument does not belong to beneficiary");
-        }
     }
 
     private static PayoutInstrumentView view(PayoutInstrumentEntity instrument) {
         return new PayoutInstrumentView(instrument.getId(), instrument.getBeneficiaryId(),
             instrument.getInstrumentType(), instrument.getCountry(), instrument.getCurrency(),
             instrument.getAccountName(), instrument.getBankCode(), instrument.getMaskedIdentifier(),
-            instrument.getStatus(), "VERIFIED".equals(instrument.getStatus()),
-            instrument.getVerificationReference());
+            instrument.getStatus(), "VERIFIED".equals(instrument.getStatus()));
     }
 
     private static ProviderRecipientView view(ProviderRecipientMappingEntity mapping) {
         return new ProviderRecipientView(mapping.getId(), mapping.getPayoutInstrumentId(),
             mapping.getTenantProviderConfigId(), mapping.getProvider(), mapping.getProviderEnvironment(),
-            mapping.getProviderRecipientCode(), mapping.getStatus());
+            suffix(mapping.getProviderRecipientCode()), mapping.getStatus());
+    }
+
+    private static String suffix(String value) {
+        return value.length() <= 6 ? value : value.substring(value.length() - 6);
     }
 }
