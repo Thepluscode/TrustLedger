@@ -4,9 +4,9 @@ import com.trustledger.persistence.entity.ExternalPaymentAttemptEntity;
 import com.trustledger.persistence.entity.PaymentWebhookEventEntity;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.PaymentWebhookEventRepository;
-import com.trustledger.rails.ExternalPaymentStatus;
+import com.trustledger.rails.PaymentRailAdapter;
+import com.trustledger.rails.PaymentRailRegistry;
 import com.trustledger.rails.SandboxPaymentRailAdapter;
-import com.trustledger.rails.WebhookSigner;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** Processes inbound provider webhooks: verify signature, dedupe by event id, apply settle/fail once. */
+/** Processes inbound provider webhooks: provider verification, dedupe, and apply-once settlement. */
 @Service
 public class PaymentWebhookService {
 
@@ -23,21 +23,35 @@ public class PaymentWebhookService {
     private final PaymentWebhookEventRepository webhookEvents;
     private final ExternalPaymentAttemptRepository attempts;
     private final ExternalPaymentService externalPayments;
-    private final WebhookSigner signer;
+    private final PaymentRailRegistry registry;
     private final ObjectMapper json;
 
-    public PaymentWebhookService(PaymentWebhookEventRepository webhookEvents, ExternalPaymentAttemptRepository attempts,
-                                 ExternalPaymentService externalPayments, WebhookSigner signer, ObjectMapper json) {
+    public PaymentWebhookService(PaymentWebhookEventRepository webhookEvents,
+                                 ExternalPaymentAttemptRepository attempts,
+                                 ExternalPaymentService externalPayments,
+                                 PaymentRailRegistry registry,
+                                 ObjectMapper json) {
         this.webhookEvents = webhookEvents;
         this.attempts = attempts;
         this.externalPayments = externalPayments;
-        this.signer = signer;
+        this.registry = registry;
         this.json = json;
     }
 
+    /** Backward-compatible in-process entrypoint for the original sandbox-only callers. */
     @Transactional
     public Result process(String rawBody, String signature) {
-        boolean valid = signer.verify(rawBody, signature);
+        return process(SandboxPaymentRailAdapter.RAIL, rawBody, signature);
+    }
+
+    @Transactional
+    public Result process(String providerOrAlias, String rawBody, String signature) {
+        Optional<PaymentRailAdapter> resolved = registry.find(providerOrAlias);
+        if (resolved.isEmpty()) return Result.BAD_REQUEST;
+        PaymentRailAdapter adapter = resolved.get();
+        String provider = adapter.rail();
+        boolean valid = adapter.verifyWebhook(rawBody, signature);
+
         Map<String, Object> body;
         try {
             body = json.readValue(rawBody, Map.class);
@@ -49,21 +63,16 @@ public class PaymentWebhookService {
         String eventType = str(body.get("eventType"));
         if (eventId == null || ref == null || eventType == null) return Result.BAD_REQUEST;
 
-        // Duplicate-callback protection: the same provider event id is processed at most once.
-        if (webhookEvents.findByProviderAndEventId(SandboxPaymentRailAdapter.RAIL, eventId).isPresent()) {
+        if (webhookEvents.findByProviderAndEventId(provider, eventId).isPresent()) {
             return Result.DUPLICATE;
         }
-        // Resolve the originating attempt up front so the event is stamped with its tenant (the
-        // webhook is signature-authenticated, not tenant-scoped).
         Optional<ExternalPaymentAttemptEntity> attempt =
-            attempts.findByProviderAndProviderReference(SandboxPaymentRailAdapter.RAIL, ref);
+            attempts.findByProviderAndProviderReference(provider, ref);
         UUID tenantId = attempt.map(ExternalPaymentAttemptEntity::getTenantId).orElse(null);
-        // Assigned @Id => save() is a merge that returns the managed copy; keep that reference so the
-        // later processed=true actually persists (the passed instance stays detached).
         PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
-            tenantId, SandboxPaymentRailAdapter.RAIL, ref, eventId, eventType, rawBody, valid, false));
+            tenantId, provider, ref, eventId, eventType, rawBody, valid, false));
 
-        if (!valid) return Result.INVALID_SIGNATURE; // recorded, but never mutates ledger state
+        if (!valid) return Result.INVALID_SIGNATURE;
         if (attempt.isEmpty()) return Result.UNKNOWN_REFERENCE;
 
         switch (eventType) {
