@@ -139,7 +139,7 @@ public class ExternalPaymentService {
                     "decision", decision.decision().name(), "channel", "EXTERNAL",
                     "selectedProvider", route.provider(),
                     "providerEnvironment", route.providerEnvironment(),
-                    "tenantProviderConfigId", String.valueOf(route.tenantProviderConfigId()))))));
+                    "tenantProviderConfigId", String.valueOf(route.tenantProviderConfigId())))));
             audit(req.tenantId(), "EXTERNAL_PAYMENT_HELD_FOR_REVIEW", "TRANSFER", transferId,
                 Map.of("amount", amount.toString(), "provider", route.provider(),
                     "providerEnvironment", route.providerEnvironment()));
