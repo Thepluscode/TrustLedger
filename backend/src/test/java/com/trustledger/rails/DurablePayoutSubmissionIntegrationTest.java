@@ -117,7 +117,8 @@ class DurablePayoutSubmissionIntegrationTest {
             FraudContext.lowRisk(), MEDIAN);
         UUID attemptId = attempts.findByTransactionId(initial.transactionId()).orElseThrow().getId();
 
-        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
             Future<ExternalRailSubmissionService.SubmissionResult> first =
                 pool.submit(() -> submissions.recover(attemptId));
             Future<ExternalRailSubmissionService.SubmissionResult> second =
@@ -127,6 +128,8 @@ class DurablePayoutSubmissionIntegrationTest {
 
             assertTrue((a == null) ^ (b == null), "exactly one worker must own the recovery claim");
             externalPayments.completePreparedSubmission(a == null ? b : a);
+        } finally {
+            pool.shutdownNow();
         }
         assertEquals(1, adapter.verifyCalls.get());
         assertEquals(1, adapter.submitCalls.get());
