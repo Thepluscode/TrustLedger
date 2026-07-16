@@ -38,6 +38,19 @@ public class TenantPaymentRouteService {
     @Transactional(readOnly = true)
     public TenantPaymentRouteDecision route(UUID tenantId, BigDecimal amount, String currency,
                                             String destinationCountry, String preferredProvider) {
+        return route(tenantId, amount, currency, destinationCountry, preferredProvider, null);
+    }
+
+    /**
+     * Selects a provider and exact tenant configuration. When environment is omitted, the presence of
+     * any production configuration makes production authoritative for that provider: routing must not
+     * silently fall back to sandbox because production is pending, suspended, or misconfigured.
+     */
+    @Transactional(readOnly = true)
+    public TenantPaymentRouteDecision route(UUID tenantId, BigDecimal amount, String currency,
+                                            String destinationCountry, String preferredProvider,
+                                            String preferredEnvironment) {
+        String requestedEnvironment = environment(preferredEnvironment);
         Map<String, String> exclusions = new LinkedHashMap<>();
         Map<String, Selection> selections = new HashMap<>();
 
@@ -48,19 +61,22 @@ public class TenantPaymentRouteService {
             if (providerConfigs.isEmpty()) {
                 if (adapter.requiresTenantConfiguration()) {
                     exclusions.put(adapter.rail(), "tenant_provider_not_configured");
-                } else {
+                } else if (requestedEnvironment == null || "SANDBOX".equals(requestedEnvironment)) {
                     selections.put(adapter.rail(), new Selection(null, "SANDBOX"));
+                } else {
+                    exclusions.put(adapter.rail(), "provider_environment_not_supported");
                 }
                 continue;
             }
 
-            List<TenantProviderConfigEntity> ordered = new ArrayList<>(providerConfigs);
-            ordered.sort(Comparator
-                .comparingInt((TenantProviderConfigEntity c) -> environmentRank(c.getEnvironment()))
-                .thenComparing(c -> c.getId().toString()));
+            List<TenantProviderConfigEntity> candidates = candidates(providerConfigs, requestedEnvironment);
+            if (candidates.isEmpty()) {
+                exclusions.put(adapter.rail(), "tenant_provider_environment_not_configured");
+                continue;
+            }
 
             String bestRejection = null;
-            for (TenantProviderConfigEntity config : ordered) {
+            for (TenantProviderConfigEntity config : candidates) {
                 String rejection = rejectionReason(adapter, config, amount, currency, destinationCountry);
                 if (rejection == null) {
                     selections.put(adapter.rail(), new Selection(config.getId(), config.getEnvironment()));
@@ -108,6 +124,23 @@ public class TenantPaymentRouteService {
         return new TenantPaymentRouteDecision(route, config.getId(), config.getEnvironment());
     }
 
+    private static List<TenantProviderConfigEntity> candidates(List<TenantProviderConfigEntity> configs,
+                                                                String requestedEnvironment) {
+        String effectiveEnvironment = requestedEnvironment;
+        if (effectiveEnvironment == null && configs.stream()
+                .anyMatch(c -> "PRODUCTION".equalsIgnoreCase(c.getEnvironment()))) {
+            effectiveEnvironment = "PRODUCTION";
+        }
+        List<TenantProviderConfigEntity> filtered = new ArrayList<>();
+        for (TenantProviderConfigEntity config : configs) {
+            if (effectiveEnvironment == null || effectiveEnvironment.equalsIgnoreCase(config.getEnvironment())) {
+                filtered.add(config);
+            }
+        }
+        filtered.sort(Comparator.comparing(c -> c.getId().toString()));
+        return filtered;
+    }
+
     private static String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
                                           BigDecimal amount, String currency, String destinationCountry) {
         if (config.isEmergencyDisabled()) return "tenant_provider_emergency_disabled";
@@ -142,8 +175,13 @@ public class TenantPaymentRouteService {
         return null;
     }
 
-    private static int environmentRank(String environment) {
-        return "PRODUCTION".equalsIgnoreCase(environment) ? 0 : 1;
+    private static String environment(String value) {
+        if (blank(value)) return null;
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("SANDBOX", "PRODUCTION").contains(normalized)) {
+            throw new IllegalArgumentException("Invalid provider environment: " + value);
+        }
+        return normalized;
     }
 
     private static int rejectionRank(String reason) {
