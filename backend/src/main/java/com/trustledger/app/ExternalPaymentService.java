@@ -70,7 +70,16 @@ public class ExternalPaymentService {
     public record ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
                                           BigDecimal amount, String currency, String reference, String idempotencyKey,
                                           String deviceId, String currentCountry, String destinationCountry,
-                                          String preferredProvider, String scenario) {}
+                                          String preferredProvider, String preferredEnvironment, String scenario) {
+        /** Source-compatible constructor for existing callers that do not specify an environment. */
+        public ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
+                                       BigDecimal amount, String currency, String reference, String idempotencyKey,
+                                       String deviceId, String currentCountry, String destinationCountry,
+                                       String preferredProvider, String scenario) {
+            this(tenantId, userId, sourceAccountId, beneficiaryId, amount, currency, reference, idempotencyKey,
+                deviceId, currentCountry, destinationCountry, preferredProvider, null, scenario);
+        }
+    }
 
     public record ExternalPaymentResponse(UUID transactionId, String providerReference, String status,
                                           int riskScore, String decision, String message) {}
@@ -118,7 +127,7 @@ public class ExternalPaymentService {
 
         // Governance and routing must succeed before any balance mutation.
         TenantPaymentRouteDecision route = routes.route(req.tenantId(), amount.amount(), req.currency(),
-            req.destinationCountry(), req.preferredProvider());
+            req.destinationCountry(), req.preferredProvider(), req.preferredEnvironment());
 
         AccountEntity source = lock(req.sourceAccountId());
         requireActive(source);
@@ -378,7 +387,7 @@ public class ExternalPaymentService {
             value(req.tenantId()), value(req.userId()), value(req.sourceAccountId()), value(req.beneficiaryId()),
             value(req.amount()), value(req.currency()), value(req.reference()), value(req.deviceId()),
             value(req.currentCountry()), value(req.destinationCountry()), value(req.preferredProvider()),
-            value(req.scenario()), "EXTERNAL"));
+            value(req.preferredEnvironment()), value(req.scenario()), "EXTERNAL"));
     }
 
     private static String value(Object value) { return value == null ? "" : value.toString(); }
