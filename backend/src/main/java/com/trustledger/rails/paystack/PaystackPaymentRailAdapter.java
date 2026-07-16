@@ -34,7 +34,6 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     private final PaystackApiClient api;
     private final ObjectMapper json;
 
-    /** Test-friendly constructor. */
     public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
                                       PaystackApiClient api) {
         this(configs, secrets, api, new ObjectMapper());
@@ -62,14 +61,14 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         requireRecipient(request);
         requireReference(request.providerReference());
         requireCurrency(request.currency());
-        TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-            request.providerEnvironment());
+        TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
         String secret = resolveAndValidateSecret(config);
-        long amountMinor = minorUnits(request.amount());
         try {
             PaystackApiClient.PaystackResponse response = api.initiateTransfer(secret,
-                new PaystackApiClient.InitiateTransferRequest(amountMinor, request.providerRecipientCode(),
-                    request.providerReference(), "TrustLedger payout " + request.transactionId(), "NGN"));
+                new PaystackApiClient.InitiateTransferRequest(minorUnits(request.amount()),
+                    request.providerRecipientCode(), request.providerReference(),
+                    "TrustLedger payout " + request.transactionId(), "NGN"));
             String normalized = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
             if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
             return new PaymentSubmitResult(request.providerReference(), normalized, response.transferCode());
@@ -87,21 +86,29 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     @Override
     public String getPaymentStatus(PaymentStatusRequest request) {
         requireReference(request.providerReference());
-        TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-            request.providerEnvironment());
-        String secret = resolveAndValidateSecret(config);
+        TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            PaystackApiClient.PaystackResponse response = api.verifyTransfer(secret, request.providerReference());
-            return normalize(response.status());
+            return normalize(api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).status());
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             return ExternalPaymentStatus.PENDING_UNKNOWN;
         }
     }
 
     @Override
-    public boolean supportsAction(String action) {
-        return OTP_FINALIZE.equals(action);
+    public String getProviderObjectId(PaymentStatusRequest request) {
+        requireReference(request.providerReference());
+        TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
+        try {
+            return api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).transferCode();
+        } catch (PaystackApiClient.AmbiguousPaystackException e) {
+            return null;
+        }
     }
+
+    @Override
+    public boolean supportsAction(String action) { return OTP_FINALIZE.equals(action); }
 
     @Override
     public PaymentSubmitResult executeAction(PaymentActionRequest request) {
@@ -115,11 +122,10 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         if (request.sensitiveValue() == null || request.sensitiveValue().isBlank()) {
             throw new IllegalArgumentException("Paystack OTP is required");
         }
-        TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-            request.providerEnvironment());
-        String secret = resolveAndValidateSecret(config);
+        TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            PaystackApiClient.PaystackResponse response = api.finalizeTransfer(secret,
+            PaystackApiClient.PaystackResponse response = api.finalizeTransfer(resolveAndValidateSecret(config),
                 new PaystackApiClient.FinalizeTransferRequest(request.providerObjectId(), request.sensitiveValue()));
             String normalized = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
             if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
@@ -144,10 +150,8 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
                 case "transfer.success" -> ExternalPaymentStatus.SETTLED;
                 case "transfer.failed" -> ExternalPaymentStatus.FAILED;
                 case "transfer.reversed" -> ExternalPaymentStatus.REVERSED;
-                default -> null;
+                default -> "IGNORED";
             };
-            if (canonical == null) return new ProviderWebhookEvent(eventId(event, data, rawBody), reference,
-                "IGNORED", text(data.get("transfer_code")));
             return new ProviderWebhookEvent(eventId(event, data, rawBody), reference, canonical,
                 text(data.get("transfer_code")));
         } catch (Exception e) {
@@ -159,8 +163,8 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     public boolean verifyWebhook(WebhookVerificationRequest request) {
         if (request.signature() == null || request.signature().isBlank()) return false;
         try {
-            TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-                request.providerEnvironment());
+            TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+                request.tenantProviderConfigId(), request.providerEnvironment());
             String secret = resolveAndValidateSecret(config);
             Mac mac = Mac.getInstance("HmacSHA512");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
@@ -194,7 +198,17 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         };
     }
 
-    private TenantProviderConfigEntity requireConfig(UUID tenantId, UUID configId, String environment) {
+    private TenantProviderConfigEntity requireExecutableConfig(UUID tenantId, UUID configId, String environment) {
+        TenantProviderConfigEntity config = requireConfigIdentity(tenantId, configId, environment);
+        if (!config.isEnabled() || config.isEmergencyDisabled()
+            || !"APPROVED".equals(config.getComplianceStatus())
+            || !"ACTIVE".equals(config.getOperationalStatus())) {
+            throw new IllegalStateException("Paystack provider configuration is not executable");
+        }
+        return config;
+    }
+
+    private TenantProviderConfigEntity requireConfigIdentity(UUID tenantId, UUID configId, String environment) {
         if (configId == null) throw new IllegalArgumentException("Paystack provider configuration is required");
         TenantProviderConfigEntity config = configs.findByIdAndTenantId(configId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Paystack provider configuration not found"));
@@ -203,11 +217,6 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         }
         if (environment == null || !environment.equalsIgnoreCase(config.getEnvironment())) {
             throw new IllegalArgumentException("Paystack provider environment mismatch");
-        }
-        if (!config.isEnabled() || config.isEmergencyDisabled()
-            || !"APPROVED".equals(config.getComplianceStatus())
-            || !"ACTIVE".equals(config.getOperationalStatus())) {
-            throw new IllegalStateException("Paystack provider configuration is not executable");
         }
         return config;
     }
