@@ -1,16 +1,31 @@
 package com.trustledger.rails;
 
 import java.math.BigDecimal;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Abstraction over an external payment provider. The point is not "call an API" — it is to model
  * timeouts, unknown status, settlement delay, and reconciliation behind a stable interface so the
  * rest of TrustLedger doesn't hardcode one provider.
+ *
+ * <p>Adapters also declare stable aliases and hard routing capabilities. The defaults preserve the
+ * original single-provider behaviour while allowing real providers to narrow currencies, countries,
+ * and amount bands without leaking provider-specific checks into orchestration.</p>
  */
 public interface PaymentRailAdapter {
 
     String rail();
+
+    /** Stable names accepted by configuration, API requests, webhooks, and reconciliation. */
+    default Set<String> aliases() {
+        return Set.of(rail());
+    }
+
+    /** Hard eligibility constraints evaluated before a provider can be selected. */
+    default PaymentProviderCapabilities capabilities() {
+        return PaymentProviderCapabilities.unrestricted(100);
+    }
 
     /** Submits a payment. The caller supplies the provider reference so a timeout is still traceable. */
     PaymentSubmitResult initiatePayment(PaymentSubmitRequest request);
