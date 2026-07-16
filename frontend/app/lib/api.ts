@@ -160,6 +160,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  finalizePaystackOtp: (transactionId: string, otp: string) =>
+    request<ExternalPaymentResponse>(`/api/v1/transfers/external/${transactionId}/paystack-otp`, {
+      method: "POST",
+      body: JSON.stringify({ otp }),
+    }),
+
   listTransfers: () => request<TransferListItem[]>("/api/v1/transfers"),
   getTransfer: (id: string) => request<TransferDetail>(`/api/v1/transfers/${id}`),
 
