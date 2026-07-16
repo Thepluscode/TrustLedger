@@ -77,6 +77,7 @@ public class ExternalPaymentAttemptEntity {
     public void setStatus(String status) { this.status = status; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
+    public String getRequestPayload() { return requestPayload; }
     public void setResponsePayload(String responsePayload) { this.responsePayload = responsePayload; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public void setSettledAt(Instant settledAt) { this.settledAt = settledAt; }

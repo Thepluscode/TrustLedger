@@ -125,7 +125,9 @@ class PaystackPaymentRailAdapterTest {
 
     private record Fixture(PaystackPaymentRailAdapter adapter, RecordingClient api,
                            UUID tenantId, UUID configId) {
-        private PaymentRailAdapter.PaymentSubmitRequest request() { return request(tenantId, configId); }
+        private PaymentRailAdapter.PaymentSubmitRequest request() {
+            return PaystackPaymentRailAdapterTest.request(tenantId, configId);
+        }
     }
 
     private static final class RecordingClient implements PaystackApiClient {
