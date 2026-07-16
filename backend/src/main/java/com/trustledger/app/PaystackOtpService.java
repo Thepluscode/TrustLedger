@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-/** Finalizes a Paystack transfer OTP without storing the OTP in any database, log, audit, or event. */
+/** Finalizes a Paystack transfer OTP without storing it in any database, log, audit, or event. */
 @Service
 public class PaystackOtpService {
 
@@ -75,17 +75,17 @@ public class PaystackOtpService {
             transactions.executeWithoutResult(status -> persistTransferCode(tenantId, attempt.getId(), recovered));
         }
 
-        audit(tenantId, actorId, attempt, "EXTERNAL_PAYMENT_OTP_SUBMITTED");
         ExternalRailSubmissionService.SubmissionResult result = submissions.executeAction(attempt.getId(),
             PaystackPaymentRailAdapter.OTP_FINALIZE, otp);
         if (result == null) throw new IllegalStateException("Payout is no longer awaiting OTP");
+        audit(tenantId, actorId, attempt, "EXTERNAL_PAYMENT_OTP_SUBMITTED");
         return externalPayments.completePreparedSubmission(result);
     }
 
     private String recoverTransferCode(ExternalPaymentAttemptEntity attempt) {
         TenantProviderConfigEntity config = requireConfig(attempt);
-        String secret = resolveSecret(config);
-        PaystackApiClient.PaystackResponse response = api.verifyTransfer(secret, attempt.getProviderReference());
+        PaystackApiClient.PaystackResponse response = api.verifyTransfer(resolveSecret(config),
+            attempt.getProviderReference());
         if (response.reference() != null && !attempt.getProviderReference().equals(response.reference())) {
             throw new IllegalStateException("Paystack verification returned a different transfer reference");
         }
@@ -156,8 +156,8 @@ public class PaystackOtpService {
     }
 
     private static void validateOtp(String otp) {
-        if (otp == null || otp.isBlank() || otp.length() > 32) {
-            throw new IllegalArgumentException("OTP is required");
+        if (otp == null || !otp.matches("[0-9]{4,10}")) {
+            throw new IllegalArgumentException("OTP must contain 4 to 10 digits");
         }
     }
 }
