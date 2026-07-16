@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** One submission of a transfer to one exact tenant provider configuration. */
+/** One submission to one exact tenant provider configuration and recipient mapping. */
 @Entity
 @Table(name = "external_payment_attempts")
 public class ExternalPaymentAttemptEntity {
@@ -18,6 +18,8 @@ public class ExternalPaymentAttemptEntity {
     @Column(nullable = false, length = 48) private String provider;
     @Column(name = "tenant_provider_config_id") private UUID tenantProviderConfigId;
     @Column(name = "provider_environment", length = 32) private String providerEnvironment;
+    @Column(name = "payout_instrument_id") private UUID payoutInstrumentId;
+    @Column(name = "provider_recipient_mapping_id") private UUID providerRecipientMappingId;
     @Column(name = "provider_reference", nullable = false, length = 120) private String providerReference;
     @Column(nullable = false, length = 32) private String status;
     @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
@@ -43,6 +45,7 @@ public class ExternalPaymentAttemptEntity {
 
     public ExternalPaymentAttemptEntity(UUID id, UUID tenantId, UUID transactionId, String provider,
                                         UUID tenantProviderConfigId, String providerEnvironment,
+                                        UUID payoutInstrumentId, UUID providerRecipientMappingId,
                                         String providerReference, String status, BigDecimal amount, String currency,
                                         String requestPayload, Instant submittedAt) {
         this.id = id;
@@ -51,6 +54,8 @@ public class ExternalPaymentAttemptEntity {
         this.provider = provider;
         this.tenantProviderConfigId = tenantProviderConfigId;
         this.providerEnvironment = providerEnvironment;
+        this.payoutInstrumentId = payoutInstrumentId;
+        this.providerRecipientMappingId = providerRecipientMappingId;
         this.providerReference = providerReference;
         this.status = status;
         this.amount = amount;
@@ -65,11 +70,14 @@ public class ExternalPaymentAttemptEntity {
     public String getProvider() { return provider; }
     public UUID getTenantProviderConfigId() { return tenantProviderConfigId; }
     public String getProviderEnvironment() { return providerEnvironment; }
+    public UUID getPayoutInstrumentId() { return payoutInstrumentId; }
+    public UUID getProviderRecipientMappingId() { return providerRecipientMappingId; }
     public String getProviderReference() { return providerReference; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
+    public String getRequestPayload() { return requestPayload; }
     public void setResponsePayload(String responsePayload) { this.responsePayload = responsePayload; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public void setSettledAt(Instant settledAt) { this.settledAt = settledAt; }

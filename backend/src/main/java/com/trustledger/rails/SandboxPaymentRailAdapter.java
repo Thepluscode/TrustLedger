@@ -28,6 +28,9 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
     public boolean requiresTenantConfiguration() { return false; }
 
     @Override
+    public boolean requiresProviderRecipient() { return false; }
+
+    @Override
     public PaymentSubmitResult initiatePayment(PaymentSubmitRequest request) {
         String ref = request.providerReference();
         String scenario = request.scenario() == null ? "success" : request.scenario();

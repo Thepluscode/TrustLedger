@@ -158,6 +158,7 @@ class TenantProviderGovernanceIntegrationTest {
                     return new PaymentProviderCapabilities(Set.of("GBP"), Set.of("GB"),
                         BigDecimal.ONE, new BigDecimal("1000000.00"), 1);
                 }
+                @Override public boolean requiresProviderRecipient() { return false; }
                 @Override public PaymentSubmitResult initiatePayment(PaymentSubmitRequest request) {
                     assertNotNull(request.tenantProviderConfigId());
                     return new PaymentSubmitResult(request.providerReference(), ExternalPaymentStatus.ACCEPTED);

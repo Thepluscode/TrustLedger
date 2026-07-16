@@ -19,19 +19,26 @@ public interface PaymentRailAdapter {
         return PaymentProviderCapabilities.unrestricted(100);
     }
 
-    /**
-     * Real providers must have a tenant-owned, compliance-approved configuration. Only deliberately
-     * non-production adapters such as the in-repo sandbox should override this to false.
-     */
+    /** Real providers require a tenant-owned, compliance-approved configuration. */
     default boolean requiresTenantConfiguration() {
         return true;
+    }
+
+    /** Real payout providers address beneficiaries through provider-specific recipient tokens. */
+    default boolean requiresProviderRecipient() {
+        return requiresTenantConfiguration();
     }
 
     /** Submits a payment. The caller supplies the provider reference so a timeout remains traceable. */
     PaymentSubmitResult initiatePayment(PaymentSubmitRequest request);
 
-    /** Authoritative status query used by reconciliation to resolve PENDING_UNKNOWN. */
+    /** Legacy status lookup retained for simple adapters and existing tests. */
     String getPaymentStatus(String providerReference);
+
+    /** Context-aware status lookup for providers whose credentials are tenant-scoped. */
+    default String getPaymentStatus(PaymentStatusRequest request) {
+        return getPaymentStatus(request.providerReference());
+    }
 
     /** Provider-owned webhook authentication; the default fails closed. */
     default boolean verifyWebhook(String rawBody, String signature) {
@@ -40,11 +47,16 @@ public interface PaymentRailAdapter {
 
     record PaymentSubmitRequest(UUID tenantId, UUID transactionId, String providerReference,
                                 UUID tenantProviderConfigId, String providerEnvironment,
+                                UUID payoutInstrumentId, UUID providerRecipientMappingId,
+                                String providerRecipientCode,
                                 BigDecimal amount, String currency, String scenario) {}
+
+    record PaymentStatusRequest(UUID tenantId, UUID tenantProviderConfigId,
+                                String providerEnvironment, String providerReference) {}
 
     record PaymentSubmitResult(String providerReference, String status) {}
 
-    /** Thrown when the provider did not respond in time — maps to PENDING_UNKNOWN, never FAILED. */
+    /** Thrown when provider execution may have happened but no authoritative response was received. */
     class PaymentRailTimeoutException extends RuntimeException {
         private final String providerReference;
         public PaymentRailTimeoutException(String providerReference, String message) {

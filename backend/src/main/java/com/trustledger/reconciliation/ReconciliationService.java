@@ -1,5 +1,6 @@
 package com.trustledger.reconciliation;
 
+import com.trustledger.app.ExternalPaymentService;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
@@ -19,14 +20,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Scheduled reconciliation worker. Detects financial/operational drift the happy path cannot and
- * raises a deduplicated issue per (type, entity). Issue creation never executes a destructive action.
- */
+/** Scheduled reconciliation worker for ledger, provider, reservation, and outbox drift. */
 @Service
 public class ReconciliationService {
 
     private static final Logger log = LoggerFactory.getLogger(ReconciliationService.class);
+    private static final String[] RESOLVABLE = {
+        ExternalPaymentStatus.PENDING_UNKNOWN,
+        ExternalPaymentStatus.PENDING_SETTLEMENT,
+        ExternalPaymentStatus.ACTION_REQUIRED,
+        ExternalPaymentStatus.ACCEPTED,
+        ExternalPaymentStatus.SUBMITTED
+    };
+    private static final String[] TERMINAL = {
+        ExternalPaymentStatus.SETTLED,
+        ExternalPaymentStatus.FAILED,
+        ExternalPaymentStatus.CANCELLED,
+        ExternalPaymentStatus.RETURNED,
+        ExternalPaymentStatus.REVERSED
+    };
 
     private final LedgerTransactionRepository ledgerTransactions;
     private final LedgerEntryRepository ledgerEntries;
@@ -34,7 +46,7 @@ public class ReconciliationService {
     private final OutboxEventRepository outbox;
     private final ReconciliationIssueRepository issues;
     private final ExternalPaymentAttemptRepository externalAttempts;
-    private final com.trustledger.app.ExternalPaymentService externalPayments;
+    private final ExternalPaymentService externalPayments;
     private final PaymentRailRegistry railRegistry;
     private final ObjectMapper json;
     private final boolean enabled;
@@ -46,7 +58,7 @@ public class ReconciliationService {
                                  OutboxEventRepository outbox,
                                  ReconciliationIssueRepository issues,
                                  ExternalPaymentAttemptRepository externalAttempts,
-                                 com.trustledger.app.ExternalPaymentService externalPayments,
+                                 ExternalPaymentService externalPayments,
                                  PaymentRailRegistry railRegistry,
                                  ObjectMapper json,
                                  @Value("${trustledger.reconciliation.enabled:true}") boolean enabled,
@@ -68,74 +80,39 @@ public class ReconciliationService {
     @Scheduled(fixedDelayString = "${trustledger.reconciliation.interval-ms:30000}")
     public void scheduledRun() {
         if (!enabled) return;
-        try {
-            runReconciliation();
-        } catch (Exception e) {
-            log.warn("Reconciliation sweep failed; will retry: {}", e.getMessage());
-        }
+        try { runReconciliation(); }
+        catch (Exception e) { log.warn("Reconciliation sweep failed; will retry: {}", e.getMessage()); }
     }
 
-    /** Runs all checks; returns the number of new issues raised. */
     @Transactional
     public int runReconciliation() {
-        return resolvePendingUnknownPayments()
+        return resolveProviderPayments()
             + checkUnbalancedLedgerTransactions()
             + checkExpiredReservations()
             + checkStuckOutbox()
             + detectExternalStatusMismatch();
     }
 
-    /** Settlement reconciliation asks the exact originating provider what happened. */
-    private int resolvePendingUnknownPayments() {
+    /** Queries every non-terminal provider attempt using its exact tenant configuration and environment. */
+    private int resolveProviderPayments() {
         int created = 0;
-        for (ExternalPaymentAttemptEntity attempt : externalAttempts.findByStatus(ExternalPaymentStatus.PENDING_UNKNOWN)) {
-            Optional<PaymentRailAdapter> resolved = railRegistry.find(attempt.getProvider());
-            if (resolved.isEmpty()) {
-                created += providerIssue(attempt, "PROVIDER_ADAPTER_MISSING",
-                    "registered adapter for " + attempt.getProvider(), "adapter unavailable");
-                continue;
-            }
-            try {
-                String providerStatus = resolved.get().getPaymentStatus(attempt.getProviderReference());
-                if (ExternalPaymentStatus.SETTLED.equals(providerStatus)) {
-                    externalPayments.settle(attempt);
-                } else if (ExternalPaymentStatus.FAILED.equals(providerStatus)) {
-                    externalPayments.fail(attempt);
-                }
-            } catch (RuntimeException e) {
-                created += providerIssue(attempt, "PROVIDER_STATUS_QUERY_FAILED", "authoritative provider status",
-                    safeMessage(e));
-            }
-        }
-        return created;
-    }
-
-    /** Provider truth disagrees with our terminal local status. */
-    private int detectExternalStatusMismatch() {
-        int created = 0;
-        for (String localTerminal : new String[]{ExternalPaymentStatus.SETTLED, ExternalPaymentStatus.FAILED}) {
-            for (ExternalPaymentAttemptEntity attempt : externalAttempts.findByStatus(localTerminal)) {
-                Optional<PaymentRailAdapter> resolved = railRegistry.find(attempt.getProvider());
-                if (resolved.isEmpty()) {
+        for (String localStatus : RESOLVABLE) {
+            for (ExternalPaymentAttemptEntity attempt : externalAttempts.findByStatus(localStatus)) {
+                Optional<PaymentRailAdapter> adapter = railRegistry.find(attempt.getProvider());
+                if (adapter.isEmpty()) {
                     created += providerIssue(attempt, "PROVIDER_ADAPTER_MISSING",
                         "registered adapter for " + attempt.getProvider(), "adapter unavailable");
                     continue;
                 }
                 try {
-                    String providerStatus = resolved.get().getPaymentStatus(attempt.getProviderReference());
-                    boolean mismatch =
-                        (ExternalPaymentStatus.SETTLED.equals(localTerminal)
-                            && ExternalPaymentStatus.FAILED.equals(providerStatus))
-                        || (ExternalPaymentStatus.FAILED.equals(localTerminal)
-                            && ExternalPaymentStatus.SETTLED.equals(providerStatus));
-                    if (mismatch) {
-                        created += raise(attempt.getTenantId(), "CRITICAL", "EXTERNAL_STATUS_MISMATCH",
-                            "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localTerminal,
-                            "provider=" + providerStatus,
-                            Map.of("provider", attempt.getProvider(),
-                                   "providerReference", attempt.getProviderReference(),
-                                   "localStatus", localTerminal,
-                                   "providerStatus", providerStatus));
+                    String providerStatus = query(adapter.get(), attempt);
+                    if (ExternalPaymentStatus.SETTLED.equals(providerStatus)) {
+                        externalPayments.settle(attempt);
+                    } else if (isReleaseStatus(providerStatus)) {
+                        externalPayments.release(attempt, providerStatus);
+                    } else if (isResolvable(providerStatus) && !providerStatus.equals(attempt.getStatus())) {
+                        attempt.setStatus(providerStatus);
+                        externalAttempts.save(attempt);
                     }
                 } catch (RuntimeException e) {
                     created += providerIssue(attempt, "PROVIDER_STATUS_QUERY_FAILED",
@@ -146,24 +123,63 @@ public class ReconciliationService {
         return created;
     }
 
-    /** Invariant: every posted ledger transaction must have debits == credits. */
+    /** Provider truth disagrees with our terminal local status. */
+    private int detectExternalStatusMismatch() {
+        int created = 0;
+        for (String localTerminal : TERMINAL) {
+            for (ExternalPaymentAttemptEntity attempt : externalAttempts.findByStatus(localTerminal)) {
+                Optional<PaymentRailAdapter> adapter = railRegistry.find(attempt.getProvider());
+                if (adapter.isEmpty()) {
+                    created += providerIssue(attempt, "PROVIDER_ADAPTER_MISSING",
+                        "registered adapter for " + attempt.getProvider(), "adapter unavailable");
+                    continue;
+                }
+                try {
+                    String providerStatus = query(adapter.get(), attempt);
+                    boolean mismatch = ExternalPaymentStatus.SETTLED.equals(localTerminal)
+                        ? isReleaseStatus(providerStatus)
+                        : isReleaseStatus(localTerminal) && ExternalPaymentStatus.SETTLED.equals(providerStatus);
+                    if (mismatch) {
+                        created += raise(attempt.getTenantId(), "CRITICAL", "EXTERNAL_STATUS_MISMATCH",
+                            "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localTerminal,
+                            "provider=" + providerStatus, Map.of(
+                                "provider", attempt.getProvider(),
+                                "providerReference", attempt.getProviderReference(),
+                                "tenantProviderConfigId", String.valueOf(attempt.getTenantProviderConfigId()),
+                                "providerEnvironment", String.valueOf(attempt.getProviderEnvironment()),
+                                "localStatus", localTerminal,
+                                "providerStatus", providerStatus));
+                    }
+                } catch (RuntimeException e) {
+                    created += providerIssue(attempt, "PROVIDER_STATUS_QUERY_FAILED",
+                        "authoritative provider status", safeMessage(e));
+                }
+            }
+        }
+        return created;
+    }
+
+    private static String query(PaymentRailAdapter adapter, ExternalPaymentAttemptEntity attempt) {
+        return adapter.getPaymentStatus(new PaymentRailAdapter.PaymentStatusRequest(attempt.getTenantId(),
+            attempt.getTenantProviderConfigId(), attempt.getProviderEnvironment(), attempt.getProviderReference()));
+    }
+
     private int checkUnbalancedLedgerTransactions() {
         int created = 0;
-        for (LedgerTransactionEntity tx : ledgerTransactions.findAll()) {
-            List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(tx.getId());
+        for (LedgerTransactionEntity transaction : ledgerTransactions.findAll()) {
+            List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(transaction.getId());
             BigDecimal debits = BigDecimal.ZERO;
             BigDecimal credits = BigDecimal.ZERO;
-            for (LedgerEntryEntity e : entries) {
-                if ("DEBIT".equals(e.getDirection())) debits = debits.add(e.getAmount());
-                else credits = credits.add(e.getAmount());
+            for (LedgerEntryEntity entry : entries) {
+                if ("DEBIT".equals(entry.getDirection())) debits = debits.add(entry.getAmount());
+                else credits = credits.add(entry.getAmount());
             }
-            boolean unbalanced = entries.size() < 2 || debits.compareTo(credits) != 0;
-            if (unbalanced) {
-                created += raise(tx.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
-                    "LEDGER_TRANSACTION", tx.getId(), "debits == credits",
-                    "debits=" + debits + " credits=" + credits,
-                    Map.of("debits", debits.toPlainString(), "credits", credits.toPlainString(),
-                           "entryCount", entries.size()));
+            if (entries.size() < 2 || debits.compareTo(credits) != 0) {
+                created += raise(transaction.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
+                    "LEDGER_TRANSACTION", transaction.getId(), "debits == credits",
+                    "debits=" + debits + " credits=" + credits, Map.of(
+                        "debits", debits.toPlainString(), "credits", credits.toPlainString(),
+                        "entryCount", entries.size()));
             }
         }
         return created;
@@ -171,29 +187,33 @@ public class ReconciliationService {
 
     private int checkExpiredReservations() {
         int created = 0;
-        for (FundReservationEntity r : reservations.findByStatusAndExpiresAtBefore("ACTIVE", Instant.now())) {
-            created += raise(r.getTenantId(), "HIGH", "EXPIRED_RESERVATION", "FUND_RESERVATION", r.getId(),
-                "consumed or released before expiry", "still ACTIVE after expiry",
-                Map.of("amount", r.getAmount().toPlainString(), "expiresAt", String.valueOf(r.getExpiresAt())));
+        for (FundReservationEntity reservation : reservations.findByStatusAndExpiresAtBefore("ACTIVE", Instant.now())) {
+            created += raise(reservation.getTenantId(), "HIGH", "EXPIRED_RESERVATION", "FUND_RESERVATION",
+                reservation.getId(), "consumed or released before expiry", "still ACTIVE after expiry",
+                Map.of("amount", reservation.getAmount().toPlainString(),
+                    "expiresAt", String.valueOf(reservation.getExpiresAt())));
         }
         return created;
     }
 
     private int checkStuckOutbox() {
         int created = 0;
-        for (OutboxEventEntity e : outbox.findByStatusAndRetryCountGreaterThanEqual(
+        for (OutboxEventEntity event : outbox.findByStatusAndRetryCountGreaterThanEqual(
                 "PENDING", stuckOutboxRetryThreshold)) {
-            created += raise(e.getTenantId(), "MEDIUM", "OUTBOX_STUCK", "OUTBOX_EVENT", e.getId(),
-                "PUBLISHED", "PENDING after " + e.getRetryCount() + " retries",
-                Map.of("eventType", e.getEventType(), "retryCount", e.getRetryCount()));
+            created += raise(event.getTenantId(), "MEDIUM", "OUTBOX_STUCK", "OUTBOX_EVENT", event.getId(),
+                "PUBLISHED", "PENDING after " + event.getRetryCount() + " retries",
+                Map.of("eventType", event.getEventType(), "retryCount", event.getRetryCount()));
         }
         return created;
     }
 
     private int providerIssue(ExternalPaymentAttemptEntity attempt, String type, String expected, String actual) {
         return raise(attempt.getTenantId(), "HIGH", type, "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(),
-            expected, actual, Map.of("provider", attempt.getProvider(),
-                                    "providerReference", attempt.getProviderReference()));
+            expected, actual, Map.of(
+                "provider", attempt.getProvider(),
+                "providerReference", attempt.getProviderReference(),
+                "tenantProviderConfigId", String.valueOf(attempt.getTenantProviderConfigId()),
+                "providerEnvironment", String.valueOf(attempt.getProviderEnvironment())));
     }
 
     private int raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
@@ -205,11 +225,24 @@ public class ReconciliationService {
         return 1;
     }
 
+    private static boolean isResolvable(String status) {
+        for (String candidate : RESOLVABLE) if (candidate.equals(status)) return true;
+        return false;
+    }
+
+    private static boolean isReleaseStatus(String status) {
+        return ExternalPaymentStatus.FAILED.equals(status)
+            || ExternalPaymentStatus.CANCELLED.equals(status)
+            || ExternalPaymentStatus.RETURNED.equals(status)
+            || ExternalPaymentStatus.REVERSED.equals(status);
+    }
+
     private static String safeMessage(RuntimeException e) {
         return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
     }
 
     private String writeJson(Map<String, Object> map) {
-        try { return json.writeValueAsString(map); } catch (Exception e) { throw new IllegalStateException(e); }
+        try { return json.writeValueAsString(map); }
+        catch (Exception e) { throw new IllegalStateException(e); }
     }
 }
