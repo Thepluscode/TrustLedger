@@ -65,18 +65,18 @@ public class PaymentWebhookService {
         if (found.isEmpty()) return Result.UNKNOWN_REFERENCE;
         ExternalPaymentAttemptEntity attempt = found.get();
 
-        boolean valid = adapter.verifyWebhook(new PaymentRailAdapter.WebhookVerificationRequest(
-            attempt.getTenantId(), attempt.getTenantProviderConfigId(), attempt.getProviderEnvironment(),
-            rawBody, signature));
-        if (!valid) {
-            webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(), provider,
-                normalized.providerReference(), normalized.eventId(), normalized.eventType(), rawBody, false, false));
-            return Result.INVALID_SIGNATURE;
-        }
-
+        // Unique(provider,event_id) is the apply-once boundary for both valid and invalid callbacks.
         if (webhookEvents.findByProviderAndEventId(provider, normalized.eventId()).isPresent()) {
             return Result.DUPLICATE;
         }
+
+        boolean valid = adapter.verifyWebhook(new PaymentRailAdapter.WebhookVerificationRequest(
+            attempt.getTenantId(), attempt.getTenantProviderConfigId(), attempt.getProviderEnvironment(),
+            rawBody, signature));
+        PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
+            attempt.getTenantId(), provider, normalized.providerReference(), normalized.eventId(),
+            normalized.eventType(), rawBody, valid, false));
+        if (!valid) return Result.INVALID_SIGNATURE;
 
         if (!blank(normalized.providerObjectId())) {
             if (!blank(attempt.getProviderObjectId())
@@ -87,16 +87,20 @@ public class PaymentWebhookService {
             attempts.save(attempt);
         }
 
-        PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
-            attempt.getTenantId(), provider, normalized.providerReference(), normalized.eventId(),
-            normalized.eventType(), rawBody, true, false));
-
         switch (normalized.eventType()) {
             case ExternalPaymentStatus.SETTLED -> externalPayments.settle(attempt);
             case ExternalPaymentStatus.FAILED -> externalPayments.fail(attempt);
             case ExternalPaymentStatus.REVERSED -> externalPayments.release(attempt, ExternalPaymentStatus.REVERSED);
-            case "IGNORED" -> { return Result.IGNORED; }
-            default -> { return Result.IGNORED; }
+            case "IGNORED" -> {
+                event.setProcessed(true);
+                webhookEvents.save(event);
+                return Result.IGNORED;
+            }
+            default -> {
+                event.setProcessed(true);
+                webhookEvents.save(event);
+                return Result.IGNORED;
+            }
         }
         event.setProcessed(true);
         webhookEvents.save(event);
