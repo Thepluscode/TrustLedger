@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import Shell from "../../components/Shell";
 import { RiskBadge, StatusPill } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -18,6 +18,9 @@ function lifecycle(status: string): { label: string; cls: string }[] {
       return [created, checked, { label: "Posted", cls: "done" }, { label: "Completed", cls: "current" }];
     case "MFA_REQUIRED":
       return [created, checked, { label: "Step-up required", cls: "current" }, { label: "Completed", cls: "" }];
+    case "ACTION_REQUIRED":
+      return [created, checked, { label: "Submitted", cls: "done" }, { label: "Provider OTP required", cls: "current" },
+        { label: "Settled", cls: "" }];
     case "HELD_FOR_REVIEW":
       return [created, checked, { label: "Held for review", cls: "current" }, { label: "Completed", cls: "" }];
     case "PENDING_SETTLEMENT":
@@ -76,10 +79,38 @@ export default function TransferDetailPage() {
   const id = params.transactionId;
   const [data, setData] = useState<TransferDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [otpSubmitting, setOtpSubmitting] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpNotice, setOtpNotice] = useState<string | null>(null);
+
+  const reload = async () => {
+    if (!id) return;
+    setData(await api.getTransfer(id));
+  };
 
   useEffect(() => {
-    if (id) api.getTransfer(id).then(setData).catch((e) => setError((e as Error).message));
+    reload().catch((e) => setError((e as Error).message));
   }, [id]);
+
+  const submitPaystackOtp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const writeOnlyOtp = otp;
+    setOtp("");
+    setOtpError(null);
+    setOtpNotice(null);
+    setOtpSubmitting(true);
+    try {
+      const result = await api.finalizePaystackOtp(id, writeOnlyOtp);
+      setOtpNotice(`Paystack accepted the action. Current status: ${result.status.replace(/_/g, " ").toLowerCase()}.`);
+      await reload();
+    } catch (e) {
+      setOtpError((e as Error).message);
+      await reload().catch(() => undefined);
+    } finally {
+      setOtpSubmitting(false);
+    }
+  };
 
   const t = data?.transfer;
 
@@ -120,6 +151,44 @@ export default function TransferDetailPage() {
               </div>
             </div>
           </section>
+
+          {t.status === "ACTION_REQUIRED" && (
+            <section className="panel" style={{ marginTop: 18 }}>
+              <div className="panelHeader">
+                <div>
+                  <h2>Paystack verification</h2>
+                  <p className="sub">Enter the one-time code supplied for this payout. The code is submitted once and is not stored.</p>
+                </div>
+              </div>
+              <form className="panelBody" onSubmit={submitPaystackOtp}>
+                <label htmlFor="paystack-otp" style={{ marginTop: 0 }}>One-time code</label>
+                <div className="row" style={{ gap: 10, alignItems: "end", maxWidth: 420 }}>
+                  <input
+                    id="paystack-otp"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{4,10}"
+                    minLength={4}
+                    maxLength={10}
+                    value={otp}
+                    onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))}
+                    disabled={otpSubmitting}
+                    required
+                    aria-describedby="paystack-otp-help"
+                  />
+                  <button className="btn" type="submit" disabled={otpSubmitting || otp.length < 4}>
+                    {otpSubmitting ? "Submitting…" : "Submit code"}
+                  </button>
+                </div>
+                <p id="paystack-otp-help" className="muted" style={{ marginTop: 8 }}>
+                  This value remains only in this form until submission and is cleared immediately.
+                </p>
+                {otpError && <p className="error">{otpError}</p>}
+                {otpNotice && <p className="ok">{otpNotice}</p>}
+              </form>
+            </section>
+          )}
 
           {data.fraudCase && (
             <section className="panel" style={{ marginTop: 18 }}>
