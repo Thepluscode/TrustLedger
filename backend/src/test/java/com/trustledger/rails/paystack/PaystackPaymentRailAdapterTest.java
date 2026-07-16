@@ -38,7 +38,7 @@ class PaystackPaymentRailAdapterTest {
         Fixture fixture = fixture(new PaystackApiClient.PaystackResponse("success", "paystack_1234567890",
             "TRF_test", "ok", 200, false));
 
-        PaymentRailAdapter.PaymentSubmitResult result = fixture.adapter().initiatePayment(request());
+        PaymentRailAdapter.PaymentSubmitResult result = fixture.adapter().initiatePayment(fixture.request());
 
         assertEquals(ExternalPaymentStatus.PENDING_SETTLEMENT, result.status());
         assertEquals(100025L, fixture.api().lastRequest.amountMinor());
@@ -52,7 +52,7 @@ class PaystackPaymentRailAdapterTest {
     void preservesOtpAsActionRequired() {
         Fixture fixture = fixture(new PaystackApiClient.PaystackResponse("otp", "paystack_1234567890",
             "TRF_test", "otp required", 200, false));
-        assertEquals(ExternalPaymentStatus.ACTION_REQUIRED, fixture.adapter().initiatePayment(request()).status());
+        assertEquals(ExternalPaymentStatus.ACTION_REQUIRED, fixture.adapter().initiatePayment(fixture.request()).status());
     }
 
     @Test
@@ -61,7 +61,7 @@ class PaystackPaymentRailAdapterTest {
         api.throwAmbiguous = true;
         Fixture fixture = fixture(api);
         assertThrows(PaymentRailAdapter.PaymentRailTimeoutException.class,
-            () -> fixture.adapter().initiatePayment(request()));
+            () -> fixture.adapter().initiatePayment(fixture.request()));
     }
 
     @Test

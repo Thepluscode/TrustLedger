@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ public class JdkPaystackApiClient implements PaystackApiClient {
     private final URI baseUri;
     private final Duration timeout;
 
+    @Autowired
     public JdkPaystackApiClient(ObjectMapper json,
                                 @Value("${trustledger.paystack.base-url:https://api.paystack.co}") String baseUrl,
                                 @Value("${trustledger.paystack.timeout-seconds:10}") long timeoutSeconds) {
