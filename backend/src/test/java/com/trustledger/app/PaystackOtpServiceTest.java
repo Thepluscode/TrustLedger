@@ -78,7 +78,7 @@ class PaystackOtpServiceTest {
         verify(submissions).executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, "123456");
         ArgumentCaptor<AuditLogEntity> audit = ArgumentCaptor.forClass(AuditLogEntity.class);
         verify(auditLogs).save(audit.capture());
-        String metadata = audit.capture().getMetadata();
+        String metadata = audit.getValue().getMetadata();
         assertFalse(metadata.contains("123456"));
         assertEquals("EXTERNAL_PAYMENT_OTP_SUBMITTED", audit.getValue().getAction());
     }
