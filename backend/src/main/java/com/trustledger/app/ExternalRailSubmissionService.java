@@ -11,18 +11,17 @@ import com.trustledger.rails.PaymentRailRegistry;
 import com.trustledger.rails.PaymentRouteDecision;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Durable provider-submission boundary. Preparation is committed by the caller before execute() makes
- * a network call. A claimed attempt is recoverable with the same provider reference after a crash.
- */
+/** Durable, crash-recoverable boundary between committed ledger intent and provider network execution. */
 @Service
 public class ExternalRailSubmissionService {
 
@@ -41,19 +40,23 @@ public class ExternalRailSubmissionService {
     private final ProviderRecipientResolver recipients;
     private final ObjectMapper json;
     private final TransactionTemplate transactions;
+    private final long staleSeconds;
 
     public ExternalRailSubmissionService(ExternalPaymentAttemptRepository attempts, TransferRepository transfers,
                                          PaymentRailRegistry registry, ProviderRecipientResolver recipients,
-                                         ObjectMapper json, PlatformTransactionManager transactionManager) {
+                                         ObjectMapper json, PlatformTransactionManager transactionManager,
+                                         @Value("${trustledger.payment-rails.submission-worker.stale-seconds:30}")
+                                         long staleSeconds) {
         this.attempts = attempts;
         this.transfers = transfers;
         this.registry = registry;
         this.recipients = recipients;
         this.json = json;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.staleSeconds = Math.max(1, staleSeconds);
     }
 
-    /** Persists the complete, non-secret submission identity. The surrounding business transaction commits it. */
+    /** Persists the complete, non-secret submission identity in the caller's preparation transaction. */
     public ExternalPaymentAttemptEntity prepare(UUID tenantId, UUID transferId, BigDecimal amount, String currency,
                                                 String scenario, TenantPaymentRouteDecision tenantRoute,
                                                 ResolvedProviderRecipient recipient, String providerReference) {
@@ -79,19 +82,18 @@ public class ExternalRailSubmissionService {
     /** Claims a newly prepared attempt and executes it outside any database transaction. */
     public SubmissionResult execute(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, false);
-        return claim == null ? currentResult(attemptId) : executeClaim(claim);
+        return claim == null ? null : executeClaim(claim);
     }
 
     /** Verifies and, only when still unknown, replays a stale attempt with the same provider reference. */
     public SubmissionResult recover(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, true);
-        return claim == null ? currentResult(attemptId) : executeClaim(claim);
+        return claim == null ? null : executeClaim(claim);
     }
 
     private SubmissionResult executeClaim(SubmissionClaim claim) {
         PaymentRailAdapter adapter = registry.require(claim.provider());
         ResolvedProviderRecipient recipient = resolveRecipient(claim, adapter);
-
         try {
             if (claim.recovery()) {
                 String verified = canonical(adapter.getPaymentStatus(new PaymentRailAdapter.PaymentStatusRequest(
@@ -101,7 +103,6 @@ public class ExternalRailSubmissionService {
                     return result(claim, verified, Map.of("verifiedStatus", verified), null);
                 }
             }
-
             PaymentRailAdapter.PaymentSubmitResult response = adapter.initiatePayment(
                 new PaymentRailAdapter.PaymentSubmitRequest(claim.tenantId(), claim.transactionId(),
                     claim.providerReference(), claim.tenantProviderConfigId(), claim.providerEnvironment(),
@@ -123,10 +124,12 @@ public class ExternalRailSubmissionService {
         return transactions.execute(status -> {
             ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(attemptId).orElse(null);
             if (attempt == null) return null;
-            boolean claimable = recovery
-                ? ExternalPaymentStatus.PENDING_UNKNOWN.equals(attempt.getStatus())
-                    || ExternalPaymentStatus.SUBMITTING.equals(attempt.getStatus())
-                : ExternalPaymentStatus.READY_TO_SUBMIT.equals(attempt.getStatus());
+            boolean freshSubmission = ExternalPaymentStatus.READY_TO_SUBMIT.equals(attempt.getStatus());
+            boolean unknownRecovery = ExternalPaymentStatus.PENDING_UNKNOWN.equals(attempt.getStatus());
+            boolean staleClaim = ExternalPaymentStatus.SUBMITTING.equals(attempt.getStatus())
+                && attempt.getSubmittedAt() != null
+                && attempt.getSubmittedAt().isBefore(Instant.now().minus(staleSeconds, ChronoUnit.SECONDS));
+            boolean claimable = recovery ? unknownRecovery || staleClaim : freshSubmission;
             if (!claimable) return null;
 
             attempt.setStatus(ExternalPaymentStatus.SUBMITTING);
@@ -159,13 +162,6 @@ public class ExternalRailSubmissionService {
                                     String lastError) {
         return new SubmissionResult(claim.attemptId(), status, claim.provider(), claim.providerReference(),
             response.isEmpty() ? null : write(response), lastError);
-    }
-
-    private SubmissionResult currentResult(UUID attemptId) {
-        return attempts.findById(attemptId)
-            .map(a -> new SubmissionResult(a.getId(), a.getStatus(), a.getProvider(), a.getProviderReference(),
-                a.getResponsePayload(), a.getLastError()))
-            .orElse(null);
     }
 
     private String scenario(String requestPayload) {
