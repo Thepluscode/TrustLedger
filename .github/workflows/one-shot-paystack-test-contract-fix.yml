@@ -1,0 +1,47 @@
+name: One-shot Paystack test contract fix
+
+on:
+  push:
+    branches:
+      - agent/paystack-payout-adapter
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, 'Trigger one-shot Paystack test contract fix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/paystack-payout-adapter
+          fetch-depth: 0
+      - name: Repair attempt accessor and fixture binding
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          entity = Path('backend/src/main/java/com/trustledger/persistence/entity/ExternalPaymentAttemptEntity.java')
+          text = entity.read_text()
+          old = '    public String getCurrency() { return currency; }\n    public void setResponsePayload(String responsePayload) { this.responsePayload = responsePayload; }'
+          new = '    public String getCurrency() { return currency; }\n    public String getRequestPayload() { return requestPayload; }\n    public void setResponsePayload(String responsePayload) { this.responsePayload = responsePayload; }'
+          if text.count(old) != 1:
+              raise SystemExit('attempt accessor insertion point did not match exactly once')
+          entity.write_text(text.replace(old, new, 1))
+
+          test = Path('backend/src/test/java/com/trustledger/rails/paystack/PaystackPaymentRailAdapterTest.java')
+          text = test.read_text()
+          old = '        private PaymentRailAdapter.PaymentSubmitRequest request() { return request(tenantId, configId); }'
+          new = '        private PaymentRailAdapter.PaymentSubmitRequest request() {\n            return PaystackPaymentRailAdapterTest.request(tenantId, configId);\n        }'
+          if text.count(old) != 1:
+              raise SystemExit('fixture request binding did not match exactly once')
+          test.write_text(text.replace(old, new, 1))
+          PY
+          git config user.name "trustledger-control-plane-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/src/main/java/com/trustledger/persistence/entity/ExternalPaymentAttemptEntity.java \
+                  backend/src/test/java/com/trustledger/rails/paystack/PaystackPaymentRailAdapterTest.java
+          git commit -m "Fix Paystack test contracts"
+          git push origin HEAD:agent/paystack-payout-adapter
