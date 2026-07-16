@@ -39,9 +39,11 @@ public record PaymentProviderCapabilities(
 
         String normalizedCurrency = normalize(currency);
         if (normalizedCurrency == null) return "currency_required";
+        if (normalizedCurrency.length() != 3) return "invalid_currency";
         if (!currencies.isEmpty() && !currencies.contains(normalizedCurrency)) return "currency_not_supported";
 
         String normalizedCountry = normalize(country);
+        if (normalizedCountry != null && normalizedCountry.length() != 2) return "invalid_country";
         if (normalizedCountry != null && !countries.isEmpty() && !countries.contains(normalizedCountry)) {
             return "country_not_supported";
         }
