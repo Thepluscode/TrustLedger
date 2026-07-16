@@ -78,16 +78,17 @@ public class ExternalRailSubmissionService {
 
     /** Claims a newly prepared attempt and executes it outside any database transaction. */
     public SubmissionResult execute(UUID attemptId) {
-        return executeClaim(claim(attemptId, false));
+        SubmissionClaim claim = claim(attemptId, false);
+        return claim == null ? currentResult(attemptId) : executeClaim(claim);
     }
 
     /** Verifies and, only when still unknown, replays a stale attempt with the same provider reference. */
     public SubmissionResult recover(UUID attemptId) {
-        return executeClaim(claim(attemptId, true));
+        SubmissionClaim claim = claim(attemptId, true);
+        return claim == null ? currentResult(attemptId) : executeClaim(claim);
     }
 
     private SubmissionResult executeClaim(SubmissionClaim claim) {
-        if (claim == null) return currentResult(null);
         PaymentRailAdapter adapter = registry.require(claim.provider());
         ResolvedProviderRecipient recipient = resolveRecipient(claim, adapter);
 
@@ -113,7 +114,6 @@ public class ExternalRailSubmissionService {
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Provider did not return an authoritative outcome");
         } catch (RuntimeException failure) {
-            // Never infer failure after a submission claim. Recovery verifies/reuses this exact reference.
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Submission requires recovery: " + failure.getClass().getSimpleName());
         }
@@ -162,7 +162,6 @@ public class ExternalRailSubmissionService {
     }
 
     private SubmissionResult currentResult(UUID attemptId) {
-        if (attemptId == null) return null;
         return attempts.findById(attemptId)
             .map(a -> new SubmissionResult(a.getId(), a.getStatus(), a.getProvider(), a.getProviderReference(),
                 a.getResponsePayload(), a.getLastError()))
