@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** Lifecycle and governance for tenant-owned payment-provider configurations. */
+/** Lifecycle and governance for tenant-owned provider configurations. */
 @Service
 public class TenantProviderConfigService {
 
@@ -48,7 +48,7 @@ public class TenantProviderConfigService {
     @Transactional
     public TenantProviderConfigEntity create(UUID tenantId, UUID actorId, CreateCommand command) {
         quotas.requireProviderConfigCapacity(tenantId, configs.countByTenantId(tenantId));
-        PaymentRailAdapter adapter = registry.require(command.provider());
+        String provider = providerId(command.provider());
         String environment = environment(command.environment());
         String credentialsRef = secretRef(command.credentialsSecretRef(), "credentialsSecretRef");
         String webhookRef = secretRef(command.webhookSecretRef(), "webhookSecretRef");
@@ -61,7 +61,7 @@ public class TenantProviderConfigService {
         String compliance = production ? "PENDING" : "APPROVED";
 
         TenantProviderConfigEntity saved = configs.save(new TenantProviderConfigEntity(UUID.randomUUID(), tenantId,
-            adapter.rail(), environment, effectiveEnabled, compliance, command.callbackBaseUrl(),
+            provider, environment, effectiveEnabled, compliance, command.callbackBaseUrl(),
             command.allowedRedirectDomains(), credentialsRef, webhookRef, currencies, countries,
             command.minimumAmount(), command.maximumAmount()));
         audit(tenantId, actorId, "TENANT_PROVIDER_CONFIG_CREATED", saved, Map.of(
@@ -83,7 +83,7 @@ public class TenantProviderConfigService {
         return config;
     }
 
-    /** Platform-compliance hook. Deliberately not exposed through the tenant self-service controller. */
+    /** Platform-compliance hook. Deliberately not exposed through tenant self-service. */
     @Transactional
     public TenantProviderConfigEntity approveProduction(UUID tenantId, UUID platformActorId, UUID configId) {
         TenantProviderConfigEntity config = require(tenantId, configId);
@@ -92,7 +92,7 @@ public class TenantProviderConfigService {
         }
         requireSecretReferences(config);
         config.approve(platformActorId);
-        config.setEnabled(false); // approval and money movement activation remain separate actions
+        config.setEnabled(false);
         audit(tenantId, platformActorId, "TENANT_PROVIDER_PRODUCTION_APPROVED", config,
             Map.of("provider", config.getProvider(), "environment", config.getEnvironment()));
         return config;
@@ -129,8 +129,20 @@ public class TenantProviderConfigService {
         if (!"ACTIVE".equals(config.getOperationalStatus())) {
             throw new IllegalStateException("Provider configuration is not operationally active");
         }
-        PaymentRailAdapter adapter = registry.require(config.getProvider());
-        if (adapter.requiresTenantConfiguration()) requireSecretReferences(config);
+        registry.find(config.getProvider()).filter(PaymentRailAdapter::requiresTenantConfiguration)
+            .ifPresent(adapter -> requireSecretReferences(config));
+    }
+
+    private String providerId(String requested) {
+        if (blank(requested)) throw new IllegalArgumentException("provider is required");
+        return registry.find(requested).map(PaymentRailAdapter::rail)
+            .orElseGet(() -> {
+                String normalized = requested.trim().toUpperCase(Locale.ROOT);
+                if (normalized.length() > 48 || !normalized.matches("[A-Z0-9_]+")) {
+                    throw new IllegalArgumentException("Invalid provider identifier: " + requested);
+                }
+                return normalized;
+            });
     }
 
     private static void requireSecretReferences(TenantProviderConfigEntity config) {
