@@ -33,7 +33,6 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     }
 
     @Override public String rail() { return RAIL; }
-
     @Override public Set<String> aliases() { return Set.of(RAIL); }
 
     @Override
@@ -54,8 +53,9 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
             PaystackApiClient.PaystackResponse response = api.initiateTransfer(secret,
                 new PaystackApiClient.InitiateTransferRequest(amountMinor, request.providerRecipientCode(),
                     request.providerReference(), "TrustLedger payout " + request.transactionId(), "NGN"));
-            String status = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
-            return new PaymentSubmitResult(request.providerReference(), status);
+            String normalized = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
+            if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
+            return new PaymentSubmitResult(request.providerReference(), normalized);
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             throw new PaymentRailTimeoutException(request.providerReference(),
                 "Paystack did not return an authoritative transfer outcome");
