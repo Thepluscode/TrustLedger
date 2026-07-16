@@ -5,11 +5,13 @@ import com.trustledger.persistence.entity.BillingEventEntity;
 import com.trustledger.persistence.entity.TenantProviderConfigEntity;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
-/** Tenant enterprise admin: usage, quotas, billing, per-tenant provider config, plan. */
+/** Tenant enterprise administration: usage, quotas, billing, and provider controls. */
 @RestController
 @RequestMapping("/api/v1/tenant")
 public class TenantAdminController {
@@ -33,8 +35,16 @@ public class TenantAdminController {
                                int maxEvidenceExportsPerMonth, int maxProviderConfigs, int storageLimitGb) {}
     public record PlanRequest(String plan) {}
     public record ProviderConfigRequest(String provider, String environment, boolean enabled,
-                                        String callbackBaseUrl, String allowedRedirectDomains) {}
-    public record ProviderConfigView(String provider, String environment, boolean enabled) {}
+                                        String callbackBaseUrl, String allowedRedirectDomains,
+                                        String credentialsSecretRef, String webhookSecretRef,
+                                        String allowedCurrencies, String allowedDestinationCountries,
+                                        BigDecimal minimumAmount, BigDecimal maximumAmount) {}
+    public record ProviderControlsRequest(boolean enabled, boolean emergencyDisabled) {}
+    public record ProviderConfigView(UUID id, String provider, String environment, boolean enabled,
+                                     String complianceStatus, String operationalStatus, boolean emergencyDisabled,
+                                     String allowedCurrencies, String allowedDestinationCountries,
+                                     BigDecimal minimumAmount, BigDecimal maximumAmount,
+                                     boolean credentialsConfigured, boolean webhookSecretConfigured) {}
 
     @GetMapping("/usage")
     public Map<String, Long> usage(@RequestParam String metric) {
@@ -74,15 +84,31 @@ public class TenantAdminController {
     @PostMapping("/provider-configs")
     public ProviderConfigView createProviderConfig(@RequestBody ProviderConfigRequest b) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        TenantProviderConfigEntity c = providerConfigs.create(CurrentUser.tenantId(), b.provider(),
-            b.environment(), b.enabled(), b.callbackBaseUrl(), b.allowedRedirectDomains());
-        return new ProviderConfigView(c.getProvider(), c.getEnvironment(), c.isEnabled());
+        TenantProviderConfigEntity c = providerConfigs.create(CurrentUser.tenantId(), CurrentUser.userId(),
+            new TenantProviderConfigService.CreateCommand(b.provider(), b.environment(), b.enabled(),
+                b.callbackBaseUrl(), b.allowedRedirectDomains(), b.credentialsSecretRef(), b.webhookSecretRef(),
+                b.allowedCurrencies(), b.allowedDestinationCountries(), b.minimumAmount(), b.maximumAmount()));
+        return view(c);
+    }
+
+    @PatchMapping("/provider-configs/{configId}/controls")
+    public ProviderConfigView updateProviderControls(@PathVariable UUID configId,
+                                                     @RequestBody ProviderControlsRequest b) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return view(providerConfigs.updateControls(CurrentUser.tenantId(), CurrentUser.userId(), configId,
+            b.enabled(), b.emergencyDisabled()));
     }
 
     @GetMapping("/provider-configs")
     public List<ProviderConfigView> listProviderConfigs() {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        return providerConfigs.list(CurrentUser.tenantId()).stream()
-            .map(c -> new ProviderConfigView(c.getProvider(), c.getEnvironment(), c.isEnabled())).toList();
+        return providerConfigs.list(CurrentUser.tenantId()).stream().map(TenantAdminController::view).toList();
+    }
+
+    private static ProviderConfigView view(TenantProviderConfigEntity c) {
+        return new ProviderConfigView(c.getId(), c.getProvider(), c.getEnvironment(), c.isEnabled(),
+            c.getComplianceStatus(), c.getOperationalStatus(), c.isEmergencyDisabled(), c.getAllowedCurrencies(),
+            c.getAllowedDestinationCountries(), c.getMinimumAmount(), c.getMaximumAmount(),
+            c.getCredentialsSecretRef() != null, c.getWebhookSecretRef() != null);
     }
 }
