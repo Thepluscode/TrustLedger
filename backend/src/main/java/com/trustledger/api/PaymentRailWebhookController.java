@@ -6,7 +6,7 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Inbound payment-rail webhooks. Authenticated by HMAC signature (no JWT). */
+/** Inbound payment-rail webhooks. Authentication is delegated to the selected provider adapter. */
 @RestController
 @RequestMapping("/api/v1/payment-rails/webhooks")
 public class PaymentRailWebhookController {
@@ -17,15 +17,16 @@ public class PaymentRailWebhookController {
         this.webhooks = webhooks;
     }
 
-    @PostMapping("/sandbox")
-    public ResponseEntity<Map<String, Object>> sandbox(
+    @PostMapping("/{provider}")
+    public ResponseEntity<Map<String, Object>> providerWebhook(
+            @PathVariable String provider,
             @RequestBody String body,
             @RequestHeader(value = "X-Signature", required = false) String signature) {
-        Result result = webhooks.process(body, signature);
+        Result result = webhooks.process(provider, body, signature);
         int status = switch (result) {
             case INVALID_SIGNATURE -> 401;
             case BAD_REQUEST -> 400;
-            default -> 200; // PROCESSED / DUPLICATE / UNKNOWN_REFERENCE / IGNORED are all acknowledged
+            default -> 200;
         };
         return ResponseEntity.status(status).body(Map.of("result", result.name()));
     }

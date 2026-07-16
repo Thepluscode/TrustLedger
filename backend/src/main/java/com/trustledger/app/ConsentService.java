@@ -75,7 +75,6 @@ public class ConsentService {
     @Transactional
     public CallbackResult handleCallback(String state, String consentReference, String result) {
         if (state == null || consentReference == null) throw new IllegalArgumentException("missing state/consent_ref");
-        // Replay protection: a state token may be consumed at most once.
         if (callbacks.existsByStateToken(state)) {
             throw new ConsentException("Callback replay detected for state " + state);
         }
@@ -97,7 +96,7 @@ public class ConsentService {
         return new CallbackResult(consentReference, consent.getStatus());
     }
 
-    /** Submit an authorised consent: reserve + submit to the rail (reuses the v2.2 external flow). */
+    /** Submit an authorised consent through an explicit, auditable sandbox provider route. */
     @Transactional
     public ExternalPaymentResponse submit(UUID tenantId, String consentReference, String scenario) {
         PaymentConsentEntity consent = consents.findByConsentReference(consentReference)
@@ -112,7 +111,7 @@ public class ConsentService {
         }
         var req = new ExternalTransferRequest(tenantId, consent.getUserId(), consent.getSourceAccountId(),
             consent.getBeneficiaryAccountId(), consent.getAmount(), consent.getCurrency(), "ob-payment",
-            consentReference + ":submit", "web", "GB", scenario);
+            consentReference + ":submit", "web", "GB", "GB", "SANDBOX", scenario);
         ExternalPaymentResponse response = externalPayments.initiate(req, FraudContext.lowRisk(),
             Money.of("100000.00", consent.getCurrency()));
         consent.setTransactionId(response.transactionId());

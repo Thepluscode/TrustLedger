@@ -3,7 +3,7 @@ package com.trustledger.api;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/** External transfer body. tenant + user come from the JWT. `scenario` drives the sandbox provider. */
+/** External payout body. Tenant and user identity come from the authenticated principal. */
 public record ExternalTransferApiRequest(
     UUID sourceAccountId,
     UUID beneficiaryId,
@@ -12,5 +12,7 @@ public record ExternalTransferApiRequest(
     String reference,
     String deviceId,
     String currentCountry,
+    String destinationCountry,
+    String preferredProvider,
     String scenario
 ) {}

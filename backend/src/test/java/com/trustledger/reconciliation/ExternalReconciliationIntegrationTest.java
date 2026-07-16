@@ -25,7 +25,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** Settlement reconciliation: resolve PENDING_UNKNOWN via the provider; flag provider/local mismatch. */
+/** Settlement reconciliation: resolve PENDING_UNKNOWN via its provider; flag provider/local mismatch. */
 @SpringBootTest
 @Testcontainers
 class ExternalReconciliationIntegrationTest {
@@ -39,7 +39,7 @@ class ExternalReconciliationIntegrationTest {
         r.add("spring.datasource.username", POSTGRES::getUsername);
         r.add("spring.datasource.password", POSTGRES::getPassword);
         r.add("trustledger.outbox.publisher.enabled", () -> "false");
-        r.add("trustledger.reconciliation.enabled", () -> "false"); // driven manually
+        r.add("trustledger.reconciliation.enabled", () -> "false");
     }
 
     @Autowired ExternalPaymentService externalPayments;
@@ -57,7 +57,7 @@ class ExternalReconciliationIntegrationTest {
 
     private ExternalPaymentResponse initiate(AccountEntity src, String scenario, String key) {
         var req = new ExternalTransferRequest(src.getTenantId(), src.getUserId(), src.getId(), null,
-            new BigDecimal("200.00"), "GBP", "ref", key, "web", "GB", scenario);
+            new BigDecimal("200.00"), "GBP", "ref", key, "web", "GB", null, null, scenario);
         return externalPayments.initiate(req, FraudContext.lowRisk(), MEDIAN);
     }
 
@@ -68,12 +68,14 @@ class ExternalReconciliationIntegrationTest {
         ExternalPaymentResponse res = initiate(src, "timeout", "recon-pu");
         assertEquals("PENDING_UNKNOWN", res.status());
 
-        reconciliation.runReconciliation(); // provider says SETTLED -> settle
+        reconciliation.runReconciliation();
 
         ExternalPaymentAttemptEntity attempt = attempts.findByTransactionId(res.transactionId()).orElseThrow();
         assertEquals(ExternalPaymentStatus.SETTLED, attempt.getStatus());
-        assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPendingBalance().compareTo(new BigDecimal("0.0000")));
-        assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPostedBalance().compareTo(new BigDecimal("800.0000")));
+        assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPendingBalance()
+            .compareTo(new BigDecimal("0.0000")));
+        assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPostedBalance()
+            .compareTo(new BigDecimal("800.0000")));
     }
 
     @Test
@@ -82,9 +84,8 @@ class ExternalReconciliationIntegrationTest {
         AccountEntity src = account(tenant, UUID.randomUUID());
         ExternalPaymentResponse res = initiate(src, "success", "recon-mm");
         ExternalPaymentAttemptEntity attempt = attempts.findByTransactionId(res.transactionId()).orElseThrow();
-        externalPayments.settle(attempt); // local SETTLED
+        externalPayments.settle(attempt);
 
-        // Provider now disagrees (says it actually FAILED).
         rail.setEventualStatus(res.providerReference(), ExternalPaymentStatus.FAILED);
         reconciliation.runReconciliation();
 

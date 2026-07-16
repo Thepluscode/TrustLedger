@@ -60,6 +60,18 @@ public class TransferEntity {
     @Column(name = "device_id", length = 120)
     private String deviceId;
 
+    /** Provider selected by the routing control plane before funds are submitted. */
+    @Column(name = "selected_provider", length = 48)
+    private String selectedProvider;
+
+    /** Stable explanation for the route decision, retained across manual review. */
+    @Column(name = "route_reason", length = 80)
+    private String routeReason;
+
+    /** Destination country used for provider capability and corridor eligibility. */
+    @Column(name = "destination_country", length = 2)
+    private String destinationCountry;
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -106,5 +118,11 @@ public class TransferEntity {
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
     public UUID getBeneficiaryId() { return beneficiaryId; }
     public String getReference() { return reference; }
+    public String getSelectedProvider() { return selectedProvider; }
+    public void setSelectedProvider(String selectedProvider) { this.selectedProvider = selectedProvider; }
+    public String getRouteReason() { return routeReason; }
+    public void setRouteReason(String routeReason) { this.routeReason = routeReason; }
+    public String getDestinationCountry() { return destinationCountry; }
+    public void setDestinationCountry(String destinationCountry) { this.destinationCountry = destinationCountry; }
     public Instant getCreatedAt() { return createdAt; }
 }
