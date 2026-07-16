@@ -1,6 +1,7 @@
 package com.trustledger.rails;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
@@ -17,9 +18,17 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
 
     /** providerReference -> the status the provider will report on a later status query / webhook. */
     private final Map<String, String> eventualStatus = new ConcurrentHashMap<>();
+    private final WebhookSigner webhookSigner;
+
+    public SandboxPaymentRailAdapter(WebhookSigner webhookSigner) {
+        this.webhookSigner = webhookSigner;
+    }
 
     @Override
     public String rail() { return RAIL; }
+
+    @Override
+    public Set<String> aliases() { return Set.of(RAIL, "SANDBOX"); }
 
     @Override
     public PaymentSubmitResult initiatePayment(PaymentSubmitRequest request) {
@@ -48,6 +57,11 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
     @Override
     public String getPaymentStatus(String providerReference) {
         return eventualStatus.getOrDefault(providerReference, ExternalPaymentStatus.PENDING_UNKNOWN);
+    }
+
+    @Override
+    public boolean verifyWebhook(String rawBody, String signature) {
+        return webhookSigner.verify(rawBody, signature);
     }
 
     /** Test/ops hook to set what the provider will report for a reference (e.g. late failure). */
