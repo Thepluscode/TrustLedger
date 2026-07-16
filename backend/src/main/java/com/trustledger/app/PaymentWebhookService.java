@@ -65,7 +65,6 @@ public class PaymentWebhookService {
         if (found.isEmpty()) return Result.UNKNOWN_REFERENCE;
         ExternalPaymentAttemptEntity attempt = found.get();
 
-        // Unique(provider,event_id) is the apply-once boundary for both valid and invalid callbacks.
         if (webhookEvents.findByProviderAndEventId(provider, normalized.eventId()).isPresent()) {
             return Result.DUPLICATE;
         }
@@ -73,10 +72,18 @@ public class PaymentWebhookService {
         boolean valid = adapter.verifyWebhook(new PaymentRailAdapter.WebhookVerificationRequest(
             attempt.getTenantId(), attempt.getTenantProviderConfigId(), attempt.getProviderEnvironment(),
             rawBody, signature));
+        if (!valid) {
+            String invalidEventId = "invalid:" + sha256(normalized.eventId() + "|" + String.valueOf(signature));
+            if (webhookEvents.findByProviderAndEventId(provider, invalidEventId).isEmpty()) {
+                webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(), provider,
+                    normalized.providerReference(), invalidEventId, normalized.eventType(), rawBody, false, false));
+            }
+            return Result.INVALID_SIGNATURE;
+        }
+
         PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
             attempt.getTenantId(), provider, normalized.providerReference(), normalized.eventId(),
-            normalized.eventType(), rawBody, valid, false));
-        if (!valid) return Result.INVALID_SIGNATURE;
+            normalized.eventType(), rawBody, true, false));
 
         if (!blank(normalized.providerObjectId())) {
             if (!blank(attempt.getProviderObjectId())
