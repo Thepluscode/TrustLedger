@@ -7,7 +7,9 @@ public interface PaystackApiClient {
 
     PaystackResponse verifyTransfer(String secretKey, String reference);
 
-    PaystackResponse finalizeTransfer(String secretKey, FinalizeTransferRequest request);
+    default PaystackResponse finalizeTransfer(String secretKey, FinalizeTransferRequest request) {
+        throw new UnsupportedOperationException("Paystack OTP finalization is not implemented by this client");
+    }
 
     record InitiateTransferRequest(long amountMinor, String recipientCode, String reference,
                                    String reason, String currency) {}
@@ -17,7 +19,6 @@ public interface PaystackApiClient {
     record PaystackResponse(String status, String reference, String transferCode,
                             String message, int httpStatus, boolean definitiveFailure) {}
 
-    /** Transport/server failures where Paystack may have accepted the request. */
     class AmbiguousPaystackException extends RuntimeException {
         public AmbiguousPaystackException(String message, Throwable cause) { super(message, cause); }
         public AmbiguousPaystackException(String message) { super(message); }
