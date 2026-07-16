@@ -27,14 +27,6 @@ public interface PaymentRailAdapter {
         return true;
     }
 
-    /**
-     * Production-style payout providers address recipients through provider tokens. Adapters that do
-     * not leave TrustLedger, such as the deterministic sandbox, must explicitly opt out.
-     */
-    default boolean requiresProviderRecipient() {
-        return requiresTenantConfiguration();
-    }
-
     /** Submits a payment. The caller supplies the provider reference so a timeout remains traceable. */
     PaymentSubmitResult initiatePayment(PaymentSubmitRequest request);
 
@@ -48,8 +40,6 @@ public interface PaymentRailAdapter {
 
     record PaymentSubmitRequest(UUID tenantId, UUID transactionId, String providerReference,
                                 UUID tenantProviderConfigId, String providerEnvironment,
-                                UUID payoutInstrumentId, UUID providerRecipientMappingId,
-                                String providerRecipientCode,
                                 BigDecimal amount, String currency, String scenario) {}
 
     record PaymentSubmitResult(String providerReference, String status) {}
