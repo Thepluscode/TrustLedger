@@ -18,6 +18,9 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
@@ -53,6 +56,7 @@ public class ExternalRailSubmissionService {
         this.recipients = recipients;
         this.json = json;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.staleSeconds = Math.max(1, staleSeconds);
     }
 
@@ -79,11 +83,15 @@ public class ExternalRailSubmissionService {
             ExternalPaymentStatus.READY_TO_SUBMIT, amount, currency, write(evidence), null));
     }
 
+    /** Claims then executes with every caller transaction suspended. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SubmissionResult execute(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, false);
         return claim == null ? null : executeClaim(claim);
     }
 
+    /** Verifies then conditionally replays with every caller transaction suspended. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SubmissionResult recover(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, true);
         return claim == null ? null : executeClaim(claim);
