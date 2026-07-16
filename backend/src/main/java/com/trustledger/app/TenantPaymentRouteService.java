@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,12 +28,16 @@ public class TenantPaymentRouteService {
     private final PaymentRailRegistry registry;
     private final PaymentRailRouter router;
     private final TenantProviderConfigRepository configs;
+    private final boolean productionExecutionEnabled;
 
     public TenantPaymentRouteService(PaymentRailRegistry registry, PaymentRailRouter router,
-                                     TenantProviderConfigRepository configs) {
+                                     TenantProviderConfigRepository configs,
+                                     @Value("${trustledger.payment-rails.production-execution-enabled:false}")
+                                     boolean productionExecutionEnabled) {
         this.registry = registry;
         this.router = router;
         this.configs = configs;
+        this.productionExecutionEnabled = productionExecutionEnabled;
     }
 
     @Transactional(readOnly = true)
@@ -141,8 +146,11 @@ public class TenantPaymentRouteService {
         return filtered;
     }
 
-    private static String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
-                                          BigDecimal amount, String currency, String destinationCountry) {
+    private String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
+                                   BigDecimal amount, String currency, String destinationCountry) {
+        if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment()) && !productionExecutionEnabled) {
+            return "production_execution_globally_disabled";
+        }
         if (config.isEmergencyDisabled()) return "tenant_provider_emergency_disabled";
         if (!config.isEnabled()) return "tenant_provider_disabled";
         if (!"APPROVED".equals(config.getComplianceStatus())) return "tenant_provider_compliance_not_approved";
@@ -186,12 +194,13 @@ public class TenantPaymentRouteService {
 
     private static int rejectionRank(String reason) {
         return switch (reason) {
-            case "tenant_provider_emergency_disabled" -> 0;
-            case "tenant_provider_compliance_not_approved" -> 1;
-            case "tenant_provider_operational_suspended" -> 2;
-            case "tenant_provider_operational_degraded" -> 3;
-            case "tenant_provider_credentials_not_configured", "tenant_provider_webhook_secret_not_configured" -> 4;
-            case "tenant_provider_disabled" -> 5;
+            case "production_execution_globally_disabled" -> 0;
+            case "tenant_provider_emergency_disabled" -> 1;
+            case "tenant_provider_compliance_not_approved" -> 2;
+            case "tenant_provider_operational_suspended" -> 3;
+            case "tenant_provider_operational_degraded" -> 4;
+            case "tenant_provider_credentials_not_configured", "tenant_provider_webhook_secret_not_configured" -> 5;
+            case "tenant_provider_disabled" -> 6;
             default -> 10;
         };
     }
