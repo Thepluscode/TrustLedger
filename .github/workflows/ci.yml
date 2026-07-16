@@ -19,7 +19,26 @@ jobs:
           cache: maven
       - name: mvn test
         working-directory: backend
-        run: mvn -B -ntp test
+        shell: bash
+        run: |
+          set +e
+          mvn -B -ntp -q test > maven-test.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "Maven test failed. Compact diagnostics follow."
+            grep -E '^\[ERROR\]|Tests run:|Failures:|Errors:|Caused by:|COMPILATION ERROR' maven-test.log | tail -n 120 || true
+            echo "--- Maven log tail ---"
+            tail -n 100 maven-test.log
+          fi
+          exit "$status"
+      - name: Upload Maven diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-test-diagnostics
+          path: backend/maven-test.log
+          if-no-files-found: ignore
+          retention-days: 3
 
   frontend:
     name: Frontend (Next.js build)

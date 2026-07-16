@@ -14,5 +14,6 @@ public record ExternalTransferApiRequest(
     String currentCountry,
     String destinationCountry,
     String preferredProvider,
+    String preferredEnvironment,
     String scenario
 ) {}

@@ -14,10 +14,10 @@ import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
 import com.trustledger.rails.PaymentRailAdapter;
 import com.trustledger.rails.PaymentRailAdapter.PaymentRailTimeoutException;
-import com.trustledger.rails.PaymentRailRouter;
 import com.trustledger.rails.PaymentRouteDecision;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -27,16 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * External (off-platform) transfers via routed payment-rail adapters. Submit reserves funds; the
- * provider's outcome (webhook or reconciliation) drives settle (post Debit source / Credit clearing)
- * or fail (release reservation). A provider timeout becomes PENDING_UNKNOWN with the reservation
- * still held — never a silent failure that could double-pay. settle()/fail() are idempotent on
- * attempt status so a duplicate webhook cannot double-post the ledger.
+ * External payouts through tenant-governed provider routes. Unknown provider outcomes retain the
+ * reservation until provider-specific reconciliation resolves the truth.
  */
 @Service
 public class ExternalPaymentService {
 
-    /** System "user" that owns per-tenant clearing accounts. */
     private static final UUID SYSTEM_USER = new UUID(0L, 0L);
 
     private final AccountRepository accounts;
@@ -49,14 +45,14 @@ public class ExternalPaymentService {
     private final AuditLogRepository auditLogs;
     private final FraudCaseRepository fraudCases;
     private final FraudEngine fraudEngine;
-    private final PaymentRailRouter router;
+    private final TenantPaymentRouteService routes;
     private final ObjectMapper json;
 
     public ExternalPaymentService(AccountRepository accounts, TransferRepository transfers,
                                   ExternalPaymentAttemptRepository attempts, IdempotencyKeyRepository idempotencyKeys,
                                   LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
                                   OutboxEventRepository outbox, AuditLogRepository auditLogs, FraudCaseRepository fraudCases,
-                                  FraudEngine fraudEngine, PaymentRailRouter router, ObjectMapper json) {
+                                  FraudEngine fraudEngine, TenantPaymentRouteService routes, ObjectMapper json) {
         this.accounts = accounts;
         this.transfers = transfers;
         this.attempts = attempts;
@@ -67,19 +63,27 @@ public class ExternalPaymentService {
         this.auditLogs = auditLogs;
         this.fraudCases = fraudCases;
         this.fraudEngine = fraudEngine;
-        this.router = router;
+        this.routes = routes;
         this.json = json;
     }
 
     public record ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
                                           BigDecimal amount, String currency, String reference, String idempotencyKey,
                                           String deviceId, String currentCountry, String destinationCountry,
-                                          String preferredProvider, String scenario) {}
+                                          String preferredProvider, String preferredEnvironment, String scenario) {
+        /** Source-compatible constructor for existing callers that do not specify an environment. */
+        public ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
+                                       BigDecimal amount, String currency, String reference, String idempotencyKey,
+                                       String deviceId, String currentCountry, String destinationCountry,
+                                       String preferredProvider, String scenario) {
+            this(tenantId, userId, sourceAccountId, beneficiaryId, amount, currency, reference, idempotencyKey,
+                deviceId, currentCountry, destinationCountry, preferredProvider, null, scenario);
+        }
+    }
 
     public record ExternalPaymentResponse(UUID transactionId, String providerReference, String status,
                                           int riskScore, String decision, String message) {}
 
-    /** Convenience overload: score with the base rule engine, then initiate. */
     @Transactional
     public ExternalPaymentResponse initiate(ExternalTransferRequest req, FraudContext fraudContext, Money userMedian) {
         Money amount = Money.of(req.amount().toPlainString(), req.currency());
@@ -89,7 +93,6 @@ public class ExternalPaymentService {
         return initiate(req, fraudEngine.score(command, fraudContext, userMedian));
     }
 
-    /** Initiates an external payout using a pre-computed, authoritative fraud decision. */
     @Transactional
     public ExternalPaymentResponse initiate(ExternalTransferRequest req, FraudDecision decision) {
         String hash = requestHash(req);
@@ -122,9 +125,9 @@ public class ExternalPaymentService {
                 decision.decision().name(), "Step-up MFA required"));
         }
 
-        // Route before reserving money. An impossible corridor/provider must fail without touching balances.
-        PaymentRouteDecision route = router.route(amount.amount(), req.currency(), req.destinationCountry(),
-            req.preferredProvider());
+        // Governance and routing must succeed before any balance mutation.
+        TenantPaymentRouteDecision route = routes.route(req.tenantId(), amount.amount(), req.currency(),
+            req.destinationCountry(), req.preferredProvider(), req.preferredEnvironment());
 
         AccountEntity source = lock(req.sourceAccountId());
         requireActive(source);
@@ -137,17 +140,18 @@ public class ExternalPaymentService {
         auditRouteDecision(req.tenantId(), transferId, route, req.destinationCountry());
 
         if (decision.requiresManualReview()) {
-            // Persist the selected provider before review. Approval revalidates this exact route rather than
-            // silently switching providers between authorization and execution.
             saveTransfer(req, transferId, "HELD_FOR_REVIEW", decision, route);
             UUID caseId = UUID.randomUUID();
             fraudCases.save(new FraudCaseEntity(caseId, req.tenantId(), transferId, req.userId(), "OPEN",
                 severityFor(decision.riskScore()), decision.riskScore(), "Auto-opened for held external payout",
                 writeJson(Map.of("signals", decision.signals(), "riskScore", decision.riskScore(),
                     "decision", decision.decision().name(), "channel", "EXTERNAL",
-                    "selectedProvider", route.provider()))));
+                    "selectedProvider", route.provider(),
+                    "providerEnvironment", route.providerEnvironment(),
+                    "tenantProviderConfigId", String.valueOf(route.tenantProviderConfigId())))));
             audit(req.tenantId(), "EXTERNAL_PAYMENT_HELD_FOR_REVIEW", "TRANSFER", transferId,
-                Map.of("amount", amount.toString(), "provider", route.provider()));
+                Map.of("amount", amount.toString(), "provider", route.provider(),
+                    "providerEnvironment", route.providerEnvironment()));
             enqueue(req.tenantId(), "FRAUD_CASE", transferId, "FRAUD_CASE_CREATED",
                 Map.of("transactionId", transferId.toString(), "provider", route.provider()));
             return finish(idem, new ExternalPaymentResponse(transferId, null, "HELD_FOR_REVIEW", decision.riskScore(),
@@ -160,13 +164,13 @@ public class ExternalPaymentService {
             decision.riskScore(), decision.decision().name(), "External payment " + out.status()));
     }
 
-    /** Analyst approves a held external payout: revalidate and submit the persisted provider route. */
     @Transactional
     public PersistentTransferResponse approveHeldExternal(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
         AccountEntity source = lock(transfer.getSourceAccountId());
-        PaymentRouteDecision route = router.route(transfer.getAmount(), transfer.getCurrency(),
-            transfer.getDestinationCountry(), transfer.getSelectedProvider());
+        TenantPaymentRouteDecision route = routes.revalidate(tenantId, transfer.getTenantProviderConfigId(),
+            transfer.getSelectedProvider(), transfer.getAmount(), transfer.getCurrency(),
+            transfer.getDestinationCountry());
         auditRouteDecision(tenantId, transferId, route, transfer.getDestinationCountry());
 
         RailOutcome out = submitToRail(tenantId, transferId, source,
@@ -174,13 +178,13 @@ public class ExternalPaymentService {
         transfer.setStatus(out.status());
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("APPROVED"));
         audit(tenantId, "EXTERNAL_PAYMENT_APPROVED", "TRANSFER", transferId,
-            Map.of("actor", actor, "status", out.status(), "provider", out.provider()));
+            Map.of("actor", actor, "status", out.status(), "provider", out.provider(),
+                "providerEnvironment", route.providerEnvironment()));
         return new PersistentTransferResponse(transferId, out.status(), transfer.getRiskScore(),
             transfer.getFraudDecision(), "External payment approved and submitted to " + out.provider()
                 + " (" + out.status() + ")");
     }
 
-    /** Analyst rejects a held external payout: release the reservation back to available. */
     @Transactional
     public PersistentTransferResponse rejectHeldExternal(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
@@ -209,25 +213,30 @@ public class ExternalPaymentService {
 
     private record RailOutcome(String status, String provider, String providerReference) {}
 
-    /** Submit a funds-already-reserved external payment; on definitive FAILED release the reservation. */
     private RailOutcome submitToRail(UUID tenantId, UUID transferId, AccountEntity source, Money amount,
-                                     String currency, String scenario, PaymentRouteDecision route) {
+                                     String currency, String scenario, TenantPaymentRouteDecision tenantRoute) {
+        PaymentRouteDecision route = tenantRoute.route();
         PaymentRailAdapter adapter = route.adapter();
         String providerReference = providerReference(adapter.rail());
+        Map<String, Object> requestEvidence = new LinkedHashMap<>();
+        requestEvidence.put("scenario", String.valueOf(scenario));
+        requestEvidence.put("routeReason", route.reason());
+        requestEvidence.put("eligibleProviders", route.eligibleProviders());
+        requestEvidence.put("excludedProviders", route.excludedProviders());
+        requestEvidence.put("providerEnvironment", tenantRoute.providerEnvironment());
+        requestEvidence.put("tenantProviderConfigId", String.valueOf(tenantRoute.tenantProviderConfigId()));
+
         ExternalPaymentAttemptEntity attempt = new ExternalPaymentAttemptEntity(UUID.randomUUID(), tenantId,
-            transferId, adapter.rail(), providerReference, ExternalPaymentStatus.SUBMITTED, amount.amount(),
-            currency, writeJson(Map.of(
-                "scenario", String.valueOf(scenario),
-                "routeReason", route.reason(),
-                "eligibleProviders", route.eligibleProviders(),
-                "excludedProviders", route.excludedProviders()
-            )), Instant.now());
+            transferId, adapter.rail(), tenantRoute.tenantProviderConfigId(), tenantRoute.providerEnvironment(),
+            providerReference, ExternalPaymentStatus.SUBMITTED, amount.amount(), currency,
+            writeJson(requestEvidence), Instant.now());
         attempts.save(attempt);
 
         String status;
         try {
             var result = adapter.initiatePayment(new PaymentRailAdapter.PaymentSubmitRequest(
-                tenantId, transferId, providerReference, amount.amount(), currency, scenario));
+                tenantId, transferId, providerReference, tenantRoute.tenantProviderConfigId(),
+                tenantRoute.providerEnvironment(), amount.amount(), currency, scenario));
             attempt.setResponsePayload(writeJson(Map.of("status", result.status())));
             if (ExternalPaymentStatus.FAILED.equals(result.status())) {
                 releaseToAvailable(source, amount);
@@ -238,14 +247,15 @@ public class ExternalPaymentService {
                 status = "PENDING_SETTLEMENT";
             }
         } catch (PaymentRailTimeoutException timeout) {
-            // Do NOT assume failure. Hold the reservation; provider-specific reconciliation resolves truth.
             attempt.setStatus(ExternalPaymentStatus.PENDING_UNKNOWN);
             attempt.setLastError(timeout.getMessage());
             status = "PENDING_UNKNOWN";
         }
         attempts.save(attempt);
         audit(tenantId, "EXTERNAL_PAYMENT_SUBMITTED", "TRANSFER", transferId,
-            Map.of("status", status, "ref", providerReference, "provider", adapter.rail()));
+            Map.of("status", status, "ref", providerReference, "provider", adapter.rail(),
+                "providerEnvironment", tenantRoute.providerEnvironment(),
+                "tenantProviderConfigId", String.valueOf(tenantRoute.tenantProviderConfigId())));
         enqueue(tenantId, "TRANSFER", transferId, "EXTERNAL_PAYMENT_" + status,
             Map.of("ref", providerReference, "provider", adapter.rail()));
         return new RailOutcome(status, adapter.rail(), providerReference);
@@ -257,7 +267,6 @@ public class ExternalPaymentService {
         return "MEDIUM";
     }
 
-    /** Provider confirmed settlement: consume the reservation and post Debit source / Credit clearing. Idempotent. */
     @Transactional
     public void settle(ExternalPaymentAttemptEntity attempt) {
         if (ExternalPaymentStatus.SETTLED.equals(attempt.getStatus())) return;
@@ -269,7 +278,6 @@ public class ExternalPaymentService {
 
         AccountEntity source = lock(transfer.getSourceAccountId());
         AccountEntity clearing = lock(clearingAccountId(attempt.getTenantId(), attempt.getCurrency()));
-
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
         source.setPostedBalance(money(source.getPostedBalance(), source.getCurrency()).minus(amount).amount());
         clearing.setAvailableBalance(money(clearing.getAvailableBalance(), clearing.getCurrency()).plus(amount).amount());
@@ -298,7 +306,6 @@ public class ExternalPaymentService {
             Map.of("ref", attempt.getProviderReference(), "provider", attempt.getProvider()));
     }
 
-    /** Provider reported failure: release the reservation back to available. Idempotent. */
     @Transactional
     public void fail(ExternalPaymentAttemptEntity attempt) {
         if (ExternalPaymentStatus.FAILED.equals(attempt.getStatus())) return;
@@ -339,7 +346,7 @@ public class ExternalPaymentService {
     }
 
     private void saveTransfer(ExternalTransferRequest req, UUID transferId, String status, FraudDecision decision,
-                              PaymentRouteDecision route) {
+                              TenantPaymentRouteDecision route) {
         TransferEntity t = new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
             req.sourceAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
             decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
@@ -348,20 +355,25 @@ public class ExternalPaymentService {
         t.setDestinationCountry(normalizeUpper(req.destinationCountry()));
         if (route != null) {
             t.setSelectedProvider(route.provider());
-            t.setRouteReason(route.reason());
+            t.setRouteReason(route.route().reason());
+            t.setTenantProviderConfigId(route.tenantProviderConfigId());
+            t.setProviderEnvironment(route.providerEnvironment());
         }
         transfers.save(t);
     }
 
-    private void auditRouteDecision(UUID tenantId, UUID transferId, PaymentRouteDecision route,
+    private void auditRouteDecision(UUID tenantId, UUID transferId, TenantPaymentRouteDecision tenantRoute,
                                     String destinationCountry) {
-        audit(tenantId, "PAYMENT_ROUTE_SELECTED", "TRANSFER", transferId, Map.of(
-            "provider", route.provider(),
-            "reason", route.reason(),
-            "eligibleProviders", route.eligibleProviders(),
-            "excludedProviders", route.excludedProviders(),
-            "destinationCountry", String.valueOf(normalizeUpper(destinationCountry))
-        ));
+        PaymentRouteDecision route = tenantRoute.route();
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("provider", route.provider());
+        metadata.put("reason", route.reason());
+        metadata.put("eligibleProviders", route.eligibleProviders());
+        metadata.put("excludedProviders", route.excludedProviders());
+        metadata.put("destinationCountry", String.valueOf(normalizeUpper(destinationCountry)));
+        metadata.put("providerEnvironment", tenantRoute.providerEnvironment());
+        metadata.put("tenantProviderConfigId", String.valueOf(tenantRoute.tenantProviderConfigId()));
+        audit(tenantId, "PAYMENT_ROUTE_SELECTED", "TRANSFER", transferId, metadata);
     }
 
     private static String providerReference(String provider) {
@@ -375,7 +387,7 @@ public class ExternalPaymentService {
             value(req.tenantId()), value(req.userId()), value(req.sourceAccountId()), value(req.beneficiaryId()),
             value(req.amount()), value(req.currency()), value(req.reference()), value(req.deviceId()),
             value(req.currentCountry()), value(req.destinationCountry()), value(req.preferredProvider()),
-            value(req.scenario()), "EXTERNAL"));
+            value(req.preferredEnvironment()), value(req.scenario()), "EXTERNAL"));
     }
 
     private static String value(Object value) { return value == null ? "" : value.toString(); }
