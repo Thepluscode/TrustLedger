@@ -87,9 +87,9 @@ class ExternalPaymentReversalIntegrationTest {
         var clearingEntries = ledgerEntries.findByAccountId(clearing.getId()).stream()
             .filter(entry -> "REVERSAL_CLEARING".equals(entry.getEntryType())).toList();
         assertEquals(1, sourceEntries.size(), "duplicate reversal must not credit the source twice");
-        assertEquals("CREDIT", sourceEntries.getFirst().getDirection());
+        assertEquals("CREDIT", sourceEntries.get(0).getDirection());
         assertEquals(1, clearingEntries.size());
-        assertEquals("DEBIT", clearingEntries.getFirst().getDirection());
-        assertEquals(sourceEntries.getFirst().getAmount(), clearingEntries.getFirst().getAmount());
+        assertEquals("DEBIT", clearingEntries.get(0).getDirection());
+        assertEquals(sourceEntries.get(0).getAmount(), clearingEntries.get(0).getAmount());
     }
 }
