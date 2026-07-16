@@ -6,36 +6,20 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** Maps {@code audit_logs}. One row per sensitive action, written in the business tx. */
+/** Maps {@code audit_logs}. One row per sensitive action, written in the business transaction. */
 @Entity
 @Table(name = "audit_logs")
 public class AuditLogEntity {
 
-    @Id
-    private UUID id;
-
-    @Column(name = "tenant_id", nullable = false)
-    private UUID tenantId;
-
-    @Column(name = "actor_type", nullable = false, length = 32)
-    private String actorType;
-
-    @Column(name = "actor_id")
-    private UUID actorId;
-
-    @Column(nullable = false, length = 96)
-    private String action;
-
-    @Column(name = "resource_type", nullable = false, length = 64)
-    private String resourceType;
-
-    @Column(name = "resource_id")
-    private UUID resourceId;
-
+    @Id private UUID id;
+    @Column(name = "tenant_id", nullable = false) private UUID tenantId;
+    @Column(name = "actor_type", nullable = false, length = 32) private String actorType;
+    @Column(name = "actor_id") private UUID actorId;
+    @Column(nullable = false, length = 96) private String action;
+    @Column(name = "resource_type", nullable = false, length = 64) private String resourceType;
+    @Column(name = "resource_id") private UUID resourceId;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false)
-    private String metadata;
-
+    @Column(nullable = false) private String metadata;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -55,10 +39,12 @@ public class AuditLogEntity {
     }
 
     public UUID getId() { return id; }
+    public UUID getTenantId() { return tenantId; }
     public String getAction() { return action; }
     public String getActorType() { return actorType; }
     public UUID getActorId() { return actorId; }
     public String getResourceType() { return resourceType; }
     public UUID getResourceId() { return resourceId; }
+    public String getMetadata() { return metadata; }
     public Instant getCreatedAt() { return createdAt; }
 }
