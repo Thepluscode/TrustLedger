@@ -31,9 +31,10 @@ import tools.jackson.databind.ObjectMapper;
 public class PayoutInstrumentService {
 
     private static final Set<String> TYPES = Set.of("BANK_ACCOUNT", "MOBILE_MONEY");
-    private static final Set<String> INSTRUMENT_STATUSES =
-        Set.of("PENDING_VERIFICATION", "VERIFIED", "SUSPENDED", "REVOKED");
+    private static final Set<String> REFERENCE_SCHEMES =
+        Set.of("vault", "secret", "token", "merchant-ref", "instrument-ref");
     private static final Pattern LONG_DIGIT_RUN = Pattern.compile("\\d{6,}");
+    private static final Pattern RAW_NUMERIC_REFERENCE = Pattern.compile("/?\\d{8,}");
     private static final Pattern RECIPIENT_CODE = Pattern.compile("[A-Za-z0-9._:-]{3,160}");
 
     public record CreateInstrumentCommand(String instrumentType, String country, String currency,
@@ -69,6 +70,7 @@ public class PayoutInstrumentService {
     @Transactional
     public PayoutInstrumentEntity createInstrument(UUID tenantId, UUID actorId, UUID beneficiaryId,
                                                    CreateInstrumentCommand command) {
+        if (command == null) throw new IllegalArgumentException("Payout instrument command is required");
         requireBeneficiary(tenantId, beneficiaryId);
         String type = type(command.instrumentType());
         String country = alphaCode(command.country(), 2, "country");
@@ -100,7 +102,7 @@ public class PayoutInstrumentService {
         if (!"PENDING_VERIFICATION".equals(instrument.getStatus())) {
             throw new IllegalStateException("Only pending payout instruments can be verified");
         }
-        String reference = required(verificationReference, "verificationReference", 160);
+        String reference = compactToken(verificationReference, "verificationReference", 160);
         instrument.verify(platformActorId, reference);
         audit(tenantId, platformActorId, "PAYOUT_INSTRUMENT_VERIFIED", "PAYOUT_INSTRUMENT", instrumentId,
             Map.of("verificationReference", reference));
@@ -111,6 +113,9 @@ public class PayoutInstrumentService {
     public ProviderRecipientMappingEntity registerProviderRecipient(UUID tenantId, UUID actorId,
                                                                     UUID instrumentId,
                                                                     RegisterProviderRecipientCommand command) {
+        if (command == null || command.tenantProviderConfigId() == null) {
+            throw new IllegalArgumentException("tenantProviderConfigId is required");
+        }
         PayoutInstrumentEntity instrument = requireInstrument(tenantId, instrumentId);
         if (!"VERIFIED".equals(instrument.getStatus())) {
             throw new IllegalStateException("Payout instrument must be verified before provider registration");
@@ -119,8 +124,8 @@ public class PayoutInstrumentService {
         TenantProviderConfigEntity config = providerConfigs
             .findByIdAndTenantId(command.tenantProviderConfigId(), tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Provider configuration not found"));
-        requireUsableProviderConfig(config);
         PaymentRailAdapter adapter = railRegistry.require(config.getProvider());
+        requireUsableProviderConfig(config, adapter);
         String recipientCode = providerRecipientCode(command.providerRecipientCode());
 
         ProviderRecipientMappingEntity existing = recipientMappings
@@ -131,6 +136,9 @@ public class PayoutInstrumentService {
             if (!existing.getProviderRecipientCode().equals(recipientCode)) {
                 throw new IllegalStateException("A different provider recipient is already bound to this instrument");
             }
+            if (!"ACTIVE".equals(existing.getStatus())) {
+                throw new IllegalStateException("Provider recipient mapping is not active: " + existing.getStatus());
+            }
             return existing;
         }
 
@@ -139,7 +147,7 @@ public class PayoutInstrumentService {
             config.getEnvironment(), recipientCode));
         audit(tenantId, actorId, "PROVIDER_RECIPIENT_REGISTERED", "PAYOUT_INSTRUMENT", instrumentId, Map.of(
             "tenantProviderConfigId", config.getId().toString(), "provider", adapter.rail(),
-            "providerEnvironment", config.getEnvironment(), "recipientCode", recipientCode));
+            "providerEnvironment", config.getEnvironment(), "recipientCodeSuffix", suffix(recipientCode)));
         return saved;
     }
 
@@ -172,6 +180,17 @@ public class PayoutInstrumentService {
         return recipientMappings.findByTenantIdAndPayoutInstrumentIdOrderByCreatedAtDesc(tenantId, instrumentId);
     }
 
+    @Transactional(readOnly = true)
+    public PayoutInstrumentEntity requireInstrumentForBeneficiary(UUID tenantId, UUID beneficiaryId,
+                                                                  UUID instrumentId) {
+        requireBeneficiary(tenantId, beneficiaryId);
+        PayoutInstrumentEntity instrument = requireInstrument(tenantId, instrumentId);
+        if (!beneficiaryId.equals(instrument.getBeneficiaryId())) {
+            throw new IllegalArgumentException("Payout instrument does not belong to beneficiary");
+        }
+        return instrument;
+    }
+
     private BeneficiaryEntity requireBeneficiary(UUID tenantId, UUID beneficiaryId) {
         return beneficiaries.findByIdAndTenantId(beneficiaryId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Beneficiary not found"));
@@ -182,7 +201,7 @@ public class PayoutInstrumentService {
             .orElseThrow(() -> new IllegalArgumentException("Payout instrument not found"));
     }
 
-    private void requireUsableProviderConfig(TenantProviderConfigEntity config) {
+    private static void requireUsableProviderConfig(TenantProviderConfigEntity config, PaymentRailAdapter adapter) {
         if (!config.isEnabled()) throw new IllegalStateException("Provider configuration is disabled");
         if (config.isEmergencyDisabled()) throw new IllegalStateException("Provider configuration is emergency-disabled");
         if (!"APPROVED".equals(config.getComplianceStatus())) {
@@ -190,6 +209,10 @@ public class PayoutInstrumentService {
         }
         if (!"ACTIVE".equals(config.getOperationalStatus())) {
             throw new IllegalStateException("Provider configuration is not operationally active");
+        }
+        if (adapter.requiresTenantConfiguration()
+            && (blank(config.getCredentialsSecretRef()) || blank(config.getWebhookSecretRef()))) {
+            throw new IllegalStateException("Provider configuration secret references are incomplete");
         }
     }
 
@@ -209,15 +232,14 @@ public class PayoutInstrumentService {
 
     private static String externalReference(String value) {
         String reference = required(value, "externalReference", 240);
-        if (LONG_DIGIT_RUN.matcher(reference).find()) {
-            throw new IllegalArgumentException("externalReference must not contain raw account data");
-        }
         URI uri;
         try { uri = URI.create(reference); }
         catch (Exception e) { throw new IllegalArgumentException("externalReference must be an opaque URI reference"); }
-        if (uri.getScheme() == null || uri.getScheme().isBlank() || uri.getSchemeSpecificPart() == null
-            || uri.getSchemeSpecificPart().isBlank()) {
-            throw new IllegalArgumentException("externalReference must be an opaque URI reference");
+        String scheme = uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT);
+        String specific = uri.getSchemeSpecificPart();
+        if (!REFERENCE_SCHEMES.contains(scheme) || specific == null || specific.isBlank()
+            || RAW_NUMERIC_REFERENCE.matcher(specific).matches()) {
+            throw new IllegalArgumentException("externalReference must be a supported opaque reference, not raw account data");
         }
         return reference;
     }
@@ -241,7 +263,15 @@ public class PayoutInstrumentService {
 
     private static String optionalToken(String value, String field, int maximumLength) {
         if (value == null || value.isBlank()) return null;
-        return required(value, field, maximumLength);
+        return compactToken(value, field, maximumLength);
+    }
+
+    private static String compactToken(String value, String field, int maximumLength) {
+        String token = required(value, field, maximumLength);
+        if (token.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException(field + " must not contain whitespace");
+        }
+        return token;
     }
 
     private static String required(String value, String field, int maximumLength) {
@@ -253,6 +283,14 @@ public class PayoutInstrumentService {
 
     private static String normalize(String value) {
         return value == null || value.isBlank() ? null : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String suffix(String value) {
+        return value.length() <= 6 ? value : value.substring(value.length() - 6);
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private void audit(UUID tenantId, UUID actorId, String action, String resourceType, UUID resourceId,
