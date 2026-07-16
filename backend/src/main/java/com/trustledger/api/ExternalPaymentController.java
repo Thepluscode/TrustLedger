@@ -23,8 +23,7 @@ public class ExternalPaymentController {
         ExternalTransferRequest req = new ExternalTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.beneficiaryId(),
             body.amount(), body.currency(), body.reference(), idempotencyKey, body.deviceId(),
-            body.currentCountry(), body.scenario());
-        // Live intelligence gate: external payouts are scored; non-allow verdicts are declined, not submitted.
+            body.currentCountry(), body.destinationCountry(), body.preferredProvider(), body.scenario());
         return gateway.submitExternal(req);
     }
 }
