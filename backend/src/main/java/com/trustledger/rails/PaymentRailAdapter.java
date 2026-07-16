@@ -27,20 +27,19 @@ public interface PaymentRailAdapter {
         return getPaymentStatus(request.providerReference());
     }
 
-    /** Legacy provider-owned webhook authentication. */
+    /** Recovers a provider-side object identifier, such as a transfer code, from a durable reference. */
+    default String getProviderObjectId(PaymentStatusRequest request) { return null; }
+
     default boolean verifyWebhook(String rawBody, String signature) { return false; }
 
-    /** Tenant-context webhook authentication. Defaults to the legacy verifier. */
     default boolean verifyWebhook(WebhookVerificationRequest request) {
         return verifyWebhook(request.rawBody(), request.signature());
     }
 
-    /** Parses an untrusted provider payload into identifiers only. No state may be changed here. */
     default ProviderWebhookEvent parseWebhook(String rawBody) { return null; }
 
     default boolean supportsAction(String action) { return false; }
 
-    /** Executes a provider-specific action such as OTP finalization. Sensitive input must not be persisted. */
     default PaymentSubmitResult executeAction(PaymentActionRequest request) {
         throw new UnsupportedOperationException("Provider action is not supported: " + request.action());
     }
@@ -63,7 +62,6 @@ public interface PaymentRailAdapter {
     record WebhookVerificationRequest(UUID tenantId, UUID tenantProviderConfigId,
                                       String providerEnvironment, String rawBody, String signature) {}
 
-    /** eventType is a TrustLedger canonical state such as SETTLED, FAILED, or REVERSED. */
     record ProviderWebhookEvent(String eventId, String providerReference, String eventType,
                                 String providerObjectId) {}
 
