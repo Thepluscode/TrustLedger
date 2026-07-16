@@ -60,7 +60,12 @@ public class ExternalRailSubmissionService {
                 recipient == null ? null : recipient.providerRecipientMappingId(),
                 recipient == null ? null : recipient.providerRecipientCode(), amount, currency, scenario));
             status = response.status();
-            if (status == null || status.isBlank()) status = ExternalPaymentStatus.PENDING_UNKNOWN;
+            if (status == null || status.isBlank()) {
+                status = ExternalPaymentStatus.PENDING_UNKNOWN;
+            } else if (ExternalPaymentStatus.ACCEPTED.equals(status)
+                    || ExternalPaymentStatus.SUBMITTED.equals(status)) {
+                status = ExternalPaymentStatus.PENDING_SETTLEMENT;
+            }
             attempt.setResponsePayload(write(Map.of("status", status)));
         } catch (PaymentRailTimeoutException timeout) {
             status = ExternalPaymentStatus.PENDING_UNKNOWN;
