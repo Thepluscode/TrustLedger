@@ -424,7 +424,7 @@ public class ExternalPaymentService {
             || ExternalPaymentStatus.REVERSED.equals(status);
     }
 
-    private static int severityFor(int score) {
+    private static String severityFor(int score) {
         if (score >= 85) return "CRITICAL";
         if (score >= 65) return "HIGH";
         return "MEDIUM";
