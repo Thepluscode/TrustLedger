@@ -20,8 +20,8 @@ Supported native events:
 | Paystack event | TrustLedger action |
 |---|---|
 | `transfer.success` | Settle once; consume reservation and post the balanced ledger transaction |
-| `transfer.failed` | Release the reservation once |
-| `transfer.reversed` | Release the reservation once with terminal `REVERSED` status |
+| `transfer.failed` | Release an unconsumed reservation once |
+| `transfer.reversed` | Release a pending reservation, or post an idempotent compensating ledger transaction when the payout already settled |
 | Other event | Record as processed and ignore |
 
 The attempt is resolved by canonical provider plus provider reference before verification. The verifier then receives the exact tenant, provider configuration ID, and environment that created the payout.
@@ -32,7 +32,16 @@ The attempt is resolved by canonical provider plus provider reference before ver
 - Invalid callbacks never mutate financial state.
 - Invalid-signature evidence receives a separate `invalid:<hash>` identifier.
 - An attacker therefore cannot reserve the legitimate native event ID by submitting a forged callback first.
-- Duplicate valid callbacks cannot post a second ledger transaction or release a reservation twice.
+- Duplicate valid callbacks cannot post a second ledger transaction, release a reservation twice, or credit a settled reversal twice.
+
+### Reversal accounting
+
+A provider reversal can arrive before or after TrustLedger posts settlement:
+
+- **Before settlement:** the original amount remains in `pending`; TrustLedger moves it back to `available` and marks the attempt and transfer `REVERSED`.
+- **After settlement:** the original reservation is already consumed. TrustLedger debits the external clearing account, credits the source account, and posts a balanced `REVERSAL` ledger transaction. The source `available` and `posted` balances are restored.
+
+Reversal handling locks the attempt and account rows. A repeated `transfer.reversed` event returns without changing balances or posting another ledger transaction.
 
 ### Provider shutdown semantics
 
