@@ -7,7 +7,6 @@ import java.util.UUID;
 public record ExternalTransferApiRequest(
     UUID sourceAccountId,
     UUID beneficiaryId,
-    UUID payoutInstrumentId,
     BigDecimal amount,
     String currency,
     String reference,
