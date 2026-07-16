@@ -79,22 +79,20 @@ public class ExternalRailSubmissionService {
             ExternalPaymentStatus.READY_TO_SUBMIT, amount, currency, write(evidence), null));
     }
 
-    /** Claims a newly prepared attempt and executes it outside any database transaction. */
     public SubmissionResult execute(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, false);
         return claim == null ? null : executeClaim(claim);
     }
 
-    /** Verifies and, only when still unknown, replays a stale attempt with the same provider reference. */
     public SubmissionResult recover(UUID attemptId) {
         SubmissionClaim claim = claim(attemptId, true);
         return claim == null ? null : executeClaim(claim);
     }
 
     private SubmissionResult executeClaim(SubmissionClaim claim) {
-        PaymentRailAdapter adapter = registry.require(claim.provider());
-        ResolvedProviderRecipient recipient = resolveRecipient(claim, adapter);
         try {
+            PaymentRailAdapter adapter = registry.require(claim.provider());
+            ResolvedProviderRecipient recipient = resolveRecipient(claim, adapter);
             if (claim.recovery()) {
                 String verified = canonical(adapter.getPaymentStatus(new PaymentRailAdapter.PaymentStatusRequest(
                     claim.tenantId(), claim.tenantProviderConfigId(), claim.providerEnvironment(),
