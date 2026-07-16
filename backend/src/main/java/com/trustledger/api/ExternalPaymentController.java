@@ -23,7 +23,8 @@ public class ExternalPaymentController {
         ExternalTransferRequest req = new ExternalTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.beneficiaryId(),
             body.amount(), body.currency(), body.reference(), idempotencyKey, body.deviceId(),
-            body.currentCountry(), body.destinationCountry(), body.preferredProvider(), body.scenario());
+            body.currentCountry(), body.destinationCountry(), body.preferredProvider(),
+            body.preferredEnvironment(), body.scenario());
         return gateway.submitExternal(req);
     }
 }
