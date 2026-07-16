@@ -67,10 +67,10 @@ class TenantProviderGovernanceIntegrationTest {
         assertThrows(IllegalStateException.class,
             () -> providerConfigs.updateControls(tenant, actor, config.getId(), true, false));
 
-        providerConfigs.approveProduction(tenant, UUID.randomUUID(), config.getId());
-        assertFalse(config.isEnabled(), "approval must not activate money movement");
-        providerConfigs.updateControls(tenant, actor, config.getId(), true, false);
-        assertTrue(config.isEnabled());
+        TenantProviderConfigEntity approved = providerConfigs.approveProduction(tenant, UUID.randomUUID(), config.getId());
+        assertFalse(approved.isEnabled(), "approval must not activate money movement");
+        TenantProviderConfigEntity activated = providerConfigs.updateControls(tenant, actor, config.getId(), true, false);
+        assertTrue(activated.isEnabled());
     }
 
     @Test
