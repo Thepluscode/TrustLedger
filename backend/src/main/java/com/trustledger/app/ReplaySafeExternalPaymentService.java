@@ -46,14 +46,7 @@ public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
     public ExternalPaymentResponse initiate(ExternalTransferRequest request, FraudDecision decision) {
         ExternalPaymentResponse replay = completedReplay(request);
         if (replay != null) return replay;
-        try {
-            return super.initiate(request, decision);
-        } catch (RuntimeException executionFailure) {
-            // A concurrent request may have completed between the pre-check and the base execution.
-            replay = completedReplay(request);
-            if (replay != null) return replay;
-            throw executionFailure;
-        }
+        return super.initiate(request, decision);
     }
 
     private ExternalPaymentResponse completedReplay(ExternalTransferRequest request) {
