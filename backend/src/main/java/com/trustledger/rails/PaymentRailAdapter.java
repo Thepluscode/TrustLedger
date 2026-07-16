@@ -9,40 +9,40 @@ public interface PaymentRailAdapter {
 
     String rail();
 
-    /** Stable names accepted by configuration, API requests, webhooks, and reconciliation. */
-    default Set<String> aliases() {
-        return Set.of(rail());
-    }
+    default Set<String> aliases() { return Set.of(rail()); }
 
-    /** Hard provider-level constraints evaluated before tenant policy. */
     default PaymentProviderCapabilities capabilities() {
         return PaymentProviderCapabilities.unrestricted(100);
     }
 
-    /** Real providers require a tenant-owned, compliance-approved configuration. */
-    default boolean requiresTenantConfiguration() {
-        return true;
-    }
+    default boolean requiresTenantConfiguration() { return true; }
 
-    /** Real payout providers address beneficiaries through provider-specific recipient tokens. */
-    default boolean requiresProviderRecipient() {
-        return requiresTenantConfiguration();
-    }
+    default boolean requiresProviderRecipient() { return requiresTenantConfiguration(); }
 
-    /** Submits a payment. The caller supplies the provider reference so a timeout remains traceable. */
     PaymentSubmitResult initiatePayment(PaymentSubmitRequest request);
 
-    /** Legacy status lookup retained for simple adapters and existing tests. */
     String getPaymentStatus(String providerReference);
 
-    /** Context-aware status lookup for providers whose credentials are tenant-scoped. */
     default String getPaymentStatus(PaymentStatusRequest request) {
         return getPaymentStatus(request.providerReference());
     }
 
-    /** Provider-owned webhook authentication; the default fails closed. */
-    default boolean verifyWebhook(String rawBody, String signature) {
-        return false;
+    /** Legacy provider-owned webhook authentication. */
+    default boolean verifyWebhook(String rawBody, String signature) { return false; }
+
+    /** Tenant-context webhook authentication. Defaults to the legacy verifier. */
+    default boolean verifyWebhook(WebhookVerificationRequest request) {
+        return verifyWebhook(request.rawBody(), request.signature());
+    }
+
+    /** Parses an untrusted provider payload into identifiers only. No state may be changed here. */
+    default ProviderWebhookEvent parseWebhook(String rawBody) { return null; }
+
+    default boolean supportsAction(String action) { return false; }
+
+    /** Executes a provider-specific action such as OTP finalization. Sensitive input must not be persisted. */
+    default PaymentSubmitResult executeAction(PaymentActionRequest request) {
+        throw new UnsupportedOperationException("Provider action is not supported: " + request.action());
     }
 
     record PaymentSubmitRequest(UUID tenantId, UUID transactionId, String providerReference,
@@ -54,9 +54,23 @@ public interface PaymentRailAdapter {
     record PaymentStatusRequest(UUID tenantId, UUID tenantProviderConfigId,
                                 String providerEnvironment, String providerReference) {}
 
-    record PaymentSubmitResult(String providerReference, String status) {}
+    record PaymentSubmitResult(String providerReference, String status, String providerObjectId) {
+        public PaymentSubmitResult(String providerReference, String status) {
+            this(providerReference, status, null);
+        }
+    }
 
-    /** Thrown when provider execution may have happened but no authoritative response was received. */
+    record WebhookVerificationRequest(UUID tenantId, UUID tenantProviderConfigId,
+                                      String providerEnvironment, String rawBody, String signature) {}
+
+    /** eventType is a TrustLedger canonical state such as SETTLED, FAILED, or REVERSED. */
+    record ProviderWebhookEvent(String eventId, String providerReference, String eventType,
+                                String providerObjectId) {}
+
+    record PaymentActionRequest(UUID tenantId, UUID transactionId, UUID tenantProviderConfigId,
+                                String providerEnvironment, String providerReference,
+                                String providerObjectId, String action, String sensitiveValue) {}
+
     class PaymentRailTimeoutException extends RuntimeException {
         private final String providerReference;
         public PaymentRailTimeoutException(String providerReference, String message) {
