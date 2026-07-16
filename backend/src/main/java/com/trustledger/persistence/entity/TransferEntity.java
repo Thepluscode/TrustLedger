@@ -18,8 +18,6 @@ public class TransferEntity {
     @Column(name = "source_account_id", nullable = false) private UUID sourceAccountId;
     @Column(name = "destination_account_id", nullable = false) private UUID destinationAccountId;
     @Column(name = "beneficiary_id") private UUID beneficiaryId;
-    @Column(name = "payout_instrument_id") private UUID payoutInstrumentId;
-    @Column(name = "provider_recipient_mapping_id") private UUID providerRecipientMappingId;
     @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3) private String currency;
@@ -82,12 +80,6 @@ public class TransferEntity {
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
     public UUID getBeneficiaryId() { return beneficiaryId; }
     public String getReference() { return reference; }
-    public UUID getPayoutInstrumentId() { return payoutInstrumentId; }
-    public void setPayoutInstrumentId(UUID payoutInstrumentId) { this.payoutInstrumentId = payoutInstrumentId; }
-    public UUID getProviderRecipientMappingId() { return providerRecipientMappingId; }
-    public void setProviderRecipientMappingId(UUID providerRecipientMappingId) {
-        this.providerRecipientMappingId = providerRecipientMappingId;
-    }
     public String getSelectedProvider() { return selectedProvider; }
     public void setSelectedProvider(String selectedProvider) { this.selectedProvider = selectedProvider; }
     public String getRouteReason() { return routeReason; }
