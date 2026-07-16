@@ -42,26 +42,27 @@ class PaymentWebhookServiceTest {
         assertEquals(PaymentWebhookService.Result.INVALID_SIGNATURE,
             fixture.service().process("NATIVE", "{}", "invalid"));
 
-        verifyNoInteractions(fixture.externalPayments());
+        verifyNoInteractions(fixture.externalPayments(), fixture.reversals());
         verify(fixture.webhookEvents()).save(argThat(event -> !event.isSignatureValid()));
     }
 
     @Test
-    void reversedEventReleasesReservationAndDuplicateIsIgnored() {
+    void reversedEventUsesCompensatingAccountingAndDuplicateIsIgnored() {
         Fixture fixture = fixture(ExternalPaymentStatus.REVERSED, true);
         when(fixture.webhookEvents().findByProviderAndEventId("NATIVE", "evt-1"))
             .thenReturn(Optional.of(mock(PaymentWebhookEventEntity.class)));
 
         assertEquals(PaymentWebhookService.Result.DUPLICATE,
             fixture.service().process("NATIVE", "{}", "valid"));
-        verifyNoInteractions(fixture.externalPayments());
+        verifyNoInteractions(fixture.externalPayments(), fixture.reversals());
 
         reset(fixture.webhookEvents());
         when(fixture.webhookEvents().findByProviderAndEventId("NATIVE", "evt-1")).thenReturn(Optional.empty());
         when(fixture.webhookEvents().save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         assertEquals(PaymentWebhookService.Result.PROCESSED,
             fixture.service().process("NATIVE", "{}", "valid"));
-        verify(fixture.externalPayments()).release(fixture.attempt(), ExternalPaymentStatus.REVERSED);
+        verify(fixture.reversals()).reverse(fixture.attempt());
+        verifyNoInteractions(fixture.externalPayments());
     }
 
     private static Fixture fixture(String eventType, boolean signatureValid) {
@@ -80,14 +81,16 @@ class PaymentWebhookServiceTest {
         ExternalPaymentAttemptRepository attempts = mock(ExternalPaymentAttemptRepository.class);
         when(attempts.findByProviderAndProviderReference("NATIVE", "ref-1")).thenReturn(Optional.of(attempt));
         ExternalPaymentService externalPayments = mock(ExternalPaymentService.class);
+        ExternalPaymentReversalService reversals = mock(ExternalPaymentReversalService.class);
         PaymentWebhookService service = new PaymentWebhookService(webhookEvents, attempts, externalPayments,
-            new PaymentRailRegistry(List.of(adapter)), new ObjectMapper());
-        return new Fixture(service, adapter, webhookEvents, externalPayments, attempt, tenant, config);
+            reversals, new PaymentRailRegistry(List.of(adapter)), new ObjectMapper());
+        return new Fixture(service, adapter, webhookEvents, externalPayments, reversals, attempt, tenant, config);
     }
 
     private record Fixture(PaymentWebhookService service, NativeAdapter adapter,
                            PaymentWebhookEventRepository webhookEvents,
                            ExternalPaymentService externalPayments,
+                           ExternalPaymentReversalService reversals,
                            ExternalPaymentAttemptEntity attempt,
                            UUID tenantId, UUID configId) {}
 
