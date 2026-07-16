@@ -79,8 +79,8 @@ public class JdkPaystackApiClient implements PaystackApiClient {
         }
 
         int code = response.statusCode();
-        if (code == 429 || code >= 500) {
-            throw new AmbiguousPaystackException("Paystack returned a transient server response (HTTP " + code + ")");
+        if (code == 408 || code == 409 || code == 425 || code == 429 || code >= 500) {
+            throw new AmbiguousPaystackException("Paystack returned a non-authoritative response (HTTP " + code + ")");
         }
         Map<String, Object> payload = read(response.body());
         String message = text(payload.get("message"));
