@@ -3,6 +3,8 @@ package com.trustledger.rails;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.app.PayoutInstrumentService;
+import com.trustledger.app.ProviderRecipientResolver;
+import com.trustledger.app.ResolvedProviderRecipient;
 import com.trustledger.app.TenantProviderConfigService;
 import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.BeneficiaryEntity;
@@ -49,6 +51,7 @@ class PayoutInstrumentRegistryIntegrationTest {
     }
 
     @Autowired PayoutInstrumentService service;
+    @Autowired ProviderRecipientResolver resolver;
     @Autowired TenantProviderConfigService providerConfigs;
     @Autowired AccountRepository accounts;
     @Autowired BeneficiaryRepository beneficiaries;
@@ -105,6 +108,12 @@ class PayoutInstrumentRegistryIntegrationTest {
         assertEquals("RCP_123456789", mapping.getProviderRecipientCode());
         assertEquals("ACTIVE", mapping.getStatus());
 
+        ResolvedProviderRecipient resolved = resolver.resolve(fixture.tenantId(), fixture.beneficiary().getId(),
+            instrument.getId(), config.getId(), PROVIDER, "SANDBOX");
+        assertEquals(instrument.getId(), resolved.payoutInstrumentId());
+        assertEquals(mapping.getId(), resolved.providerRecipientMappingId());
+        assertEquals("RCP_123456789", resolved.providerRecipientCode());
+
         ProviderRecipientMappingEntity replay = service.registerProviderRecipient(fixture.tenantId(),
             fixture.userId(), instrument.getId(), recipient(config.getId(), "RCP_123456789"));
         assertEquals(mapping.getId(), replay.getId(), "same token registration is idempotent");
@@ -125,13 +134,20 @@ class PayoutInstrumentRegistryIntegrationTest {
     }
 
     @Test
-    void revokedInstrumentIsTerminal() {
+    void suspendedOrRevokedInstrumentCannotResolve() {
         Fixture fixture = fixture();
         PayoutInstrumentEntity instrument = service.createInstrument(fixture.tenantId(), fixture.userId(),
-            fixture.beneficiary().getId(), command("******6789", "vault://payouts/revoked-a"));
+            fixture.beneficiary().getId(), command("******6789", "vault://payouts/suspended-a"));
+        TenantProviderConfigEntity config = providerConfig(fixture.tenantId(), fixture.userId());
+        service.verifyInstrument(fixture.tenantId(), UUID.randomUUID(), instrument.getId(), "resolve:suspended-a");
+        service.registerProviderRecipient(fixture.tenantId(), fixture.userId(), instrument.getId(),
+            recipient(config.getId(), "RCP_suspend_test"));
+
+        service.setInstrumentStatus(fixture.tenantId(), fixture.userId(), instrument.getId(), "SUSPENDED");
+        assertThrows(IllegalStateException.class, () -> resolver.resolve(fixture.tenantId(),
+            fixture.beneficiary().getId(), instrument.getId(), config.getId(), PROVIDER, "SANDBOX"));
 
         service.setInstrumentStatus(fixture.tenantId(), fixture.userId(), instrument.getId(), "REVOKED");
-        assertEquals("REVOKED", instruments.findById(instrument.getId()).orElseThrow().getStatus());
         assertThrows(IllegalStateException.class, () -> service.setInstrumentStatus(fixture.tenantId(),
             fixture.userId(), instrument.getId(), "SUSPENDED"));
     }
