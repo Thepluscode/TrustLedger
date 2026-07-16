@@ -5,6 +5,8 @@ public final class ExternalPaymentStatus {
     private ExternalPaymentStatus() {}
 
     public static final String CREATED = "CREATED";
+    public static final String READY_TO_SUBMIT = "READY_TO_SUBMIT";
+    public static final String SUBMITTING = "SUBMITTING";
     public static final String SUBMITTED = "SUBMITTED";
     public static final String ACCEPTED = "ACCEPTED";
     public static final String ACTION_REQUIRED = "ACTION_REQUIRED";
