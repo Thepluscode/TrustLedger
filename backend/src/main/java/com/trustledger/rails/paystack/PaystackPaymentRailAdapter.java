@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
 
     public static final String RAIL = "PAYSTACK";
-    private static final Pattern REFERENCE = Pattern.compile("[a-z0-9._-]{16,50}");
+    private static final Pattern REFERENCE = Pattern.compile("[a-z0-9_-]{16,50}");
 
     private final TenantProviderConfigRepository configs;
     private final SecretResolver secrets;
@@ -138,7 +138,8 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
 
     private static void requireReference(String reference) {
         if (reference == null || !REFERENCE.matcher(reference).matches()) {
-            throw new IllegalArgumentException("Paystack reference must be 16-50 lowercase URL-safe characters");
+            throw new IllegalArgumentException(
+                "Paystack reference must be 16-50 lowercase letters, digits, underscores, or hyphens");
         }
     }
 
