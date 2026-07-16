@@ -1,3 +1,6 @@
+ALTER TABLE beneficiaries
+    ADD CONSTRAINT uq_beneficiary_tenant_identity UNIQUE (tenant_id, id);
+
 CREATE TABLE payout_instruments (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
@@ -31,7 +34,8 @@ CREATE TABLE payout_instruments (
     CONSTRAINT uq_payout_instrument_identity
         UNIQUE (tenant_id, id),
     CONSTRAINT fk_payout_instrument_beneficiary
-        FOREIGN KEY (beneficiary_id) REFERENCES beneficiaries(id)
+        FOREIGN KEY (tenant_id, beneficiary_id)
+        REFERENCES beneficiaries (tenant_id, id)
 );
 
 CREATE INDEX idx_payout_instruments_beneficiary
