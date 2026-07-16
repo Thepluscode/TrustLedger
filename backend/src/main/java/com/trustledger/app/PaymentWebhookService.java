@@ -26,17 +26,20 @@ public class PaymentWebhookService {
     private final PaymentWebhookEventRepository webhookEvents;
     private final ExternalPaymentAttemptRepository attempts;
     private final ExternalPaymentService externalPayments;
+    private final ExternalPaymentReversalService reversals;
     private final PaymentRailRegistry registry;
     private final ObjectMapper json;
 
     public PaymentWebhookService(PaymentWebhookEventRepository webhookEvents,
                                  ExternalPaymentAttemptRepository attempts,
                                  ExternalPaymentService externalPayments,
+                                 ExternalPaymentReversalService reversals,
                                  PaymentRailRegistry registry,
                                  ObjectMapper json) {
         this.webhookEvents = webhookEvents;
         this.attempts = attempts;
         this.externalPayments = externalPayments;
+        this.reversals = reversals;
         this.registry = registry;
         this.json = json;
     }
@@ -97,7 +100,7 @@ public class PaymentWebhookService {
         switch (normalized.eventType()) {
             case ExternalPaymentStatus.SETTLED -> externalPayments.settle(attempt);
             case ExternalPaymentStatus.FAILED -> externalPayments.fail(attempt);
-            case ExternalPaymentStatus.REVERSED -> externalPayments.release(attempt, ExternalPaymentStatus.REVERSED);
+            case ExternalPaymentStatus.REVERSED -> reversals.reverse(attempt);
             case "IGNORED" -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);
