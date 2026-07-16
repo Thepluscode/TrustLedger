@@ -25,15 +25,23 @@ ALTER TABLE tenant_provider_configs
     ADD CONSTRAINT chk_tenant_provider_amounts
         CHECK ((minimum_amount IS NULL OR minimum_amount >= 0)
            AND (maximum_amount IS NULL OR maximum_amount >= 0)
-           AND (minimum_amount IS NULL OR maximum_amount IS NULL OR maximum_amount >= minimum_amount));
+           AND (minimum_amount IS NULL OR maximum_amount IS NULL OR maximum_amount >= minimum_amount)),
+    ADD CONSTRAINT uq_tenant_provider_config_identity
+        UNIQUE (tenant_id, id, environment);
 
 ALTER TABLE transfers
     ADD COLUMN tenant_provider_config_id UUID,
-    ADD COLUMN provider_environment VARCHAR(32);
+    ADD COLUMN provider_environment VARCHAR(32),
+    ADD CONSTRAINT fk_transfer_tenant_provider_config
+        FOREIGN KEY (tenant_id, tenant_provider_config_id, provider_environment)
+        REFERENCES tenant_provider_configs (tenant_id, id, environment);
 
 ALTER TABLE external_payment_attempts
     ADD COLUMN tenant_provider_config_id UUID,
-    ADD COLUMN provider_environment VARCHAR(32);
+    ADD COLUMN provider_environment VARCHAR(32),
+    ADD CONSTRAINT fk_attempt_tenant_provider_config
+        FOREIGN KEY (tenant_id, tenant_provider_config_id, provider_environment)
+        REFERENCES tenant_provider_configs (tenant_id, id, environment);
 
 CREATE INDEX idx_tenant_provider_configs_route_lookup
     ON tenant_provider_configs (tenant_id, provider, enabled, compliance_status, operational_status);
