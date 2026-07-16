@@ -84,6 +84,30 @@ public class TenantPaymentRouteService {
         return new TenantPaymentRouteDecision(route, selection.configId(), selection.environment());
     }
 
+    /** Revalidates the exact configuration persisted before manual review. */
+    @Transactional(readOnly = true)
+    public TenantPaymentRouteDecision revalidate(UUID tenantId, UUID configId, String provider,
+                                                 BigDecimal amount, String currency, String destinationCountry) {
+        PaymentRailAdapter adapter = registry.require(provider);
+        if (configId == null) {
+            if (adapter.requiresTenantConfiguration()) {
+                throw new IllegalStateException("Persisted route is missing its tenant provider configuration");
+            }
+            PaymentRouteDecision route = router.route(amount, currency, destinationCountry, adapter.rail());
+            return new TenantPaymentRouteDecision(route, null, "SANDBOX");
+        }
+
+        TenantProviderConfigEntity config = configs.findByIdAndTenantId(configId, tenantId)
+            .orElseThrow(() -> new IllegalStateException("Persisted provider configuration no longer exists"));
+        if (!adapter.rail().equalsIgnoreCase(config.getProvider())) {
+            throw new IllegalStateException("Persisted provider configuration does not match selected provider");
+        }
+        String rejection = rejectionReason(adapter, config, amount, currency, destinationCountry);
+        Map<String, String> exclusions = rejection == null ? Map.of() : Map.of(adapter.rail(), rejection);
+        PaymentRouteDecision route = router.route(amount, currency, destinationCountry, adapter.rail(), exclusions);
+        return new TenantPaymentRouteDecision(route, config.getId(), config.getEnvironment());
+    }
+
     private static String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
                                           BigDecimal amount, String currency, String destinationCountry) {
         if (config.isEmergencyDisabled()) return "tenant_provider_emergency_disabled";
