@@ -14,6 +14,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -68,9 +69,11 @@ public class ProviderCredentialService {
         return created;
     }
 
+    /** Activation is compare-and-swap: stale callers cannot overwrite a newer rotation. */
     @Transactional
     public ProviderCredentialVersionEntity activate(UUID tenantId, UUID actorId, UUID configId,
-                                                    UUID credentialId, long graceSeconds) {
+                                                     UUID credentialId, UUID expectedActiveCredentialId,
+                                                     long graceSeconds) {
         if (graceSeconds < 0 || graceSeconds > 604_800) {
             throw new IllegalArgumentException("graceSeconds must be between 0 and 604800");
         }
@@ -83,6 +86,10 @@ public class ProviderCredentialService {
 
         ProviderCredentialVersionEntity previous = versions.findActiveForUpdate(configId, target.getPurpose())
             .orElse(null);
+        UUID actualActiveId = previous == null ? null : previous.getId();
+        if (!Objects.equals(actualActiveId, expectedActiveCredentialId)) {
+            throw new IllegalStateException("Credential activation conflict: active version changed");
+        }
         if (previous != null) {
             previous.moveToGrace(Instant.now().plus(graceSeconds, ChronoUnit.SECONDS));
             if (graceSeconds == 0) previous.retire();
