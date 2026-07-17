@@ -22,6 +22,8 @@ public class ProductionCanaryService {
         ExternalPaymentStatus.SETTLED, ExternalPaymentStatus.FAILED,
         ExternalPaymentStatus.CANCELLED, ExternalPaymentStatus.RETURNED,
         ExternalPaymentStatus.REVERSED);
+    private static final List<String> BLOCKING_OPERATIONAL_STATES = List.of(
+        "PAUSED", "EXHAUSTED", "REVOKED", "EXPIRED");
 
     public record CreateCommand(Instant startsAt, Instant expiresAt,
                                 BigDecimal maxTransactionAmount, BigDecimal maxCumulativeAmount,
@@ -156,14 +158,20 @@ public class ProductionCanaryService {
                 tenantId, configId, "PRODUCTION", "ACTIVE")
             .orElse(null);
         if (plan == null) {
-            ProductionCanaryPlanEntity latest = plans
+            ProductionCanaryPlanEntity operational = plans
+                .findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentAndStatusInOrderByCreatedAtDesc(
+                    tenantId, configId, "PRODUCTION", BLOCKING_OPERATIONAL_STATES)
+                .orElse(null);
+            if (operational != null) {
+                if ("PAUSED".equals(operational.getStatus())) return "production_canary_paused";
+                if ("EXHAUSTED".equals(operational.getStatus())) return "production_canary_exhausted";
+                return "production_canary_not_active";
+            }
+            boolean configured = plans
                 .findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentOrderByCreatedAtDesc(
                     tenantId, configId, "PRODUCTION")
-                .orElse(null);
-            if (latest == null) return "production_canary_not_configured";
-            if ("PAUSED".equals(latest.getStatus())) return "production_canary_paused";
-            if ("EXHAUSTED".equals(latest.getStatus())) return "production_canary_exhausted";
-            return "production_canary_not_active";
+                .isPresent();
+            return configured ? "production_canary_not_active" : "production_canary_not_configured";
         }
         Instant now = Instant.now();
         if (now.isBefore(plan.getStartsAt()) || !now.isBefore(plan.getExpiresAt())) {
