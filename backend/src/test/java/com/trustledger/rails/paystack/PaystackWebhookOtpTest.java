@@ -32,7 +32,7 @@ class PaystackWebhookOtpTest {
         PaystackPaymentRailAdapter adapter = new PaystackPaymentRailAdapter(configs, ref -> SECRET,
             mock(PaystackApiClient.class), new ObjectMapper());
         String body = "{\"event\":\"transfer.success\",\"data\":{"
-            + "\"id\":4421,\"reference\":\"paystack_1234567890\"," 
+            + "\"id\":4421,\"reference\":\"paystack_1234567890\","
             + "\"transfer_code\":\"TRF_native\"}}";
 
         PaymentRailAdapter.ProviderWebhookEvent event = adapter.parseWebhook(body);
@@ -84,6 +84,26 @@ class PaystackWebhookOtpTest {
         verify(api).finalizeTransfer(eq(SECRET), request.capture());
         assertEquals("TRF_native", request.getValue().transferCode());
         assertEquals("123456", request.getValue().otp());
+    }
+
+    @Test
+    void invalidOtpResponseKeepsPayoutActionRequired() {
+        UUID tenant = UUID.randomUUID();
+        UUID configId = UUID.randomUUID();
+        TenantProviderConfigRepository configs = mock(TenantProviderConfigRepository.class);
+        when(configs.findByIdAndTenantId(configId, tenant)).thenReturn(Optional.of(config(tenant, configId, true)));
+        PaystackApiClient api = mock(PaystackApiClient.class);
+        when(api.finalizeTransfer(eq(SECRET), any())).thenReturn(new PaystackApiClient.PaystackResponse(
+            null, "paystack_1234567890", "TRF_native", "Invalid OTP", 400, true));
+        PaystackPaymentRailAdapter adapter = new PaystackPaymentRailAdapter(configs, ref -> SECRET, api,
+            new ObjectMapper());
+
+        PaymentRailAdapter.PaymentSubmitResult result = adapter.executeAction(
+            new PaymentRailAdapter.PaymentActionRequest(tenant, UUID.randomUUID(), configId, "SANDBOX",
+                "paystack_1234567890", "TRF_native", PaystackPaymentRailAdapter.OTP_FINALIZE, "000000"));
+
+        assertEquals(ExternalPaymentStatus.ACTION_REQUIRED, result.status());
+        assertEquals("TRF_native", result.providerObjectId());
     }
 
     private static TenantProviderConfigEntity config(UUID tenant, UUID id, boolean enabled) {
