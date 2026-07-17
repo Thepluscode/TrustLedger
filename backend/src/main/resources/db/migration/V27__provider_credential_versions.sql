@@ -41,18 +41,22 @@ CREATE INDEX idx_provider_credential_verification
 -- Deterministically project existing secret references into immutable version 1 rows.
 INSERT INTO provider_credential_versions (
     id, tenant_id, tenant_provider_config_id, purpose, version_number, secret_ref,
-    status, created_by, activated_at
+    status, created_by, activated_by, activated_at
 )
 SELECT md5(id::text || ':API:1')::uuid, tenant_id, id, 'API', 1,
-       credentials_secret_ref, 'ACTIVE', COALESCE(approved_by, tenant_id), now()
+       credentials_secret_ref, 'ACTIVE',
+       COALESCE(approved_by, '00000000-0000-0000-0000-000000000000'::uuid),
+       COALESCE(approved_by, '00000000-0000-0000-0000-000000000000'::uuid), now()
 FROM tenant_provider_configs
 WHERE credentials_secret_ref IS NOT NULL;
 
 INSERT INTO provider_credential_versions (
     id, tenant_id, tenant_provider_config_id, purpose, version_number, secret_ref,
-    status, created_by, activated_at
+    status, created_by, activated_by, activated_at
 )
 SELECT md5(id::text || ':WEBHOOK:1')::uuid, tenant_id, id, 'WEBHOOK', 1,
-       webhook_secret_ref, 'ACTIVE', COALESCE(approved_by, tenant_id), now()
+       webhook_secret_ref, 'ACTIVE',
+       COALESCE(approved_by, '00000000-0000-0000-0000-000000000000'::uuid),
+       COALESCE(approved_by, '00000000-0000-0000-0000-000000000000'::uuid), now()
 FROM tenant_provider_configs
 WHERE webhook_secret_ref IS NOT NULL;
