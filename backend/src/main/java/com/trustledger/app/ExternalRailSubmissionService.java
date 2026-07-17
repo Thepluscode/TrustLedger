@@ -117,6 +117,7 @@ public class ExternalRailSubmissionService {
                     claim.providerObjectId(), action, sensitiveValue));
             String status = canonical(response.status());
             String objectId = response.providerObjectId() == null ? claim.providerObjectId() : response.providerObjectId();
+            rememberProviderObjectId(claim.attemptId(), objectId);
             return result(claim, status, Map.of("status", status, "action", action), null, objectId);
         } catch (PaymentRailTimeoutException timeout) {
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
@@ -138,6 +139,7 @@ public class ExternalRailSubmissionService {
                     recipient == null ? null : recipient.providerRecipientCode(), claim.amount(),
                     claim.currency(), claim.scenario()));
             String status = canonical(response.status());
+            rememberProviderObjectId(claim.attemptId(), response.providerObjectId());
             return result(claim, status, Map.of("status", status), null, response.providerObjectId());
         } catch (PaymentRailTimeoutException timeout) {
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
@@ -151,11 +153,17 @@ public class ExternalRailSubmissionService {
     private SubmissionResult recoverClaim(SubmissionClaim claim) {
         try {
             PaymentRailAdapter adapter = registry.require(claim.provider());
-            String verified = canonical(adapter.getPaymentStatus(new PaymentRailAdapter.PaymentStatusRequest(
+            PaymentRailAdapter.PaymentStatusRequest statusRequest = new PaymentRailAdapter.PaymentStatusRequest(
                 claim.tenantId(), claim.tenantProviderConfigId(), claim.providerEnvironment(),
-                claim.providerReference())));
+                claim.providerReference());
+            String verified = canonical(adapter.getPaymentStatus(statusRequest));
             if (!ExternalPaymentStatus.PENDING_UNKNOWN.equals(verified)) {
-                return result(claim, verified, Map.of("verifiedStatus", verified), null, claim.providerObjectId());
+                String objectId = claim.providerObjectId();
+                if (objectId == null || objectId.isBlank()) {
+                    objectId = adapter.getProviderObjectId(statusRequest);
+                    rememberProviderObjectId(claim.attemptId(), objectId);
+                }
+                return result(claim, verified, Map.of("verifiedStatus", verified), null, objectId);
             }
             if (!"INITIATE".equals(claim.submissionOperation())) {
                 return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
@@ -202,6 +210,22 @@ public class ExternalRailSubmissionService {
             attempt.getPayoutInstrumentId(), attempt.getProviderRecipientMappingId(),
             attempt.getProviderReference(), attempt.getProviderObjectId(), operation,
             attempt.getAmount(), attempt.getCurrency(), scenario(attempt.getRequestPayload()), recovery);
+    }
+
+    private void rememberProviderObjectId(UUID attemptId, String providerObjectId) {
+        if (providerObjectId == null || providerObjectId.isBlank()) return;
+        transactions.executeWithoutResult(status -> {
+            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(attemptId)
+                .orElseThrow(() -> new IllegalStateException("Prepared payout attempt no longer exists"));
+            if (attempt.getProviderObjectId() != null
+                    && !attempt.getProviderObjectId().equals(providerObjectId)) {
+                throw new IllegalStateException("Provider object identifier changed unexpectedly");
+            }
+            if (attempt.getProviderObjectId() == null) {
+                attempt.setProviderObjectId(providerObjectId);
+                attempts.save(attempt);
+            }
+        });
     }
 
     private ResolvedProviderRecipient resolveRecipient(SubmissionClaim claim, PaymentRailAdapter adapter) {
