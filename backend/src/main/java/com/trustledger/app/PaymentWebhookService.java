@@ -25,21 +25,18 @@ public class PaymentWebhookService {
 
     private final PaymentWebhookEventRepository webhookEvents;
     private final ExternalPaymentAttemptRepository attempts;
-    private final ExternalPaymentService externalPayments;
-    private final ExternalPaymentReversalService reversals;
+    private final ExternalPaymentTransitionService transitions;
     private final PaymentRailRegistry registry;
     private final ObjectMapper json;
 
     public PaymentWebhookService(PaymentWebhookEventRepository webhookEvents,
                                  ExternalPaymentAttemptRepository attempts,
-                                 ExternalPaymentService externalPayments,
-                                 ExternalPaymentReversalService reversals,
+                                 ExternalPaymentTransitionService transitions,
                                  PaymentRailRegistry registry,
                                  ObjectMapper json) {
         this.webhookEvents = webhookEvents;
         this.attempts = attempts;
-        this.externalPayments = externalPayments;
-        this.reversals = reversals;
+        this.transitions = transitions;
         this.registry = registry;
         this.json = json;
     }
@@ -84,23 +81,29 @@ public class PaymentWebhookService {
             return Result.INVALID_SIGNATURE;
         }
 
+        if (!blank(normalized.providerObjectId())) {
+            try {
+                transitions.bindProviderObjectId(attempt.getId(), normalized.providerObjectId());
+            } catch (IllegalStateException integrityFailure) {
+                String conflictEventId = "conflict:" + sha256(normalized.eventId() + "|"
+                    + normalized.providerObjectId());
+                if (webhookEvents.findByProviderAndEventId(provider, conflictEventId).isEmpty()) {
+                    webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(),
+                        provider, normalized.providerReference(), conflictEventId, normalized.eventType(),
+                        rawBody, true, false));
+                }
+                return Result.BAD_REQUEST;
+            }
+        }
+
         PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
             attempt.getTenantId(), provider, normalized.providerReference(), normalized.eventId(),
             normalized.eventType(), rawBody, true, false));
 
-        if (!blank(normalized.providerObjectId())) {
-            if (!blank(attempt.getProviderObjectId())
-                    && !attempt.getProviderObjectId().equals(normalized.providerObjectId())) {
-                return Result.BAD_REQUEST;
-            }
-            attempt.setProviderObjectId(normalized.providerObjectId());
-            attempts.save(attempt);
-        }
-
         switch (normalized.eventType()) {
-            case ExternalPaymentStatus.SETTLED -> externalPayments.settle(attempt);
-            case ExternalPaymentStatus.FAILED -> externalPayments.fail(attempt);
-            case ExternalPaymentStatus.REVERSED -> reversals.reverse(attempt);
+            case ExternalPaymentStatus.SETTLED -> transitions.settle(attempt.getId());
+            case ExternalPaymentStatus.FAILED -> transitions.release(attempt.getId(), ExternalPaymentStatus.FAILED);
+            case ExternalPaymentStatus.REVERSED -> transitions.reverse(attempt.getId());
             case "IGNORED" -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);
