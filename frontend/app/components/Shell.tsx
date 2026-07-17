@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { getSession, getToken, setSession, setToken } from "../lib/api";
 import CommandPalette from "./CommandPalette";
+import PlatformProductionGate from "./PlatformProductionGate";
 
 /** Grouped navigation (design.md §4.1), scoped to routes that exist and are live-wired. */
 const NAV: { label: string; links: [string, string][] }[] = [
@@ -26,7 +27,10 @@ const NAV: { label: string; links: [string, string][] }[] = [
       ["ML Monitoring", "/ml"],
     ],
   },
-  { label: "Payment Rails", links: [["Webhooks", "/webhooks"]] },
+  {
+    label: "Payment Rails",
+    links: [["Webhooks", "/webhooks"], ["Production Readiness", "/production-readiness"]],
+  },
   {
     label: "Compliance",
     links: [
@@ -142,6 +146,7 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           </Link>
         </header>
         <main className="page" id="main">
+          {active === "/production-readiness" && <PlatformProductionGate />}
           {children}
         </main>
       </div>

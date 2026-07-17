@@ -294,6 +294,56 @@ export interface MonitoringSnapshot {
   dbLockWait: LockHealth;
 }
 
+export interface ProviderConfigView {
+  id: string;
+  provider: string;
+  environment: string;
+  enabled: boolean;
+  complianceStatus: string;
+  operationalStatus: string;
+  emergencyDisabled: boolean;
+  allowedCurrencies: string | null;
+  allowedDestinationCountries: string | null;
+  minimumAmount: number | null;
+  maximumAmount: number | null;
+  credentialsConfigured: boolean;
+  webhookSecretConfigured: boolean;
+}
+
+export interface ProductionCanaryView {
+  id: string;
+  tenantProviderConfigId: string;
+  environment: string;
+  status: string;
+  requestedBy: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  startsAt: string;
+  expiresAt: string;
+  maxTransactionAmount: number;
+  maxCumulativeAmount: number;
+  maxTransactions: number;
+  reservedTransactions: number;
+  reservedAmount: number;
+  settledTransactions: number;
+  failedTransactions: number;
+  unknownTransactions: number;
+  reversedTransactions: number;
+  pauseReason: string | null;
+  version: number;
+}
+
+export interface ProductionCanaryRequest {
+  startsAt: string;
+  expiresAt: string;
+  maxTransactionAmount: number;
+  maxCumulativeAmount: number;
+  maxTransactions: number;
+  failurePauseThreshold: number;
+  unknownPauseThreshold: number;
+  reversalPauseThreshold: number;
+}
+
 export interface ApiError {
   code: string;
   error: string;

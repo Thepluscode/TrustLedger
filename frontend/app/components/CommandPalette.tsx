@@ -17,6 +17,12 @@ const COMMANDS: Command[] = [
   { label: "Risk profiles", hint: "Devices / payees / users", href: "/risk-profiles", keywords: "device beneficiary mule trust" },
   { label: "ML monitoring", hint: "Model scores", href: "/ml", keywords: "model shadow score" },
   { label: "Webhooks", hint: "Provider callbacks", href: "/webhooks", keywords: "payment rail provider events" },
+  {
+    label: "Production readiness",
+    hint: "Canaries and circuit breakers",
+    href: "/production-readiness",
+    keywords: "provider rollout approval canary exposure pause production live payments",
+  },
   { label: "Evidence", hint: "Exports", href: "/evidence", keywords: "export pack checksum" },
   { label: "Audit logs", hint: "Activity", href: "/audit-logs", keywords: "audit history actions" },
   { label: "Tenant admin", hint: "Plan, quotas, fraud policy", href: "/admin", keywords: "settings policy plan quota org" },
@@ -53,7 +59,6 @@ export default function CommandPalette() {
     const matches = COMMANDS.filter(
       (c) => !q || c.label.toLowerCase().includes(q) || (c.keywords ?? "").includes(q),
     );
-    // If the query is a transaction id, offer a direct jump.
     if (UUID_RE.test(query.trim())) {
       matches.unshift({ label: `Open transfer ${query.trim().slice(0, 8)}…`, hint: "Jump to transaction", href: `/transfers/${query.trim()}` });
     }
