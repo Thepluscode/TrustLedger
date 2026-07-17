@@ -59,19 +59,20 @@ public class ExternalPaymentTransitionService {
         }
     }
 
-    /** Binds a provider-side object once; a different value is treated as an integrity violation. */
+    /** Returns false on identity conflict so callers can persist evidence without marking the transaction rollback-only. */
     @Transactional
-    public void bindProviderObjectId(UUID attemptId, String providerObjectId) {
-        if (providerObjectId == null || providerObjectId.isBlank()) return;
+    public boolean bindProviderObjectId(UUID attemptId, String providerObjectId) {
+        if (providerObjectId == null || providerObjectId.isBlank()) return true;
         ExternalPaymentAttemptEntity attempt = lock(attemptId);
         if (attempt.getProviderObjectId() != null
                 && !attempt.getProviderObjectId().equals(providerObjectId)) {
-            throw new IllegalStateException("Provider object identifier changed unexpectedly");
+            return false;
         }
         if (attempt.getProviderObjectId() == null) {
             attempt.setProviderObjectId(providerObjectId);
             attempts.save(attempt);
         }
+        return true;
     }
 
     private ExternalPaymentAttemptEntity lock(UUID attemptId) {
