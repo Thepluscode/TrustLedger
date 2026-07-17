@@ -1,10 +1,12 @@
 package com.trustledger.api;
 
+import com.trustledger.app.AccessControlService;
 import com.trustledger.app.ExternalPaymentService.ExternalPaymentResponse;
 import com.trustledger.app.ExternalPaymentService.ExternalTransferRequest;
 import com.trustledger.app.IntelligentTransferGateway;
 import com.trustledger.app.PaystackOtpService;
 import com.trustledger.security.CurrentUser;
+import com.trustledger.security.Permission;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,16 +16,20 @@ public class ExternalPaymentController {
 
     private final IntelligentTransferGateway gateway;
     private final PaystackOtpService paystackOtp;
+    private final AccessControlService access;
 
-    public ExternalPaymentController(IntelligentTransferGateway gateway, PaystackOtpService paystackOtp) {
+    public ExternalPaymentController(IntelligentTransferGateway gateway, PaystackOtpService paystackOtp,
+                                     AccessControlService access) {
         this.gateway = gateway;
         this.paystackOtp = paystackOtp;
+        this.access = access;
     }
 
     @PostMapping("/external")
     public ExternalPaymentResponse createExternal(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody ExternalTransferApiRequest body) {
+        access.require(Permission.TRANSFER_CREATE);
         ExternalTransferRequest req = new ExternalTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.beneficiaryId(),
             body.payoutInstrumentId(), body.amount(), body.currency(), body.reference(), idempotencyKey,
@@ -35,6 +41,7 @@ public class ExternalPaymentController {
     @PostMapping("/external/{transactionId}/paystack-otp")
     public ExternalPaymentResponse finalizePaystackOtp(@PathVariable UUID transactionId,
                                                         @RequestBody PaystackOtpApiRequest body) {
+        access.require(Permission.TRANSFER_CREATE);
         return paystackOtp.finalizeOtp(CurrentUser.tenantId(), CurrentUser.userId(), transactionId, body.otp());
     }
 }
