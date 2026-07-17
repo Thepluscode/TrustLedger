@@ -1,6 +1,6 @@
 package com.trustledger.reconciliation;
 
-import com.trustledger.app.ExternalPaymentService;
+import com.trustledger.app.ExternalPaymentTransitionService;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /** Scheduled reconciliation worker for ledger, provider, reservation, and outbox drift. */
@@ -46,7 +45,7 @@ public class ReconciliationService {
     private final OutboxEventRepository outbox;
     private final ReconciliationIssueRepository issues;
     private final ExternalPaymentAttemptRepository externalAttempts;
-    private final ExternalPaymentService externalPayments;
+    private final ExternalPaymentTransitionService transitions;
     private final PaymentRailRegistry railRegistry;
     private final ObjectMapper json;
     private final boolean enabled;
@@ -58,7 +57,7 @@ public class ReconciliationService {
                                  OutboxEventRepository outbox,
                                  ReconciliationIssueRepository issues,
                                  ExternalPaymentAttemptRepository externalAttempts,
-                                 ExternalPaymentService externalPayments,
+                                 ExternalPaymentTransitionService transitions,
                                  PaymentRailRegistry railRegistry,
                                  ObjectMapper json,
                                  @Value("${trustledger.reconciliation.enabled:true}") boolean enabled,
@@ -70,7 +69,7 @@ public class ReconciliationService {
         this.outbox = outbox;
         this.issues = issues;
         this.externalAttempts = externalAttempts;
-        this.externalPayments = externalPayments;
+        this.transitions = transitions;
         this.railRegistry = railRegistry;
         this.json = json;
         this.enabled = enabled;
@@ -84,7 +83,7 @@ public class ReconciliationService {
         catch (Exception e) { log.warn("Reconciliation sweep failed; will retry: {}", e.getMessage()); }
     }
 
-    @Transactional
+    /** Provider calls run without a surrounding database transaction; mutations use row-locked transitions. */
     public int runReconciliation() {
         return resolveProviderPayments()
             + checkUnbalancedLedgerTransactions()
@@ -107,12 +106,13 @@ public class ReconciliationService {
                 try {
                     String providerStatus = query(adapter.get(), attempt);
                     if (ExternalPaymentStatus.SETTLED.equals(providerStatus)) {
-                        externalPayments.settle(attempt);
+                        transitions.settle(attempt.getId());
+                    } else if (ExternalPaymentStatus.REVERSED.equals(providerStatus)) {
+                        transitions.reverse(attempt.getId());
                     } else if (isReleaseStatus(providerStatus)) {
-                        externalPayments.release(attempt, providerStatus);
+                        transitions.release(attempt.getId(), providerStatus);
                     } else if (isResolvable(providerStatus) && !providerStatus.equals(attempt.getStatus())) {
-                        attempt.setStatus(providerStatus);
-                        externalAttempts.save(attempt);
+                        transitions.updateResolvable(attempt.getId(), providerStatus);
                     }
                 } catch (RuntimeException e) {
                     created += providerIssue(attempt, "PROVIDER_STATUS_QUERY_FAILED",

@@ -21,6 +21,8 @@ public class ExternalPaymentAttemptEntity {
     @Column(name = "payout_instrument_id") private UUID payoutInstrumentId;
     @Column(name = "provider_recipient_mapping_id") private UUID providerRecipientMappingId;
     @Column(name = "provider_reference", nullable = false, length = 120) private String providerReference;
+    @Column(name = "provider_object_id", length = 120) private String providerObjectId;
+    @Column(name = "submission_operation", nullable = false, length = 32) private String submissionOperation = "INITIATE";
     @Column(nullable = false, length = 32) private String status;
     @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
     @JdbcTypeCode(SqlTypes.CHAR)
@@ -75,6 +77,10 @@ public class ExternalPaymentAttemptEntity {
     public UUID getPayoutInstrumentId() { return payoutInstrumentId; }
     public UUID getProviderRecipientMappingId() { return providerRecipientMappingId; }
     public String getProviderReference() { return providerReference; }
+    public String getProviderObjectId() { return providerObjectId; }
+    public void setProviderObjectId(String providerObjectId) { this.providerObjectId = providerObjectId; }
+    public String getSubmissionOperation() { return submissionOperation; }
+    public void setSubmissionOperation(String submissionOperation) { this.submissionOperation = submissionOperation; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public BigDecimal getAmount() { return amount; }

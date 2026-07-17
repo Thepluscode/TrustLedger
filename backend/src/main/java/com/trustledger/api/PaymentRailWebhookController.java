@@ -6,7 +6,7 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Inbound payment-rail webhooks. Authentication is delegated to the selected provider adapter. */
+/** Inbound payment-rail webhooks. Authentication is delegated to the provider adapter. */
 @RestController
 @RequestMapping("/api/v1/payment-rails/webhooks")
 public class PaymentRailWebhookController {
@@ -21,7 +21,9 @@ public class PaymentRailWebhookController {
     public ResponseEntity<Map<String, Object>> providerWebhook(
             @PathVariable String provider,
             @RequestBody String body,
-            @RequestHeader(value = "X-Signature", required = false) String signature) {
+            @RequestHeader Map<String, String> headers) {
+        String signature = header(headers, "x-paystack-signature");
+        if (signature == null) signature = header(headers, "x-signature");
         Result result = webhooks.process(provider, body, signature);
         int status = switch (result) {
             case INVALID_SIGNATURE -> 401;
@@ -29,5 +31,12 @@ public class PaymentRailWebhookController {
             default -> 200;
         };
         return ResponseEntity.status(status).body(Map.of("result", result.name()));
+    }
+
+    private static String header(Map<String, String> headers, String name) {
+        return headers.entrySet().stream()
+            .filter(entry -> entry.getKey().equalsIgnoreCase(name))
+            .map(Map.Entry::getValue)
+            .findFirst().orElse(null);
     }
 }

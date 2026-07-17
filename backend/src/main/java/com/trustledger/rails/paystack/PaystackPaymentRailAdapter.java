@@ -8,28 +8,44 @@ import com.trustledger.rails.PaymentRailAdapter;
 import com.trustledger.secrets.SecretResolver;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
-/** Paystack transfer adapter. Initial production scope is NGN bank payouts to provider recipient codes. */
+/** Paystack NGN bank-payout adapter with native webhook and OTP support. */
 @Component
 public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
 
     public static final String RAIL = "PAYSTACK";
+    public static final String OTP_FINALIZE = "OTP_FINALIZE";
     private static final Pattern REFERENCE = Pattern.compile("[a-z0-9_-]{16,50}");
 
     private final TenantProviderConfigRepository configs;
     private final SecretResolver secrets;
     private final PaystackApiClient api;
+    private final ObjectMapper json;
 
     public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
                                       PaystackApiClient api) {
+        this(configs, secrets, api, new ObjectMapper());
+    }
+
+    @Autowired
+    public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
+                                      PaystackApiClient api, ObjectMapper json) {
         this.configs = configs;
         this.secrets = secrets;
         this.api = api;
+        this.json = json;
     }
 
     @Override public String rail() { return RAIL; }
@@ -45,17 +61,17 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         requireRecipient(request);
         requireReference(request.providerReference());
         requireCurrency(request.currency());
-        TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-            request.providerEnvironment());
+        TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
         String secret = resolveAndValidateSecret(config);
-        long amountMinor = minorUnits(request.amount());
         try {
             PaystackApiClient.PaystackResponse response = api.initiateTransfer(secret,
-                new PaystackApiClient.InitiateTransferRequest(amountMinor, request.providerRecipientCode(),
-                    request.providerReference(), "TrustLedger payout " + request.transactionId(), "NGN"));
+                new PaystackApiClient.InitiateTransferRequest(minorUnits(request.amount()),
+                    request.providerRecipientCode(), request.providerReference(),
+                    "TrustLedger payout " + request.transactionId(), "NGN"));
             String normalized = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
             if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
-            return new PaymentSubmitResult(request.providerReference(), normalized);
+            return new PaymentSubmitResult(request.providerReference(), normalized, response.transferCode());
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             throw new PaymentRailTimeoutException(request.providerReference(),
                 "Paystack did not return an authoritative transfer outcome");
@@ -70,14 +86,94 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     @Override
     public String getPaymentStatus(PaymentStatusRequest request) {
         requireReference(request.providerReference());
-        TenantProviderConfigEntity config = requireConfig(request.tenantId(), request.tenantProviderConfigId(),
-            request.providerEnvironment());
-        String secret = resolveAndValidateSecret(config);
+        TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            PaystackApiClient.PaystackResponse response = api.verifyTransfer(secret, request.providerReference());
-            return normalize(response.status());
+            return normalize(api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).status());
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             return ExternalPaymentStatus.PENDING_UNKNOWN;
+        }
+    }
+
+    @Override
+    public String getProviderObjectId(PaymentStatusRequest request) {
+        requireReference(request.providerReference());
+        TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
+        try {
+            return api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).transferCode();
+        } catch (PaystackApiClient.AmbiguousPaystackException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public boolean supportsAction(String action) { return OTP_FINALIZE.equals(action); }
+
+    @Override
+    public PaymentSubmitResult executeAction(PaymentActionRequest request) {
+        if (!OTP_FINALIZE.equals(request.action())) {
+            throw new UnsupportedOperationException("Unsupported Paystack action: " + request.action());
+        }
+        requireReference(request.providerReference());
+        if (request.providerObjectId() == null || request.providerObjectId().isBlank()) {
+            throw new IllegalArgumentException("Paystack transfer code is required for OTP finalization");
+        }
+        if (request.sensitiveValue() == null || request.sensitiveValue().isBlank()) {
+            throw new IllegalArgumentException("Paystack OTP is required");
+        }
+        TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
+            request.tenantProviderConfigId(), request.providerEnvironment());
+        try {
+            PaystackApiClient.PaystackResponse response = api.finalizeTransfer(resolveAndValidateSecret(config),
+                new PaystackApiClient.FinalizeTransferRequest(request.providerObjectId(), request.sensitiveValue()));
+            String normalized = response.definitiveFailure()
+                ? ExternalPaymentStatus.ACTION_REQUIRED : normalize(response.status());
+            if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
+            String objectId = response.transferCode() == null ? request.providerObjectId() : response.transferCode();
+            return new PaymentSubmitResult(request.providerReference(), normalized, objectId);
+        } catch (PaystackApiClient.AmbiguousPaystackException e) {
+            throw new PaymentRailTimeoutException(request.providerReference(),
+                "Paystack OTP finalization returned no authoritative outcome");
+        }
+    }
+
+    @Override
+    public ProviderWebhookEvent parseWebhook(String rawBody) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = json.readValue(rawBody, Map.class);
+            String event = text(body.get("event"));
+            Map<String, Object> data = map(body.get("data"));
+            String reference = text(data.get("reference"));
+            if (event == null || reference == null) return null;
+            String canonical = switch (event) {
+                case "transfer.success" -> ExternalPaymentStatus.SETTLED;
+                case "transfer.failed" -> ExternalPaymentStatus.FAILED;
+                case "transfer.reversed" -> ExternalPaymentStatus.REVERSED;
+                default -> "IGNORED";
+            };
+            return new ProviderWebhookEvent(eventId(event, data, rawBody), reference, canonical,
+                text(data.get("transfer_code")));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    public boolean verifyWebhook(WebhookVerificationRequest request) {
+        if (request.signature() == null || request.signature().isBlank()) return false;
+        try {
+            TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
+                request.tenantProviderConfigId(), request.providerEnvironment());
+            String secret = resolveAndValidateSecret(config);
+            Mac mac = Mac.getInstance("HmacSHA512");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
+            String expected = hex(mac.doFinal(request.rawBody().getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                request.signature().trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -96,14 +192,24 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
             case "success" -> ExternalPaymentStatus.SETTLED;
             case "pending", "received", "queued", "processing" -> ExternalPaymentStatus.PENDING_SETTLEMENT;
             case "otp" -> ExternalPaymentStatus.ACTION_REQUIRED;
-            case "failed" -> ExternalPaymentStatus.FAILED;
+            case "failed", "blocked", "rejected" -> ExternalPaymentStatus.FAILED;
             case "reversed" -> ExternalPaymentStatus.REVERSED;
             case "abandoned", "cancelled", "canceled" -> ExternalPaymentStatus.CANCELLED;
             default -> ExternalPaymentStatus.PENDING_UNKNOWN;
         };
     }
 
-    private TenantProviderConfigEntity requireConfig(UUID tenantId, UUID configId, String environment) {
+    private TenantProviderConfigEntity requireExecutableConfig(UUID tenantId, UUID configId, String environment) {
+        TenantProviderConfigEntity config = requireConfigIdentity(tenantId, configId, environment);
+        if (!config.isEnabled() || config.isEmergencyDisabled()
+            || !"APPROVED".equals(config.getComplianceStatus())
+            || !"ACTIVE".equals(config.getOperationalStatus())) {
+            throw new IllegalStateException("Paystack provider configuration is not executable");
+        }
+        return config;
+    }
+
+    private TenantProviderConfigEntity requireConfigIdentity(UUID tenantId, UUID configId, String environment) {
         if (configId == null) throw new IllegalArgumentException("Paystack provider configuration is required");
         TenantProviderConfigEntity config = configs.findByIdAndTenantId(configId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Paystack provider configuration not found"));
@@ -112,11 +218,6 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         }
         if (environment == null || !environment.equalsIgnoreCase(config.getEnvironment())) {
             throw new IllegalArgumentException("Paystack provider environment mismatch");
-        }
-        if (!config.isEnabled() || config.isEmergencyDisabled()
-            || !"APPROVED".equals(config.getComplianceStatus())
-            || !"ACTIVE".equals(config.getOperationalStatus())) {
-            throw new IllegalStateException("Paystack provider configuration is not executable");
         }
         return config;
     }
@@ -146,4 +247,28 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     private static void requireCurrency(String currency) {
         if (!"NGN".equalsIgnoreCase(currency)) throw new IllegalArgumentException("Paystack adapter currently supports NGN only");
     }
+
+    private static String eventId(String event, Map<String, Object> data, String rawBody) {
+        String id = text(data.get("id"));
+        if (id != null) return event + ":" + id;
+        try {
+            return event + ":" + hex(MessageDigest.getInstance("SHA-256")
+                .digest(rawBody.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            return event + ":" + Integer.toHexString(rawBody.hashCode());
+        }
+    }
+
+    private static String hex(byte[] value) {
+        StringBuilder out = new StringBuilder(value.length * 2);
+        for (byte b : value) out.append(String.format("%02x", b));
+        return out.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> map(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private static String text(Object value) { return value == null ? null : value.toString(); }
 }

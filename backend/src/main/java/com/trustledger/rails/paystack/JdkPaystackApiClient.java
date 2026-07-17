@@ -15,7 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-/** JDK HTTP implementation. It never logs or embeds the supplied secret key in exception messages. */
+/** JDK HTTP implementation. It never logs or embeds supplied secret or OTP values in errors. */
 @Component
 public class JdkPaystackApiClient implements PaystackApiClient {
 
@@ -55,6 +55,20 @@ public class JdkPaystackApiClient implements PaystackApiClient {
     public PaystackResponse verifyTransfer(String secretKey, String reference) {
         String encoded = URLEncoder.encode(reference, StandardCharsets.UTF_8);
         return send("GET", "/transfer/verify/" + encoded, secretKey, null, false);
+    }
+
+    @Override
+    public PaystackResponse finalizeTransfer(String secretKey, FinalizeTransferRequest request) {
+        if (request.transferCode() == null || request.transferCode().isBlank()) {
+            throw new IllegalArgumentException("Paystack transfer code is required");
+        }
+        if (request.otp() == null || request.otp().isBlank()) {
+            throw new IllegalArgumentException("Paystack OTP is required");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("transfer_code", request.transferCode());
+        body.put("otp", request.otp());
+        return send("POST", "/transfer/finalize_transfer", secretKey, write(body), true);
     }
 
     private PaystackResponse send(String method, String path, String secretKey, String body,
