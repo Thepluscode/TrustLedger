@@ -72,6 +72,22 @@ class FraudEngineTest {
     }
 
     @Test
+    void nullPreviousCountryDoesNotCrashAndRaisesNoImpossibleTravel() {
+        // A first-ever login has no prior country. previousCountry is null, currentCountry is set, and
+        // the login is recent — the exact combination that entered the IMPOSSIBLE_TRAVEL branch and
+        // threw NullPointerException inside Map.of(...), taking down fraud scoring on the transfer path.
+        FraudContext firstLogin = new FraudContext(false, false, 0, 0, /*previousCountry*/ null, "NG", 30,
+            false, false, false, Map.of(), Instant.now());
+
+        FraudDecision d = engine.score(cmd("40.00"), firstLogin, Money.of("50.00", "GBP"));
+
+        assertEquals(0, d.riskScore(), "a null previous country cannot constitute impossible travel");
+        assertEquals(FraudDecisionType.ALLOW, d.decision());
+        assertTrue(d.signals().stream().noneMatch(s -> "IMPOSSIBLE_TRAVEL".equals(s.signalType())),
+            "IMPOSSIBLE_TRAVEL must not fire when there is no previous country");
+    }
+
+    @Test
     void riskScoreIsCappedAt100() {
         FraudContext everything = new FraudContext(true, true, 9, 9, "GB", "NG", 10,
             true, true, false, Map.of(), Instant.now());

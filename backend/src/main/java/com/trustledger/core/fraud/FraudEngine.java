@@ -38,8 +38,17 @@ public final class FraudEngine {
         if (context.transferCountLast10Minutes() > 5) {
             signals.add(FraudSignal.of("TRANSFER_VELOCITY", 30, FraudSeverity.HIGH, "Unusual transfer velocity", Map.of("transferCount", context.transferCountLast10Minutes(), "windowMinutes", 10)));
         }
-        if (!Objects.equals(context.previousCountry(), context.currentCountry()) && context.minutesSincePreviousLogin() < 180) {
-            signals.add(FraudSignal.of("IMPOSSIBLE_TRAVEL", 35, FraudSeverity.HIGH, "Country changed within an impossible travel window", Map.of("previousCountry", context.previousCountry(), "currentCountry", context.currentCountry(), "minutes", context.minutesSincePreviousLogin())));
+        // previousCountry is null for a first-ever login (no prior country on record). A null previous
+        // country cannot constitute impossible travel, so skip the signal — and the guard also prevents a
+        // NullPointerException, since Map.of() rejects null values.
+        if (context.previousCountry() != null
+                && !Objects.equals(context.previousCountry(), context.currentCountry())
+                && context.minutesSincePreviousLogin() < 180) {
+            signals.add(FraudSignal.of("IMPOSSIBLE_TRAVEL", 35, FraudSeverity.HIGH,
+                "Country changed within an impossible travel window",
+                Map.of("previousCountry", context.previousCountry(),
+                    "currentCountry", String.valueOf(context.currentCountry()),
+                    "minutes", context.minutesSincePreviousLogin())));
         }
         if (context.accountChangedLast24Hours()) {
             signals.add(FraudSignal.of("RECENT_ACCOUNT_CHANGE", 30, FraudSeverity.HIGH, "Sensitive account settings changed within 24 hours", Map.of("windowHours", 24)));
