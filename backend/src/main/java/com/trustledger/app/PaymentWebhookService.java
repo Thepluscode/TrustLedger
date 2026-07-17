@@ -81,19 +81,16 @@ public class PaymentWebhookService {
             return Result.INVALID_SIGNATURE;
         }
 
-        if (!blank(normalized.providerObjectId())) {
-            try {
-                transitions.bindProviderObjectId(attempt.getId(), normalized.providerObjectId());
-            } catch (IllegalStateException integrityFailure) {
-                String conflictEventId = "conflict:" + sha256(normalized.eventId() + "|"
-                    + normalized.providerObjectId());
-                if (webhookEvents.findByProviderAndEventId(provider, conflictEventId).isEmpty()) {
-                    webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(),
-                        provider, normalized.providerReference(), conflictEventId, normalized.eventType(),
-                        rawBody, true, false));
-                }
-                return Result.BAD_REQUEST;
+        if (!blank(normalized.providerObjectId())
+                && !transitions.bindProviderObjectId(attempt.getId(), normalized.providerObjectId())) {
+            String conflictEventId = "conflict:" + sha256(normalized.eventId() + "|"
+                + normalized.providerObjectId());
+            if (webhookEvents.findByProviderAndEventId(provider, conflictEventId).isEmpty()) {
+                webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(),
+                    provider, normalized.providerReference(), conflictEventId, normalized.eventType(),
+                    rawBody, true, false));
             }
+            return Result.BAD_REQUEST;
         }
 
         PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
