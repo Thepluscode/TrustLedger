@@ -15,6 +15,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -27,6 +30,8 @@ import tools.jackson.databind.ObjectMapper;
 /** Durable, crash-recoverable boundary between committed ledger intent and provider network execution. */
 @Service
 public class ExternalRailSubmissionService {
+
+    private static final Logger log = LoggerFactory.getLogger(ExternalRailSubmissionService.class);
 
     public record SubmissionResult(UUID attemptId, String status, String provider,
                                    String providerReference, String responsePayload, String lastError,
@@ -47,12 +52,15 @@ public class ExternalRailSubmissionService {
     private final TransferRepository transfers;
     private final PaymentRailRegistry registry;
     private final ProviderRecipientResolver recipients;
+    private final ProductionCanaryService canaries;
     private final ObjectMapper json;
     private final TransactionTemplate transactions;
     private final long staleSeconds;
 
+    @Autowired
     public ExternalRailSubmissionService(ExternalPaymentAttemptRepository attempts, TransferRepository transfers,
                                          PaymentRailRegistry registry, ProviderRecipientResolver recipients,
+                                         ProductionCanaryService canaries,
                                          ObjectMapper json, PlatformTransactionManager transactionManager,
                                          @Value("${trustledger.payment-rails.submission-worker.stale-seconds:30}")
                                          long staleSeconds) {
@@ -60,6 +68,23 @@ public class ExternalRailSubmissionService {
         this.transfers = transfers;
         this.registry = registry;
         this.recipients = recipients;
+        this.canaries = canaries;
+        this.json = json;
+        this.transactions = new TransactionTemplate(transactionManager);
+        this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.staleSeconds = Math.max(1, staleSeconds);
+    }
+
+    /** Test-only compatibility constructor. */
+    ExternalRailSubmissionService(ExternalPaymentAttemptRepository attempts, TransferRepository transfers,
+                                  PaymentRailRegistry registry, ProviderRecipientResolver recipients,
+                                  ObjectMapper json, PlatformTransactionManager transactionManager,
+                                  long staleSeconds) {
+        this.attempts = attempts;
+        this.transfers = transfers;
+        this.registry = registry;
+        this.recipients = recipients;
+        this.canaries = null;
         this.json = json;
         this.transactions = new TransactionTemplate(transactionManager);
         this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -70,6 +95,9 @@ public class ExternalRailSubmissionService {
                                                 String scenario, TenantPaymentRouteDecision tenantRoute,
                                                 ResolvedProviderRecipient recipient, String providerReference) {
         PaymentRouteDecision route = tenantRoute.route();
+        UUID attemptId = UUID.randomUUID();
+        UUID canaryPlanId = canaries == null ? null : canaries.reserve(tenantId,
+            tenantRoute.tenantProviderConfigId(), tenantRoute.providerEnvironment(), transferId, amount, currency);
         Map<String, Object> evidence = new LinkedHashMap<>();
         evidence.put("scenario", String.valueOf(scenario));
         evidence.put("routeReason", route.reason());
@@ -77,11 +105,12 @@ public class ExternalRailSubmissionService {
         evidence.put("excludedProviders", route.excludedProviders());
         evidence.put("providerEnvironment", tenantRoute.providerEnvironment());
         evidence.put("tenantProviderConfigId", String.valueOf(tenantRoute.tenantProviderConfigId()));
+        if (canaryPlanId != null) evidence.put("productionCanaryPlanId", canaryPlanId.toString());
         if (recipient != null) {
             evidence.put("payoutInstrumentId", recipient.payoutInstrumentId().toString());
             evidence.put("providerRecipientMappingId", recipient.providerRecipientMappingId().toString());
         }
-        return attempts.save(new ExternalPaymentAttemptEntity(UUID.randomUUID(), tenantId, transferId,
+        return attempts.save(new ExternalPaymentAttemptEntity(attemptId, tenantId, transferId,
             route.provider(), tenantRoute.tenantProviderConfigId(), tenantRoute.providerEnvironment(),
             recipient == null ? null : recipient.payoutInstrumentId(),
             recipient == null ? null : recipient.providerRecipientMappingId(), providerReference,
@@ -100,7 +129,6 @@ public class ExternalRailSubmissionService {
         return claim == null ? null : recoverClaim(claim);
     }
 
-    /** Claims an action-required attempt, then executes the write-only sensitive value outside a transaction. */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SubmissionResult executeAction(UUID attemptId, String action, String sensitiveValue) {
         SubmissionClaim claim = claimAction(attemptId, action);
@@ -243,8 +271,19 @@ public class ExternalRailSubmissionService {
 
     private SubmissionResult result(SubmissionClaim claim, String status, Map<String, Object> response,
                                     String lastError, String providerObjectId) {
+        safeRecordOutcome(claim.transactionId(), status);
         return new SubmissionResult(claim.attemptId(), status, claim.provider(), claim.providerReference(),
             response.isEmpty() ? null : write(response), lastError, providerObjectId);
+    }
+
+    private void safeRecordOutcome(UUID transferId, String status) {
+        if (canaries == null) return;
+        try {
+            canaries.recordOutcome(transferId, status);
+        } catch (RuntimeException failure) {
+            log.error("Could not record production canary outcome for transfer {}: {}",
+                transferId, failure.getClass().getSimpleName());
+        }
     }
 
     private String scenario(String requestPayload) {
