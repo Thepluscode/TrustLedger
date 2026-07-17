@@ -41,7 +41,7 @@ public class ExternalPaymentController {
     @PostMapping("/external/{transactionId}/paystack-otp")
     public ExternalPaymentResponse finalizePaystackOtp(@PathVariable UUID transactionId,
                                                         @RequestBody PaystackOtpApiRequest body) {
-        access.require(Permission.TRANSFER_CREATE);
+        access.require(Permission.TRANSFER_APPROVE);
         return paystackOtp.finalizeOtp(CurrentUser.tenantId(), CurrentUser.userId(), transactionId, body.otp());
     }
 }
