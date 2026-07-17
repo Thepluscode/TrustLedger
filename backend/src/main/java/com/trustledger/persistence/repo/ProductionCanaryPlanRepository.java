@@ -19,6 +19,10 @@ public interface ProductionCanaryPlanRepository extends JpaRepository<Production
         findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentOrderByCreatedAtDesc(
             UUID tenantId, UUID tenantProviderConfigId, String providerEnvironment);
 
+    Optional<ProductionCanaryPlanEntity>
+        findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentAndStatusOrderByCreatedAtDesc(
+            UUID tenantId, UUID tenantProviderConfigId, String providerEnvironment, String status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from ProductionCanaryPlanEntity p where p.id = :id and p.tenantId = :tenantId")
     Optional<ProductionCanaryPlanEntity> findByIdAndTenantIdForUpdate(
