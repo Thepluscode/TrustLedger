@@ -2,6 +2,7 @@ package com.trustledger.persistence.repo;
 
 import com.trustledger.persistence.entity.ProductionCanaryPlanEntity;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,6 +23,11 @@ public interface ProductionCanaryPlanRepository extends JpaRepository<Production
     Optional<ProductionCanaryPlanEntity>
         findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentAndStatusOrderByCreatedAtDesc(
             UUID tenantId, UUID tenantProviderConfigId, String providerEnvironment, String status);
+
+    Optional<ProductionCanaryPlanEntity>
+        findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentAndStatusInOrderByCreatedAtDesc(
+            UUID tenantId, UUID tenantProviderConfigId, String providerEnvironment,
+            Collection<String> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from ProductionCanaryPlanEntity p where p.id = :id and p.tenantId = :tenantId")
