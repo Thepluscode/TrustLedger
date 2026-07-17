@@ -46,7 +46,10 @@ public class ProviderCredentialVersionEntity {
         this.secretRef = secretRef;
         this.status = status;
         this.createdBy = createdBy;
-        if ("ACTIVE".equals(status)) this.activatedAt = Instant.now();
+        if ("ACTIVE".equals(status)) {
+            this.activatedBy = createdBy;
+            this.activatedAt = Instant.now();
+        }
     }
 
     public UUID getId() { return id; }
