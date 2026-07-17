@@ -86,6 +86,9 @@ public class ProductionCanaryService {
         if (!plan.getStartsAt().isBefore(plan.getExpiresAt()) || !now.isBefore(plan.getExpiresAt())) {
             throw new IllegalStateException("Canary approval window has expired");
         }
+        if (plans.findActiveForUpdate(tenantId, configId, "PRODUCTION").isPresent()) {
+            throw new IllegalStateException("Another production canary is already active");
+        }
         plan.approve(actorId, now);
         plans.save(plan);
         audit(tenantId, actorId, "PRODUCTION_CANARY_APPROVED", plan,
@@ -115,6 +118,9 @@ public class ProductionCanaryService {
         Instant now = Instant.now();
         if (now.isBefore(plan.getStartsAt()) || !now.isBefore(plan.getExpiresAt())) {
             throw new IllegalStateException("Canary is outside its approved execution window");
+        }
+        if (plans.findActiveForUpdate(tenantId, configId, "PRODUCTION").isPresent()) {
+            throw new IllegalStateException("Another production canary is already active");
         }
         plan.resume(now);
         plans.save(plan);
@@ -229,7 +235,7 @@ public class ProductionCanaryService {
         reservations.save(reservation);
 
         String reason = breakerReason(plan);
-        if (reason != null && !"PAUSED".equals(plan.getStatus())) {
+        if (reason != null && List.of("ACTIVE", "EXHAUSTED").contains(plan.getStatus())) {
             plan.pause(reason, Instant.now());
             plans.save(plan);
             audit(plan.getTenantId(), null, "PRODUCTION_CANARY_AUTO_PAUSED", plan,
