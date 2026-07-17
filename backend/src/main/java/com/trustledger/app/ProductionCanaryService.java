@@ -73,8 +73,8 @@ public class ProductionCanaryService {
     }
 
     @Transactional
-    public ProductionCanaryPlanEntity approve(UUID tenantId, UUID actorId, UUID planId) {
-        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, planId);
+    public ProductionCanaryPlanEntity approve(UUID tenantId, UUID actorId, UUID configId, UUID planId) {
+        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, configId, planId);
         if (!"PENDING_APPROVAL".equals(plan.getStatus())) {
             throw new IllegalStateException("Canary plan is not pending approval");
         }
@@ -94,8 +94,9 @@ public class ProductionCanaryService {
     }
 
     @Transactional
-    public ProductionCanaryPlanEntity pause(UUID tenantId, UUID actorId, UUID planId, String reason) {
-        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, planId);
+    public ProductionCanaryPlanEntity pause(UUID tenantId, UUID actorId, UUID configId,
+                                            UUID planId, String reason) {
+        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, configId, planId);
         if (!List.of("ACTIVE", "EXHAUSTED").contains(plan.getStatus())) {
             throw new IllegalStateException("Only active or exhausted canaries can be paused");
         }
@@ -107,8 +108,8 @@ public class ProductionCanaryService {
     }
 
     @Transactional
-    public ProductionCanaryPlanEntity resume(UUID tenantId, UUID actorId, UUID planId) {
-        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, planId);
+    public ProductionCanaryPlanEntity resume(UUID tenantId, UUID actorId, UUID configId, UUID planId) {
+        ProductionCanaryPlanEntity plan = requirePlanForUpdate(tenantId, configId, planId);
         if (!"PAUSED".equals(plan.getStatus())) throw new IllegalStateException("Canary is not paused");
         requireProductionConfig(tenantId, plan.getTenantProviderConfigId(), true);
         Instant now = Instant.now();
@@ -133,17 +134,23 @@ public class ProductionCanaryService {
     public String rejectionReason(UUID tenantId, UUID configId, String environment, BigDecimal amount) {
         if (!"PRODUCTION".equalsIgnoreCase(environment)) return null;
         ProductionCanaryPlanEntity plan = plans
-            .findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentOrderByCreatedAtDesc(
-                tenantId, configId, "PRODUCTION")
+            .findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentAndStatusOrderByCreatedAtDesc(
+                tenantId, configId, "PRODUCTION", "ACTIVE")
             .orElse(null);
-        if (plan == null) return "production_canary_not_configured";
+        if (plan == null) {
+            ProductionCanaryPlanEntity latest = plans
+                .findFirstByTenantIdAndTenantProviderConfigIdAndProviderEnvironmentOrderByCreatedAtDesc(
+                    tenantId, configId, "PRODUCTION")
+                .orElse(null);
+            if (latest == null) return "production_canary_not_configured";
+            if ("PAUSED".equals(latest.getStatus())) return "production_canary_paused";
+            if ("EXHAUSTED".equals(latest.getStatus())) return "production_canary_exhausted";
+            return "production_canary_not_active";
+        }
         Instant now = Instant.now();
         if (now.isBefore(plan.getStartsAt()) || !now.isBefore(plan.getExpiresAt())) {
             return "production_canary_window_closed";
         }
-        if ("PAUSED".equals(plan.getStatus())) return "production_canary_paused";
-        if ("EXHAUSTED".equals(plan.getStatus())) return "production_canary_exhausted";
-        if (!"ACTIVE".equals(plan.getStatus())) return "production_canary_not_active";
         if (amount.compareTo(plan.getMaxTransactionAmount()) > 0) {
             return "production_canary_transaction_amount_exceeded";
         }
@@ -260,9 +267,13 @@ public class ProductionCanaryService {
         return config;
     }
 
-    private ProductionCanaryPlanEntity requirePlanForUpdate(UUID tenantId, UUID planId) {
-        return plans.findByIdAndTenantIdForUpdate(planId, tenantId)
+    private ProductionCanaryPlanEntity requirePlanForUpdate(UUID tenantId, UUID configId, UUID planId) {
+        ProductionCanaryPlanEntity plan = plans.findByIdAndTenantIdForUpdate(planId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Production canary plan not found"));
+        if (!configId.equals(plan.getTenantProviderConfigId())) {
+            throw new IllegalArgumentException("Production canary plan does not belong to provider configuration");
+        }
+        return plan;
     }
 
     private static void validate(CreateCommand command) {
