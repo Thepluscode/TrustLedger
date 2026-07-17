@@ -26,9 +26,11 @@ Supported native events:
 
 The attempt is resolved by canonical provider plus provider reference before verification. The verifier then receives the exact tenant, provider configuration ID, and environment that created the payout.
 
-### Apply-once and invalid-signature isolation
+### Apply-once, serialization, and invalid-signature isolation
 
 - Valid callbacks deduplicate on `(provider, native_event_id)`.
+- Financial transitions additionally lock the payment attempt row. Two different native event IDs therefore cannot settle, release, or reverse the same payout twice.
+- Provider object IDs such as Paystack transfer codes are bound once under the same attempt lock. A different value is recorded under a separate conflict evidence ID and cannot consume the legitimate event ID.
 - Invalid callbacks never mutate financial state.
 - Invalid-signature evidence receives a separate `invalid:<hash>` identifier.
 - An attacker therefore cannot reserve the legitimate native event ID by submitting a forged callback first.
@@ -42,6 +44,17 @@ A provider reversal can arrive before or after TrustLedger posts settlement:
 - **After settlement:** the original reservation is already consumed. TrustLedger debits the external clearing account, credits the source account, and posts a balanced `REVERSAL` ledger transaction. The source `available` and `posted` balances are restored.
 
 Reversal handling locks the attempt and account rows. A repeated `transfer.reversed` event returns without changing balances or posting another ledger transaction.
+
+### Reconciliation recovery
+
+Provider status queries run without a surrounding database transaction. Authoritative results are then applied through the same row-locked transition service used by webhooks.
+
+This prevents:
+
+- a slow provider call from holding database locks;
+- reconciliation and webhook workers from posting the same movement twice;
+- stale provider progress from overwriting a terminal local state;
+- a missed reversal webhook from bypassing compensating accounting.
 
 ### Provider shutdown semantics
 
@@ -58,7 +71,7 @@ Content-Type: application/json
 {"otp":"123456"}
 ```
 
-The endpoint is tenant-scoped and only accepts a Paystack attempt in `ACTION_REQUIRED`.
+The endpoint is tenant-scoped, requires `TRANSFER_APPROVE`, and only accepts a Paystack attempt in `ACTION_REQUIRED`.
 
 Controls:
 
@@ -66,9 +79,11 @@ Controls:
 2. Production OTP actions are blocked while the global production kill switch is disabled.
 3. The Paystack transfer code is recovered by durable provider reference when it was not returned by the original response.
 4. The transfer code may be persisted; the OTP may not.
-5. OTP is passed directly from the HTTP request to the Paystack client in memory.
-6. OTP is excluded from database rows, request evidence, response evidence, audit metadata, outbox events, and error messages.
-7. The console stores OTP only in React component memory and clears it before calling the API.
+5. Provider object identity is committed before local outcome finalization so a process crash does not lose the transfer code.
+6. OTP is passed directly from the HTTP request to the Paystack client in memory.
+7. OTP is excluded from database rows, request evidence, response evidence, audit metadata, outbox events, and error messages.
+8. The console stores OTP only in React component memory and clears it before calling the API.
+9. A rejected OTP returns the payout to `ACTION_REQUIRED`; it never releases the reserved funds.
 
 ## Ambiguous OTP outcome
 
@@ -84,10 +99,12 @@ Key rotation with overlapping verification keys is not implemented in this slice
 
 ## Operational requirements before production enablement
 
-- Exercise signed sandbox success, failure, reversal, duplicate, and invalid-signature events.
-- Exercise OTP success and ambiguous timeout recovery.
+- Exercise signed sandbox success, failure, reversal, duplicate, conflicting-object, and invalid-signature events.
+- Exercise concurrent events with different native event IDs.
+- Exercise OTP success, rejected OTP retry, and ambiguous timeout recovery.
 - Configure production secret manager/workload identity.
 - Add key-rotation grace support.
+- Add OTP attempt policy, alerting, and operator escalation.
 - Add webhook acknowledgement latency monitoring and a durable asynchronous inbox if provider volume requires it.
 - Complete controlled production canary and reconciliation drills.
 - Obtain explicit compliance and operations approval.
