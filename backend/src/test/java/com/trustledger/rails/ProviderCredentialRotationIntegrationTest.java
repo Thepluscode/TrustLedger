@@ -62,6 +62,8 @@ class ProviderCredentialRotationIntegrationTest {
 
         List<ProviderCredentialVersionEntity> initial =
             versions.findByTenantProviderConfigIdOrderByPurposeAscVersionNumberDesc(config.getId());
+        ProviderCredentialVersionEntity old = initial.stream()
+            .filter(v -> ProviderCredentialResolver.API.equals(v.getPurpose())).findFirst().orElseThrow();
         assertEquals(2, initial.size());
         assertTrue(initial.stream().allMatch(v -> "ACTIVE".equals(v.getStatus())));
         assertEquals("sk_test_old", resolver.active(config, ProviderCredentialResolver.API).secretValue());
@@ -73,7 +75,7 @@ class ProviderCredentialRotationIntegrationTest {
             "pending versions must never execute");
 
         ProviderCredentialVersionEntity active = credentials.activate(tenant, UUID.randomUUID(), config.getId(),
-            pending.getId(), 300);
+            pending.getId(), old.getId(), 300);
         assertEquals("ACTIVE", active.getStatus());
         TenantProviderConfigEntity projected = configRepository.findById(config.getId()).orElseThrow();
         assertEquals("vault://paystack/api-new", projected.getCredentialsSecretRef());
@@ -98,14 +100,12 @@ class ProviderCredentialRotationIntegrationTest {
         UUID actor = UUID.randomUUID();
         TenantProviderConfigEntity config = providerConfigs.create(tenant, actor, command(
             "vault://paystack/api-old", "vault://paystack/webhook-old"));
-        ProviderCredentialVersionEntity old = versions
-            .findFirstByTenantProviderConfigIdAndPurposeAndStatusOrderByVersionNumberDesc(
-                config.getId(), ProviderCredentialResolver.API, "ACTIVE").orElseThrow();
+        ProviderCredentialVersionEntity old = active(config.getId());
         ProviderCredentialVersionEntity pending = credentials.createPending(tenant, actor, config.getId(),
             ProviderCredentialResolver.API, "vault://paystack/api-new");
 
         ProviderCredentialVersionEntity active = credentials.activate(tenant, actor, config.getId(),
-            pending.getId(), 0);
+            pending.getId(), old.getId(), 0);
 
         assertEquals("RETIRED", versions.findById(old.getId()).orElseThrow().getStatus());
         assertEquals(1, resolver.verificationCandidates(configRepository.findById(config.getId()).orElseThrow(),
@@ -121,6 +121,27 @@ class ProviderCredentialRotationIntegrationTest {
     }
 
     @Test
+    void staleActivationCannotOverwriteNewerCredential() {
+        UUID tenant = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        TenantProviderConfigEntity config = providerConfigs.create(tenant, actor, command(
+            "vault://paystack/api-old", "vault://paystack/webhook-old"));
+        ProviderCredentialVersionEntity old = active(config.getId());
+        ProviderCredentialVersionEntity second = credentials.createPending(tenant, actor, config.getId(),
+            ProviderCredentialResolver.API, "vault://paystack/api-new");
+        ProviderCredentialVersionEntity third = credentials.createPending(tenant, actor, config.getId(),
+            ProviderCredentialResolver.API, "vault://paystack/api-newer");
+
+        credentials.activate(tenant, actor, config.getId(), second.getId(), old.getId(), 300);
+        IllegalStateException conflict = assertThrows(IllegalStateException.class,
+            () -> credentials.activate(tenant, actor, config.getId(), third.getId(), old.getId(), 300));
+
+        assertTrue(conflict.getMessage().contains("active version changed"));
+        assertEquals(second.getId(), active(config.getId()).getId());
+        assertEquals("PENDING", versions.findById(third.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
     void rawSecretMaterialAndDuplicateLiveReferencesAreRejected() {
         UUID tenant = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
@@ -131,6 +152,11 @@ class ProviderCredentialRotationIntegrationTest {
             "API", "sk_test_raw_secret"));
         assertThrows(IllegalStateException.class, () -> credentials.createPending(tenant, actor, config.getId(),
             "API", "vault://paystack/api-old"));
+    }
+
+    private ProviderCredentialVersionEntity active(UUID configId) {
+        return versions.findFirstByTenantProviderConfigIdAndPurposeAndStatusOrderByVersionNumberDesc(
+            configId, ProviderCredentialResolver.API, "ACTIVE").orElseThrow();
     }
 
     private static TenantProviderConfigService.CreateCommand command(String apiRef, String webhookRef) {
@@ -146,6 +172,7 @@ class ProviderCredentialRotationIntegrationTest {
             Map<String, String> values = Map.of(
                 "vault://paystack/api-old", "sk_test_old",
                 "vault://paystack/api-new", "sk_test_new",
+                "vault://paystack/api-newer", "sk_test_newer",
                 "vault://paystack/webhook-old", "whsec_old");
             return reference -> {
                 String value = values.get(reference);
