@@ -18,6 +18,11 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class ProductionCanaryService {
 
+    private static final List<String> TERMINAL_OUTCOMES = List.of(
+        ExternalPaymentStatus.SETTLED, ExternalPaymentStatus.FAILED,
+        ExternalPaymentStatus.CANCELLED, ExternalPaymentStatus.RETURNED,
+        ExternalPaymentStatus.REVERSED);
+
     public record CreateCommand(Instant startsAt, Instant expiresAt,
                                 BigDecimal maxTransactionAmount, BigDecimal maxCumulativeAmount,
                                 int maxTransactions, int failurePauseThreshold,
@@ -88,6 +93,13 @@ public class ProductionCanaryService {
         }
         if (plans.findActiveForUpdate(tenantId, configId, "PRODUCTION").isPresent()) {
             throw new IllegalStateException("Another production canary is already active");
+        }
+        for (ProductionCanaryPlanEntity prior :
+                plans.findByTenantIdAndTenantProviderConfigIdOrderByCreatedAtDesc(tenantId, configId)) {
+            if (!prior.getId().equals(planId)
+                    && reservations.countByPlanIdAndLastStatusNotIn(prior.getId(), TERMINAL_OUTCOMES) > 0) {
+                throw new IllegalStateException("Previous production canary still has unresolved payouts");
+            }
         }
         plan.approve(actorId, now);
         plans.save(plan);
@@ -233,20 +245,30 @@ public class ProductionCanaryService {
         }
         reservation.setLastStatus(outcome);
         reservations.save(reservation);
+        plans.save(plan);
 
         String reason = breakerReason(plan);
-        if (reason != null && List.of("ACTIVE", "EXHAUSTED").contains(plan.getStatus())) {
-            plan.pause(reason, Instant.now());
-            plans.save(plan);
-            audit(plan.getTenantId(), null, "PRODUCTION_CANARY_AUTO_PAUSED", plan,
-                Map.of("reason", reason, "transferId", transferId.toString(), "outcome", outcome));
-            outbox.save(new OutboxEventEntity(UUID.randomUUID(), plan.getTenantId(), "PRODUCTION_CANARY",
-                plan.getId(), "PRODUCTION_CANARY_AUTO_PAUSED", write(Map.of(
-                    "planId", plan.getId().toString(), "providerConfigId",
-                    plan.getTenantProviderConfigId().toString(), "reason", reason)), "PENDING"));
-        } else {
-            plans.save(plan);
-        }
+        if (reason == null) return;
+
+        ProductionCanaryPlanEntity pauseTarget = List.of("ACTIVE", "EXHAUSTED").contains(plan.getStatus())
+            ? plan
+            : plans.findActiveForUpdate(plan.getTenantId(), plan.getTenantProviderConfigId(),
+                plan.getProviderEnvironment()).orElse(null);
+        if (pauseTarget == null || "PAUSED".equals(pauseTarget.getStatus())) return;
+
+        String pauseReason = pauseTarget.getId().equals(plan.getId())
+            ? reason : normalizeReason("predecessor_" + reason, reason);
+        pauseTarget.pause(pauseReason, Instant.now());
+        plans.save(pauseTarget);
+        audit(pauseTarget.getTenantId(), null, "PRODUCTION_CANARY_AUTO_PAUSED", pauseTarget,
+            Map.of("reason", pauseReason, "triggerPlanId", plan.getId().toString(),
+                "transferId", transferId.toString(), "outcome", outcome));
+        outbox.save(new OutboxEventEntity(UUID.randomUUID(), pauseTarget.getTenantId(), "PRODUCTION_CANARY",
+            pauseTarget.getId(), "PRODUCTION_CANARY_AUTO_PAUSED", write(Map.of(
+                "planId", pauseTarget.getId().toString(),
+                "triggerPlanId", plan.getId().toString(),
+                "providerConfigId", pauseTarget.getTenantProviderConfigId().toString(),
+                "reason", pauseReason)), "PENDING"));
     }
 
     public static CanaryView view(ProductionCanaryPlanEntity plan) {
@@ -305,9 +327,7 @@ public class ProductionCanaryService {
     }
 
     private static boolean isTerminal(String status) {
-        return ExternalPaymentStatus.SETTLED.equals(status) || ExternalPaymentStatus.FAILED.equals(status)
-            || ExternalPaymentStatus.CANCELLED.equals(status) || ExternalPaymentStatus.RETURNED.equals(status)
-            || ExternalPaymentStatus.REVERSED.equals(status);
+        return TERMINAL_OUTCOMES.contains(status);
     }
 
     private void audit(UUID tenantId, UUID actorId, String action, ProductionCanaryPlanEntity plan,
