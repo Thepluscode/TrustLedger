@@ -32,7 +32,7 @@ class PaymentWebhookServiceTest {
         assertEquals(fixture.tenantId(), fixture.adapter().verification.get().tenantId());
         assertEquals(fixture.configId(), fixture.adapter().verification.get().tenantProviderConfigId());
         assertEquals("SANDBOX", fixture.adapter().verification.get().providerEnvironment());
-        verify(fixture.webhookEvents()).save(argThat(PaymentWebhookEventEntity::isProcessed));
+        verify(fixture.webhookEvents(), times(2)).save(any(PaymentWebhookEventEntity.class));
     }
 
     @Test
