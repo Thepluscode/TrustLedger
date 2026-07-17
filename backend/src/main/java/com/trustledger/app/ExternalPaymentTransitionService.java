@@ -59,6 +59,21 @@ public class ExternalPaymentTransitionService {
         }
     }
 
+    /** Binds a provider-side object once; a different value is treated as an integrity violation. */
+    @Transactional
+    public void bindProviderObjectId(UUID attemptId, String providerObjectId) {
+        if (providerObjectId == null || providerObjectId.isBlank()) return;
+        ExternalPaymentAttemptEntity attempt = lock(attemptId);
+        if (attempt.getProviderObjectId() != null
+                && !attempt.getProviderObjectId().equals(providerObjectId)) {
+            throw new IllegalStateException("Provider object identifier changed unexpectedly");
+        }
+        if (attempt.getProviderObjectId() == null) {
+            attempt.setProviderObjectId(providerObjectId);
+            attempts.save(attempt);
+        }
+    }
+
     private ExternalPaymentAttemptEntity lock(UUID attemptId) {
         return attempts.findByIdForUpdate(attemptId)
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found: " + attemptId));
