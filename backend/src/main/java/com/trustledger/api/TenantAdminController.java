@@ -45,7 +45,7 @@ public class TenantAdminController {
                                         BigDecimal minimumAmount, BigDecimal maximumAmount) {}
     public record ProviderControlsRequest(boolean enabled, boolean emergencyDisabled) {}
     public record CredentialVersionRequest(String purpose, String secretRef) {}
-    public record CredentialActivationRequest(long graceSeconds) {}
+    public record CredentialActivationRequest(UUID expectedActiveCredentialId, long graceSeconds) {}
     public record ProviderConfigView(UUID id, String provider, String environment, boolean enabled,
                                      String complianceStatus, String operationalStatus, boolean emergencyDisabled,
                                      String allowedCurrencies, String allowedDestinationCountries,
@@ -133,7 +133,8 @@ public class TenantAdminController {
             @RequestBody CredentialActivationRequest request) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
         return ProviderCredentialService.view(providerCredentials.activate(CurrentUser.tenantId(),
-            CurrentUser.userId(), configId, credentialId, request.graceSeconds()));
+            CurrentUser.userId(), configId, credentialId, request.expectedActiveCredentialId(),
+            request.graceSeconds()));
     }
 
     @PostMapping("/provider-configs/{configId}/credentials/{credentialId}/revoke")
