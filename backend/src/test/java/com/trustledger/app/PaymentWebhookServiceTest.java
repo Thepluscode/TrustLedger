@@ -28,7 +28,7 @@ class PaymentWebhookServiceTest {
         assertEquals(PaymentWebhookService.Result.PROCESSED,
             fixture.service().process("NATIVE", "{}", "valid"));
 
-        verify(fixture.externalPayments()).settle(fixture.attempt());
+        verify(fixture.transitions()).settle(fixture.attemptId());
         assertEquals(fixture.tenantId(), fixture.adapter().verification.get().tenantId());
         assertEquals(fixture.configId(), fixture.adapter().verification.get().tenantProviderConfigId());
         assertEquals("SANDBOX", fixture.adapter().verification.get().providerEnvironment());
@@ -42,7 +42,7 @@ class PaymentWebhookServiceTest {
         assertEquals(PaymentWebhookService.Result.INVALID_SIGNATURE,
             fixture.service().process("NATIVE", "{}", "invalid"));
 
-        verifyNoInteractions(fixture.externalPayments(), fixture.reversals());
+        verifyNoInteractions(fixture.transitions());
         verify(fixture.webhookEvents()).save(argThat(event -> !event.isSignatureValid()));
     }
 
@@ -54,60 +54,77 @@ class PaymentWebhookServiceTest {
 
         assertEquals(PaymentWebhookService.Result.DUPLICATE,
             fixture.service().process("NATIVE", "{}", "valid"));
-        verifyNoInteractions(fixture.externalPayments(), fixture.reversals());
+        verifyNoInteractions(fixture.transitions());
 
         reset(fixture.webhookEvents());
         when(fixture.webhookEvents().findByProviderAndEventId("NATIVE", "evt-1")).thenReturn(Optional.empty());
         when(fixture.webhookEvents().save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         assertEquals(PaymentWebhookService.Result.PROCESSED,
             fixture.service().process("NATIVE", "{}", "valid"));
-        verify(fixture.reversals()).reverse(fixture.attempt());
-        verifyNoInteractions(fixture.externalPayments());
+        verify(fixture.transitions()).reverse(fixture.attemptId());
+    }
+
+    @Test
+    void providerObjectMismatchDoesNotConsumeLegitimateEventId() {
+        Fixture fixture = fixture(ExternalPaymentStatus.SETTLED, true, "TRF_other");
+        doThrow(new IllegalStateException("changed"))
+            .when(fixture.transitions()).bindProviderObjectId(fixture.attemptId(), "TRF_other");
+
+        assertEquals(PaymentWebhookService.Result.BAD_REQUEST,
+            fixture.service().process("NATIVE", "{}", "valid"));
+
+        verify(fixture.transitions()).bindProviderObjectId(fixture.attemptId(), "TRF_other");
+        verify(fixture.transitions(), never()).settle(any());
+        verify(fixture.webhookEvents(), never()).save(argThat(event -> "evt-1".equals(event.getEventId())));
     }
 
     private static Fixture fixture(String eventType, boolean signatureValid) {
+        return fixture(eventType, signatureValid, null);
+    }
+
+    private static Fixture fixture(String eventType, boolean signatureValid, String providerObjectId) {
         UUID tenant = UUID.randomUUID();
         UUID config = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
         ExternalPaymentAttemptEntity attempt = mock(ExternalPaymentAttemptEntity.class);
+        when(attempt.getId()).thenReturn(attemptId);
         when(attempt.getTenantId()).thenReturn(tenant);
         when(attempt.getTenantProviderConfigId()).thenReturn(config);
         when(attempt.getProviderEnvironment()).thenReturn("SANDBOX");
-        when(attempt.getProviderObjectId()).thenReturn(null);
 
-        NativeAdapter adapter = new NativeAdapter(eventType, signatureValid);
+        NativeAdapter adapter = new NativeAdapter(eventType, signatureValid, providerObjectId);
         PaymentWebhookEventRepository webhookEvents = mock(PaymentWebhookEventRepository.class);
         when(webhookEvents.findByProviderAndEventId("NATIVE", "evt-1")).thenReturn(Optional.empty());
         when(webhookEvents.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         ExternalPaymentAttemptRepository attempts = mock(ExternalPaymentAttemptRepository.class);
         when(attempts.findByProviderAndProviderReference("NATIVE", "ref-1")).thenReturn(Optional.of(attempt));
-        ExternalPaymentService externalPayments = mock(ExternalPaymentService.class);
-        ExternalPaymentReversalService reversals = mock(ExternalPaymentReversalService.class);
-        PaymentWebhookService service = new PaymentWebhookService(webhookEvents, attempts, externalPayments,
-            reversals, new PaymentRailRegistry(List.of(adapter)), new ObjectMapper());
-        return new Fixture(service, adapter, webhookEvents, externalPayments, reversals, attempt, tenant, config);
+        ExternalPaymentTransitionService transitions = mock(ExternalPaymentTransitionService.class);
+        PaymentWebhookService service = new PaymentWebhookService(webhookEvents, attempts, transitions,
+            new PaymentRailRegistry(List.of(adapter)), new ObjectMapper());
+        return new Fixture(service, adapter, webhookEvents, transitions, attemptId, tenant, config);
     }
 
     private record Fixture(PaymentWebhookService service, NativeAdapter adapter,
                            PaymentWebhookEventRepository webhookEvents,
-                           ExternalPaymentService externalPayments,
-                           ExternalPaymentReversalService reversals,
-                           ExternalPaymentAttemptEntity attempt,
-                           UUID tenantId, UUID configId) {}
+                           ExternalPaymentTransitionService transitions,
+                           UUID attemptId, UUID tenantId, UUID configId) {}
 
     private static final class NativeAdapter implements PaymentRailAdapter {
         private final String eventType;
         private final boolean signatureValid;
+        private final String providerObjectId;
         private final AtomicReference<WebhookVerificationRequest> verification = new AtomicReference<>();
 
-        private NativeAdapter(String eventType, boolean signatureValid) {
+        private NativeAdapter(String eventType, boolean signatureValid, String providerObjectId) {
             this.eventType = eventType;
             this.signatureValid = signatureValid;
+            this.providerObjectId = providerObjectId;
         }
 
         @Override public String rail() { return "NATIVE"; }
         @Override public Set<String> aliases() { return Set.of("NATIVE"); }
         @Override public ProviderWebhookEvent parseWebhook(String rawBody) {
-            return new ProviderWebhookEvent("evt-1", "ref-1", eventType, null);
+            return new ProviderWebhookEvent("evt-1", "ref-1", eventType, providerObjectId);
         }
         @Override public boolean verifyWebhook(WebhookVerificationRequest request) {
             verification.set(request);
