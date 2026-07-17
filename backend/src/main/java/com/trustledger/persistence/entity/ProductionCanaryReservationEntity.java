@@ -18,6 +18,7 @@ public class ProductionCanaryReservationEntity {
     @Column(name = "provider_environment", nullable = false, length = 32) private String providerEnvironment;
     @Column(name = "transfer_id", nullable = false, unique = true) private UUID transferId;
     @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3) private String currency;
     @Column(name = "last_status", nullable = false, length = 32) private String lastStatus = "RESERVED";
     @Column(name = "unknown_counted", nullable = false) private boolean unknownCounted;
