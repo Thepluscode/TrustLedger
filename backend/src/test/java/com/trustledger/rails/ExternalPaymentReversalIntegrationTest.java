@@ -66,7 +66,7 @@ class ExternalPaymentReversalIntegrationTest {
         transfer.setChannel("EXTERNAL");
         transfers.save(transfer);
         ExternalPaymentAttemptEntity attempt = attempts.save(new ExternalPaymentAttemptEntity(UUID.randomUUID(),
-            tenant, transferId, "PAYSTACK", UUID.randomUUID(), "SANDBOX", UUID.randomUUID(), UUID.randomUUID(),
+            tenant, transferId, "PAYSTACK", null, null, null, null,
             "paystack_reversal_1234", ExternalPaymentStatus.SETTLED, new BigDecimal("200.0000"), "NGN",
             "{}", Instant.now()));
 
