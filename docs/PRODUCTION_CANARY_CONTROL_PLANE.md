@@ -63,7 +63,27 @@ When a configured threshold is reached, the affected active or exhausted plan tr
 
 Incidents inherit across rollout generations. When a late reversal from a completed or manually paused predecessor reaches its threshold after a replacement plan became active, TrustLedger pauses the current active plan with a `predecessor_*` reason. A new rollout cannot escape risk that originated in an earlier generation of the same provider configuration.
 
-Canary telemetry runs in an independent transaction and is not allowed to block settlement, release, reconciliation, or reversal accounting. If telemetry persistence fails, TrustLedger logs a reference-only error and preserves financial truth. This can conservatively overcount an outcome if a surrounding financial transition later fails; it must never undercount or reverse a financial transition.
+Canary telemetry runs in an independent transaction and is not allowed to block settlement, release, reconciliation, or reversal accounting. If telemetry persistence fails, TrustLedger logs a reference-only error and preserves financial truth.
+
+### Telemetry repair
+
+`ProductionCanaryRepairWorker` periodically compares the durable external payment attempt status with the canary reservation's recorded status. It sends only mismatches through the same idempotent outcome-accounting method used by live transitions.
+
+The worker:
+
+- never changes balances, ledger entries, payout attempts, or provider state;
+- never guesses a status when the durable attempt is missing;
+- processes a bounded batch and retries failures on later sweeps;
+- repairs missed settlement, failure, ambiguity, cancellation, return, and reversal accounting;
+- preserves unknown-count and terminal-transition idempotency.
+
+Configuration:
+
+```properties
+trustledger.payment-rails.canary-repair-worker.enabled=true
+trustledger.payment-rails.canary-repair-worker.initial-delay-ms=7000
+trustledger.payment-rails.canary-repair-worker.interval-ms=10000
+```
 
 ## API
 
