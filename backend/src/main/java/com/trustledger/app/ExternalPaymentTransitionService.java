@@ -4,6 +4,9 @@ import com.trustledger.persistence.entity.ExternalPaymentAttemptEntity;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.rails.ExternalPaymentStatus;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,16 +14,32 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ExternalPaymentTransitionService {
 
+    private static final Logger log = LoggerFactory.getLogger(ExternalPaymentTransitionService.class);
+
     private final ExternalPaymentAttemptRepository attempts;
     private final ExternalPaymentService externalPayments;
     private final ExternalPaymentReversalService reversals;
+    private final ProductionCanaryService canaries;
 
+    @Autowired
     public ExternalPaymentTransitionService(ExternalPaymentAttemptRepository attempts,
                                             ExternalPaymentService externalPayments,
-                                            ExternalPaymentReversalService reversals) {
+                                            ExternalPaymentReversalService reversals,
+                                            ProductionCanaryService canaries) {
         this.attempts = attempts;
         this.externalPayments = externalPayments;
         this.reversals = reversals;
+        this.canaries = canaries;
+    }
+
+    /** Test-only compatibility constructor. */
+    ExternalPaymentTransitionService(ExternalPaymentAttemptRepository attempts,
+                                     ExternalPaymentService externalPayments,
+                                     ExternalPaymentReversalService reversals) {
+        this.attempts = attempts;
+        this.externalPayments = externalPayments;
+        this.reversals = reversals;
+        this.canaries = null;
     }
 
     @Transactional
@@ -31,6 +50,7 @@ public class ExternalPaymentTransitionService {
             throw new IllegalStateException("Cannot settle terminal attempt in status " + attempt.getStatus());
         }
         externalPayments.settle(attempt);
+        safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.SETTLED);
     }
 
     @Transactional
@@ -41,11 +61,14 @@ public class ExternalPaymentTransitionService {
             throw new IllegalStateException("Settled payout requires compensating reversal accounting");
         }
         externalPayments.release(attempt, terminalStatus);
+        safeRecordOutcome(attempt.getTransactionId(), terminalStatus);
     }
 
     @Transactional
     public void reverse(UUID attemptId) {
-        reversals.reverse(lock(attemptId));
+        ExternalPaymentAttemptEntity attempt = lock(attemptId);
+        reversals.reverse(attempt);
+        safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.REVERSED);
     }
 
     /** Applies provider progress only while the local attempt remains non-terminal. */
@@ -57,6 +80,7 @@ public class ExternalPaymentTransitionService {
             attempt.setStatus(providerStatus);
             attempts.save(attempt);
         }
+        safeRecordOutcome(attempt.getTransactionId(), providerStatus);
     }
 
     /** Returns false on identity conflict so callers can persist evidence without marking the transaction rollback-only. */
@@ -73,6 +97,16 @@ public class ExternalPaymentTransitionService {
             attempts.save(attempt);
         }
         return true;
+    }
+
+    private void safeRecordOutcome(UUID transferId, String status) {
+        if (canaries == null) return;
+        try {
+            canaries.recordOutcome(transferId, status);
+        } catch (RuntimeException failure) {
+            log.error("Could not record production canary transition for transfer {}: {}",
+                transferId, failure.getClass().getSimpleName());
+        }
     }
 
     private ExternalPaymentAttemptEntity lock(UUID attemptId) {

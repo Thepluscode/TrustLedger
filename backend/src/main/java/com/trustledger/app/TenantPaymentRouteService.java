@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,15 +29,29 @@ public class TenantPaymentRouteService {
     private final PaymentRailRegistry registry;
     private final PaymentRailRouter router;
     private final TenantProviderConfigRepository configs;
+    private final ProductionCanaryService canaries;
     private final boolean productionExecutionEnabled;
 
+    @Autowired
     public TenantPaymentRouteService(PaymentRailRegistry registry, PaymentRailRouter router,
                                      TenantProviderConfigRepository configs,
+                                     ProductionCanaryService canaries,
                                      @Value("${trustledger.payment-rails.production-execution-enabled:false}")
                                      boolean productionExecutionEnabled) {
         this.registry = registry;
         this.router = router;
         this.configs = configs;
+        this.canaries = canaries;
+        this.productionExecutionEnabled = productionExecutionEnabled;
+    }
+
+    /** Test-only compatibility constructor; production wiring always supplies the canary service. */
+    TenantPaymentRouteService(PaymentRailRegistry registry, PaymentRailRouter router,
+                              TenantProviderConfigRepository configs, boolean productionExecutionEnabled) {
+        this.registry = registry;
+        this.router = router;
+        this.configs = configs;
+        this.canaries = null;
         this.productionExecutionEnabled = productionExecutionEnabled;
     }
 
@@ -161,6 +176,11 @@ public class TenantPaymentRouteService {
             if (blank(config.getCredentialsSecretRef())) return "tenant_provider_credentials_not_configured";
             if (blank(config.getWebhookSecretRef())) return "tenant_provider_webhook_secret_not_configured";
         }
+        if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment()) && canaries != null) {
+            String canaryRejection = canaries.rejectionReason(config.getTenantId(), config.getId(),
+                config.getEnvironment(), amount);
+            if (canaryRejection != null) return canaryRejection;
+        }
 
         Set<String> currencies = csv(config.getAllowedCurrencies());
         String normalizedCurrency = normalize(currency);
@@ -200,7 +220,11 @@ public class TenantPaymentRouteService {
             case "tenant_provider_operational_suspended" -> 3;
             case "tenant_provider_operational_degraded" -> 4;
             case "tenant_provider_credentials_not_configured", "tenant_provider_webhook_secret_not_configured" -> 5;
-            case "tenant_provider_disabled" -> 6;
+            case "production_canary_paused", "production_canary_window_closed",
+                 "production_canary_exhausted", "production_canary_not_active",
+                 "production_canary_not_configured", "production_canary_transaction_amount_exceeded",
+                 "production_canary_transaction_count_exhausted", "production_canary_value_exhausted" -> 6;
+            case "tenant_provider_disabled" -> 7;
             default -> 10;
         };
     }

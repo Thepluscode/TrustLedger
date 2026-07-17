@@ -14,6 +14,7 @@ public final class Permission {
     public static final String AUDIT_VIEW = "AUDIT_VIEW";
     public static final String EVIDENCE_EXPORT = "EVIDENCE_EXPORT";
     public static final String PROVIDER_CONFIG_MANAGE = "PROVIDER_CONFIG_MANAGE";
+    public static final String PRODUCTION_CANARY_APPROVE = "PRODUCTION_CANARY_APPROVE";
     public static final String FRAUD_POLICY_MANAGE = "FRAUD_POLICY_MANAGE";
     public static final String RETENTION_POLICY_MANAGE = "RETENTION_POLICY_MANAGE";
     public static final String USER_MANAGE = "USER_MANAGE";

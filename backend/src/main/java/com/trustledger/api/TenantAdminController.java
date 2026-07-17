@@ -6,12 +6,13 @@ import com.trustledger.persistence.entity.TenantProviderConfigEntity;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
-/** Tenant enterprise administration: usage, quotas, billing, provider controls, and credential rotation. */
+/** Tenant enterprise administration: usage, quotas, billing, provider controls, credentials, and canaries. */
 @RestController
 @RequestMapping("/api/v1/tenant")
 public class TenantAdminController {
@@ -21,17 +22,20 @@ public class TenantAdminController {
     private final BillingService billing;
     private final TenantProviderConfigService providerConfigs;
     private final ProviderCredentialService providerCredentials;
+    private final ProductionCanaryService productionCanaries;
     private final AccessControlService access;
 
     public TenantAdminController(UsageMeteringService usage, QuotaService quotas, BillingService billing,
                                  TenantProviderConfigService providerConfigs,
                                  ProviderCredentialService providerCredentials,
+                                 ProductionCanaryService productionCanaries,
                                  AccessControlService access) {
         this.usage = usage;
         this.quotas = quotas;
         this.billing = billing;
         this.providerConfigs = providerConfigs;
         this.providerCredentials = providerCredentials;
+        this.productionCanaries = productionCanaries;
         this.access = access;
     }
 
@@ -46,6 +50,14 @@ public class TenantAdminController {
     public record ProviderControlsRequest(boolean enabled, boolean emergencyDisabled) {}
     public record CredentialVersionRequest(String purpose, String secretRef) {}
     public record CredentialActivationRequest(UUID expectedActiveCredentialId, long graceSeconds) {}
+    public record ProductionCanaryRequest(Instant startsAt, Instant expiresAt,
+                                          BigDecimal maxTransactionAmount,
+                                          BigDecimal maxCumulativeAmount,
+                                          int maxTransactions,
+                                          int failurePauseThreshold,
+                                          int unknownPauseThreshold,
+                                          int reversalPauseThreshold) {}
+    public record CanaryPauseRequest(String reason) {}
     public record ProviderConfigView(UUID id, String provider, String environment, boolean enabled,
                                      String complianceStatus, String operationalStatus, boolean emergencyDisabled,
                                      String allowedCurrencies, String allowedDestinationCountries,
@@ -143,6 +155,50 @@ public class TenantAdminController {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
         return ProviderCredentialService.view(providerCredentials.revoke(CurrentUser.tenantId(),
             CurrentUser.userId(), configId, credentialId));
+    }
+
+    @PostMapping("/provider-configs/{configId}/production-canaries")
+    public ProductionCanaryService.CanaryView requestProductionCanary(
+            @PathVariable UUID configId, @RequestBody ProductionCanaryRequest request) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return ProductionCanaryService.view(productionCanaries.request(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, new ProductionCanaryService.CreateCommand(
+                request.startsAt(), request.expiresAt(), request.maxTransactionAmount(),
+                request.maxCumulativeAmount(), request.maxTransactions(),
+                request.failurePauseThreshold(), request.unknownPauseThreshold(),
+                request.reversalPauseThreshold())));
+    }
+
+    @GetMapping("/provider-configs/{configId}/production-canaries")
+    public List<ProductionCanaryService.CanaryView> listProductionCanaries(@PathVariable UUID configId) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return productionCanaries.list(CurrentUser.tenantId(), configId).stream()
+            .map(ProductionCanaryService::view).toList();
+    }
+
+    @PostMapping("/provider-configs/{configId}/production-canaries/{planId}/approve")
+    public ProductionCanaryService.CanaryView approveProductionCanary(
+            @PathVariable UUID configId, @PathVariable UUID planId) {
+        access.require(Permission.PRODUCTION_CANARY_APPROVE);
+        return ProductionCanaryService.view(productionCanaries.approve(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, planId));
+    }
+
+    @PostMapping("/provider-configs/{configId}/production-canaries/{planId}/pause")
+    public ProductionCanaryService.CanaryView pauseProductionCanary(
+            @PathVariable UUID configId, @PathVariable UUID planId,
+            @RequestBody(required = false) CanaryPauseRequest request) {
+        access.require(Permission.PRODUCTION_CANARY_APPROVE);
+        return ProductionCanaryService.view(productionCanaries.pause(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, planId, request == null ? null : request.reason()));
+    }
+
+    @PostMapping("/provider-configs/{configId}/production-canaries/{planId}/resume")
+    public ProductionCanaryService.CanaryView resumeProductionCanary(
+            @PathVariable UUID configId, @PathVariable UUID planId) {
+        access.require(Permission.PRODUCTION_CANARY_APPROVE);
+        return ProductionCanaryService.view(productionCanaries.resume(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, planId));
     }
 
     private static ProviderConfigView view(TenantProviderConfigEntity c) {
