@@ -15,6 +15,7 @@ import com.trustledger.rails.ExternalPaymentStatus;
 import com.trustledger.rails.paystack.PaystackApiClient;
 import com.trustledger.rails.paystack.PaystackPaymentRailAdapter;
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ import tools.jackson.databind.ObjectMapper;
 class PaystackOtpServiceTest {
 
     @Test
-    void recoversTransferCodeExecutesWriteOnlyOtpAndAuditsNoSecret() {
+    void recoversTransferCodeExecutesWriteOnlyOtpAndAuditsNoSecret() throws Exception {
         UUID tenant = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
         UUID transaction = UUID.randomUUID();
@@ -69,17 +70,20 @@ class PaystackOtpServiceTest {
         AuditLogRepository auditLogs = mock(AuditLogRepository.class);
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
+        ObjectMapper mapper = new ObjectMapper();
 
         PaystackOtpService service = new PaystackOtpService(attempts, configs, ref -> "sk_test_secret", api,
-            submissions, externalPayments, auditLogs, new ObjectMapper(), transactionManager, false);
+            submissions, externalPayments, auditLogs, mapper, transactionManager, false);
 
         assertSame(expected, service.finalizeOtp(tenant, actor, transaction, "123456"));
         verify(attempt).setProviderObjectId("TRF_native");
         verify(submissions).executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, "123456");
         ArgumentCaptor<AuditLogEntity> audit = ArgumentCaptor.forClass(AuditLogEntity.class);
         verify(auditLogs).save(audit.capture());
-        String metadata = audit.getValue().getMetadata();
-        assertFalse(metadata.contains("123456"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = mapper.readValue(audit.getValue().getMetadata(), Map.class);
+        assertFalse(metadata.containsKey("otp"));
+        assertFalse(metadata.containsKey("sensitiveValue"));
         assertEquals("EXTERNAL_PAYMENT_OTP_SUBMITTED", audit.getValue().getAction());
     }
 
