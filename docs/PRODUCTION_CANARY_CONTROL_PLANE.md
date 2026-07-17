@@ -25,9 +25,10 @@ The service rejects approval when:
 - the plan does not belong to the provider configuration in the resource path;
 - the provider configuration is no longer executable;
 - the rollout window has expired;
-- another active canary already exists for the same provider configuration.
+- another active canary already exists for the same provider configuration;
+- any previous canary still has a reserved, submitting, pending, action-required, or ambiguous payout.
 
-The database permits only one `ACTIVE` canary per tenant provider configuration.
+The database permits only one `ACTIVE` canary per tenant provider configuration. Operators may prepare the next plan while a current plan is active, but the pending plan does not replace or hide the current one. It cannot be approved until all prior exposure reaches an authoritative terminal state.
 
 ## Exposure limits
 
@@ -58,7 +59,9 @@ Tracked outcomes:
 
 The same ambiguous status is counted once per transfer. A later authoritative settlement can replace the local reservation status without erasing the fact that ambiguity occurred. A reversal after settlement is separately counted.
 
-When a configured threshold is reached, the plan automatically transitions to `PAUSED`, writes an audit record, and emits a `PRODUCTION_CANARY_AUTO_PAUSED` outbox event. Subsequent production routing fails with a stable `production_canary_paused` exclusion reason.
+When a configured threshold is reached, the affected active or exhausted plan transitions to `PAUSED`, writes an audit record, and emits a `PRODUCTION_CANARY_AUTO_PAUSED` outbox event. Subsequent production routing fails with a stable `production_canary_paused` exclusion reason.
+
+Incidents inherit across rollout generations. When a late reversal from a completed or manually paused predecessor reaches its threshold after a replacement plan became active, TrustLedger pauses the current active plan with a `predecessor_*` reason. A new rollout cannot escape risk that originated in an earlier generation of the same provider configuration.
 
 Canary telemetry runs in an independent transaction and is not allowed to block settlement, release, reconciliation, or reversal accounting. If telemetry persistence fails, TrustLedger logs a reference-only error and preserves financial truth. This can conservatively overcount an outcome if a surrounding financial transition later fails; it must never undercount or reverse a financial transition.
 
@@ -104,7 +107,7 @@ During the canary:
 1. Keep limits materially below normal operating volume.
 2. Observe provider acceptance, webhook delivery, settlement, reconciliation, and ledger posting.
 3. Pause immediately on unexplained ambiguity, reversal, beneficiary mismatch, credential problem, or reconciliation drift.
-4. Do not raise limits by editing an active plan. Request and approve a new plan.
+4. Do not raise limits by editing an active plan. Request and approve a new plan only after all current exposure is authoritative.
 
 ## Remaining production activation gates
 
