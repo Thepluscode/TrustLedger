@@ -67,8 +67,8 @@ class PaymentWebhookServiceTest {
     @Test
     void providerObjectMismatchDoesNotConsumeLegitimateEventId() {
         Fixture fixture = fixture(ExternalPaymentStatus.SETTLED, true, "TRF_other");
-        doThrow(new IllegalStateException("changed"))
-            .when(fixture.transitions()).bindProviderObjectId(fixture.attemptId(), "TRF_other");
+        when(fixture.transitions().bindProviderObjectId(fixture.attemptId(), "TRF_other"))
+            .thenReturn(false);
 
         assertEquals(PaymentWebhookService.Result.BAD_REQUEST,
             fixture.service().process("NATIVE", "{}", "valid"));
@@ -76,6 +76,7 @@ class PaymentWebhookServiceTest {
         verify(fixture.transitions()).bindProviderObjectId(fixture.attemptId(), "TRF_other");
         verify(fixture.transitions(), never()).settle(any());
         verify(fixture.webhookEvents(), never()).save(argThat(event -> "evt-1".equals(event.getEventId())));
+        verify(fixture.webhookEvents()).save(argThat(event -> event.getEventId().startsWith("conflict:")));
     }
 
     private static Fixture fixture(String eventType, boolean signatureValid) {
@@ -99,6 +100,7 @@ class PaymentWebhookServiceTest {
         ExternalPaymentAttemptRepository attempts = mock(ExternalPaymentAttemptRepository.class);
         when(attempts.findByProviderAndProviderReference("NATIVE", "ref-1")).thenReturn(Optional.of(attempt));
         ExternalPaymentTransitionService transitions = mock(ExternalPaymentTransitionService.class);
+        when(transitions.bindProviderObjectId(any(), anyString())).thenReturn(true);
         PaymentWebhookService service = new PaymentWebhookService(webhookEvents, attempts, transitions,
             new PaymentRailRegistry(List.of(adapter)), new ObjectMapper());
         return new Fixture(service, adapter, webhookEvents, transitions, attemptId, tenant, config);
