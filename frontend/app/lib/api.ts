@@ -16,6 +16,9 @@ import type {
   FraudPolicy,
   PolicyImpact,
   InvitedUser,
+  ProductionCanaryRequest,
+  ProductionCanaryView,
+  ProviderConfigView,
   ReconciliationIssue,
   TeamMember,
   UserProfile,
@@ -213,8 +216,29 @@ export const api = {
   changePlan: (plan: string) =>
     request<{ plan: string }>("/api/v1/tenant/plan", { method: "PUT", body: JSON.stringify({ plan }) }),
   getBillingEvents: () => request<string[]>("/api/v1/tenant/billing/events"),
-  listProviderConfigs: () =>
-    request<{ provider: string; environment: string; enabled: boolean }[]>("/api/v1/tenant/provider-configs"),
+  listProviderConfigs: () => request<ProviderConfigView[]>("/api/v1/tenant/provider-configs"),
+  listProductionCanaries: (configId: string) =>
+    request<ProductionCanaryView[]>(`/api/v1/tenant/provider-configs/${configId}/production-canaries`),
+  requestProductionCanary: (configId: string, body: ProductionCanaryRequest) =>
+    request<ProductionCanaryView>(`/api/v1/tenant/provider-configs/${configId}/production-canaries`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  approveProductionCanary: (configId: string, planId: string) =>
+    request<ProductionCanaryView>(
+      `/api/v1/tenant/provider-configs/${configId}/production-canaries/${planId}/approve`,
+      { method: "POST" },
+    ),
+  pauseProductionCanary: (configId: string, planId: string, reason: string) =>
+    request<ProductionCanaryView>(
+      `/api/v1/tenant/provider-configs/${configId}/production-canaries/${planId}/pause`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    ),
+  resumeProductionCanary: (configId: string, planId: string) =>
+    request<ProductionCanaryView>(
+      `/api/v1/tenant/provider-configs/${configId}/production-canaries/${planId}/resume`,
+      { method: "POST" },
+    ),
 
   getFraudPolicy: () => request<FraudPolicy>("/api/v1/tenant/fraud-policy"),
   updateFraudPolicy: (body: FraudPolicy) =>
