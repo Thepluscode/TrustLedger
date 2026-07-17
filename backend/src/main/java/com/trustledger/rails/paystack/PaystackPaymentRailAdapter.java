@@ -127,7 +127,8 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         try {
             PaystackApiClient.PaystackResponse response = api.finalizeTransfer(resolveAndValidateSecret(config),
                 new PaystackApiClient.FinalizeTransferRequest(request.providerObjectId(), request.sensitiveValue()));
-            String normalized = response.definitiveFailure() ? ExternalPaymentStatus.FAILED : normalize(response.status());
+            String normalized = response.definitiveFailure()
+                ? ExternalPaymentStatus.ACTION_REQUIRED : normalize(response.status());
             if (ExternalPaymentStatus.SETTLED.equals(normalized)) normalized = ExternalPaymentStatus.PENDING_SETTLEMENT;
             String objectId = response.transferCode() == null ? request.providerObjectId() : response.transferCode();
             return new PaymentSubmitResult(request.providerReference(), normalized, objectId);
