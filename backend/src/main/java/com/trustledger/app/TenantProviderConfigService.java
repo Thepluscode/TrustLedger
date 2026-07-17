@@ -32,15 +32,17 @@ public class TenantProviderConfigService {
     private final TenantProviderConfigRepository configs;
     private final QuotaService quotas;
     private final PaymentRailRegistry registry;
+    private final ProviderCredentialService credentials;
     private final AuditLogRepository auditLogs;
     private final ObjectMapper json;
 
     public TenantProviderConfigService(TenantProviderConfigRepository configs, QuotaService quotas,
-                                       PaymentRailRegistry registry, AuditLogRepository auditLogs,
-                                       ObjectMapper json) {
+                                       PaymentRailRegistry registry, ProviderCredentialService credentials,
+                                       AuditLogRepository auditLogs, ObjectMapper json) {
         this.configs = configs;
         this.quotas = quotas;
         this.registry = registry;
+        this.credentials = credentials;
         this.auditLogs = auditLogs;
         this.json = json;
     }
@@ -64,6 +66,7 @@ public class TenantProviderConfigService {
             provider, environment, effectiveEnabled, compliance, command.callbackBaseUrl(),
             command.allowedRedirectDomains(), credentialsRef, webhookRef, currencies, countries,
             command.minimumAmount(), command.maximumAmount()));
+        credentials.bootstrapInitial(tenantId, actorId, saved);
         audit(tenantId, actorId, "TENANT_PROVIDER_CONFIG_CREATED", saved, Map.of(
             "provider", saved.getProvider(), "environment", saved.getEnvironment(),
             "enabled", saved.isEnabled(), "complianceStatus", saved.getComplianceStatus()));

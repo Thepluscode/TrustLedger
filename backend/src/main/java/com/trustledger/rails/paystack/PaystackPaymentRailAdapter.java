@@ -5,6 +5,8 @@ import com.trustledger.persistence.repo.TenantProviderConfigRepository;
 import com.trustledger.rails.ExternalPaymentStatus;
 import com.trustledger.rails.PaymentProviderCapabilities;
 import com.trustledger.rails.PaymentRailAdapter;
+import com.trustledger.secrets.LegacyProviderCredentialResolver;
+import com.trustledger.secrets.ProviderCredentialResolver;
 import com.trustledger.secrets.SecretResolver;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -21,7 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-/** Paystack NGN bank-payout adapter with native webhook and OTP support. */
+/** Paystack NGN bank-payout adapter with versioned credentials, native webhooks, and OTP support. */
 @Component
 public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
 
@@ -30,20 +32,28 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     private static final Pattern REFERENCE = Pattern.compile("[a-z0-9_-]{16,50}");
 
     private final TenantProviderConfigRepository configs;
-    private final SecretResolver secrets;
+    private final ProviderCredentialResolver credentials;
     private final PaystackApiClient api;
     private final ObjectMapper json;
 
+    /** Compatibility constructor for isolated adapter tests. */
     public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
                                       PaystackApiClient api) {
-        this(configs, secrets, api, new ObjectMapper());
+        this(configs, new LegacyProviderCredentialResolver(secrets), api, new ObjectMapper());
+    }
+
+    /** Compatibility constructor for tests that supply an ObjectMapper. */
+    public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
+                                      PaystackApiClient api, ObjectMapper json) {
+        this(configs, new LegacyProviderCredentialResolver(secrets), api, json);
     }
 
     @Autowired
-    public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs, SecretResolver secrets,
+    public PaystackPaymentRailAdapter(TenantProviderConfigRepository configs,
+                                      ProviderCredentialResolver credentials,
                                       PaystackApiClient api, ObjectMapper json) {
         this.configs = configs;
-        this.secrets = secrets;
+        this.credentials = credentials;
         this.api = api;
         this.json = json;
     }
@@ -63,7 +73,7 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         requireCurrency(request.currency());
         TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
             request.tenantProviderConfigId(), request.providerEnvironment());
-        String secret = resolveAndValidateSecret(config);
+        String secret = activeSecret(config);
         try {
             PaystackApiClient.PaystackResponse response = api.initiateTransfer(secret,
                 new PaystackApiClient.InitiateTransferRequest(minorUnits(request.amount()),
@@ -89,7 +99,7 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
             request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            return normalize(api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).status());
+            return normalize(api.verifyTransfer(activeSecret(config), request.providerReference()).status());
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             return ExternalPaymentStatus.PENDING_UNKNOWN;
         }
@@ -101,7 +111,7 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
             request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            return api.verifyTransfer(resolveAndValidateSecret(config), request.providerReference()).transferCode();
+            return api.verifyTransfer(activeSecret(config), request.providerReference()).transferCode();
         } catch (PaystackApiClient.AmbiguousPaystackException e) {
             return null;
         }
@@ -125,7 +135,7 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         TenantProviderConfigEntity config = requireExecutableConfig(request.tenantId(),
             request.tenantProviderConfigId(), request.providerEnvironment());
         try {
-            PaystackApiClient.PaystackResponse response = api.finalizeTransfer(resolveAndValidateSecret(config),
+            PaystackApiClient.PaystackResponse response = api.finalizeTransfer(activeSecret(config),
                 new PaystackApiClient.FinalizeTransferRequest(request.providerObjectId(), request.sensitiveValue()));
             String normalized = response.definitiveFailure()
                 ? ExternalPaymentStatus.ACTION_REQUIRED : normalize(response.status());
@@ -166,12 +176,16 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         try {
             TenantProviderConfigEntity config = requireConfigIdentity(request.tenantId(),
                 request.tenantProviderConfigId(), request.providerEnvironment());
-            String secret = resolveAndValidateSecret(config);
-            Mac mac = Mac.getInstance("HmacSHA512");
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
-            String expected = hex(mac.doFinal(request.rawBody().getBytes(StandardCharsets.UTF_8)));
-            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
-                request.signature().trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
+            byte[] supplied = request.signature().trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8);
+            for (ProviderCredentialResolver.ResolvedCredential candidate :
+                    credentials.verificationCandidates(config, ProviderCredentialResolver.API)) {
+                String secret = validateEnvironmentSecret(config, candidate.secretValue());
+                Mac mac = Mac.getInstance("HmacSHA512");
+                mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA512"));
+                String expected = hex(mac.doFinal(request.rawBody().getBytes(StandardCharsets.UTF_8)));
+                if (MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), supplied)) return true;
+            }
+            return false;
         } catch (Exception e) {
             return false;
         }
@@ -222,10 +236,14 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
         return config;
     }
 
-    private String resolveAndValidateSecret(TenantProviderConfigEntity config) {
-        String secret = secrets.resolve(config.getCredentialsSecretRef());
-        boolean valid = "PRODUCTION".equalsIgnoreCase(config.getEnvironment())
-            ? secret.startsWith("sk_live_") : secret.startsWith("sk_test_");
+    private String activeSecret(TenantProviderConfigEntity config) {
+        return validateEnvironmentSecret(config,
+            credentials.active(config, ProviderCredentialResolver.API).secretValue());
+    }
+
+    private static String validateEnvironmentSecret(TenantProviderConfigEntity config, String secret) {
+        boolean valid = secret != null && ("PRODUCTION".equalsIgnoreCase(config.getEnvironment())
+            ? secret.startsWith("sk_live_") : secret.startsWith("sk_test_"));
         if (!valid) throw new IllegalStateException("Paystack credential does not match configured environment");
         return secret;
     }

@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
 
-/** Tenant enterprise administration: usage, quotas, billing, and provider controls. */
+/** Tenant enterprise administration: usage, quotas, billing, provider controls, and credential rotation. */
 @RestController
 @RequestMapping("/api/v1/tenant")
 public class TenantAdminController {
@@ -20,14 +20,18 @@ public class TenantAdminController {
     private final QuotaService quotas;
     private final BillingService billing;
     private final TenantProviderConfigService providerConfigs;
+    private final ProviderCredentialService providerCredentials;
     private final AccessControlService access;
 
     public TenantAdminController(UsageMeteringService usage, QuotaService quotas, BillingService billing,
-                                 TenantProviderConfigService providerConfigs, AccessControlService access) {
+                                 TenantProviderConfigService providerConfigs,
+                                 ProviderCredentialService providerCredentials,
+                                 AccessControlService access) {
         this.usage = usage;
         this.quotas = quotas;
         this.billing = billing;
         this.providerConfigs = providerConfigs;
+        this.providerCredentials = providerCredentials;
         this.access = access;
     }
 
@@ -40,6 +44,8 @@ public class TenantAdminController {
                                         String allowedCurrencies, String allowedDestinationCountries,
                                         BigDecimal minimumAmount, BigDecimal maximumAmount) {}
     public record ProviderControlsRequest(boolean enabled, boolean emergencyDisabled) {}
+    public record CredentialVersionRequest(String purpose, String secretRef) {}
+    public record CredentialActivationRequest(UUID expectedActiveCredentialId, long graceSeconds) {}
     public record ProviderConfigView(UUID id, String provider, String environment, boolean enabled,
                                      String complianceStatus, String operationalStatus, boolean emergencyDisabled,
                                      String allowedCurrencies, String allowedDestinationCountries,
@@ -57,7 +63,8 @@ public class TenantAdminController {
         access.require(Permission.TENANT_ADMIN);
         var q = quotas.quota(CurrentUser.tenantId());
         return Map.of("maxUsers", q.getMaxUsers(), "maxAccounts", q.getMaxAccounts(),
-            "maxTransfersPerMonth", q.getMaxTransfersPerMonth(), "maxEvidenceExportsPerMonth", q.getMaxEvidenceExportsPerMonth(),
+            "maxTransfersPerMonth", q.getMaxTransfersPerMonth(),
+            "maxEvidenceExportsPerMonth", q.getMaxEvidenceExportsPerMonth(),
             "maxProviderConfigs", q.getMaxProviderConfigs(), "storageLimitGb", q.getStorageLimitGb());
     }
 
@@ -103,6 +110,39 @@ public class TenantAdminController {
     public List<ProviderConfigView> listProviderConfigs() {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
         return providerConfigs.list(CurrentUser.tenantId()).stream().map(TenantAdminController::view).toList();
+    }
+
+    @PostMapping("/provider-configs/{configId}/credentials")
+    public ProviderCredentialService.CredentialView createCredentialVersion(
+            @PathVariable UUID configId, @RequestBody CredentialVersionRequest request) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return ProviderCredentialService.view(providerCredentials.createPending(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, request.purpose(), request.secretRef()));
+    }
+
+    @GetMapping("/provider-configs/{configId}/credentials")
+    public List<ProviderCredentialService.CredentialView> listCredentialVersions(@PathVariable UUID configId) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return providerCredentials.list(CurrentUser.tenantId(), configId).stream()
+            .map(ProviderCredentialService::view).toList();
+    }
+
+    @PostMapping("/provider-configs/{configId}/credentials/{credentialId}/activate")
+    public ProviderCredentialService.CredentialView activateCredentialVersion(
+            @PathVariable UUID configId, @PathVariable UUID credentialId,
+            @RequestBody CredentialActivationRequest request) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return ProviderCredentialService.view(providerCredentials.activate(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, credentialId, request.expectedActiveCredentialId(),
+            request.graceSeconds()));
+    }
+
+    @PostMapping("/provider-configs/{configId}/credentials/{credentialId}/revoke")
+    public ProviderCredentialService.CredentialView revokeCredentialVersion(
+            @PathVariable UUID configId, @PathVariable UUID credentialId) {
+        access.require(Permission.PROVIDER_CONFIG_MANAGE);
+        return ProviderCredentialService.view(providerCredentials.revoke(CurrentUser.tenantId(),
+            CurrentUser.userId(), configId, credentialId));
     }
 
     private static ProviderConfigView view(TenantProviderConfigEntity c) {
