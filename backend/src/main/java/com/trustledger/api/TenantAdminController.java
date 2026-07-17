@@ -181,7 +181,7 @@ public class TenantAdminController {
             @PathVariable UUID configId, @PathVariable UUID planId) {
         access.require(Permission.PRODUCTION_CANARY_APPROVE);
         return ProductionCanaryService.view(productionCanaries.approve(CurrentUser.tenantId(),
-            CurrentUser.userId(), planId));
+            CurrentUser.userId(), configId, planId));
     }
 
     @PostMapping("/provider-configs/{configId}/production-canaries/{planId}/pause")
@@ -190,7 +190,7 @@ public class TenantAdminController {
             @RequestBody(required = false) CanaryPauseRequest request) {
         access.require(Permission.PRODUCTION_CANARY_APPROVE);
         return ProductionCanaryService.view(productionCanaries.pause(CurrentUser.tenantId(),
-            CurrentUser.userId(), planId, request == null ? null : request.reason()));
+            CurrentUser.userId(), configId, planId, request == null ? null : request.reason()));
     }
 
     @PostMapping("/provider-configs/{configId}/production-canaries/{planId}/resume")
@@ -198,7 +198,7 @@ public class TenantAdminController {
             @PathVariable UUID configId, @PathVariable UUID planId) {
         access.require(Permission.PRODUCTION_CANARY_APPROVE);
         return ProductionCanaryService.view(productionCanaries.resume(CurrentUser.tenantId(),
-            CurrentUser.userId(), planId));
+            CurrentUser.userId(), configId, planId));
     }
 
     private static ProviderConfigView view(TenantProviderConfigEntity c) {
