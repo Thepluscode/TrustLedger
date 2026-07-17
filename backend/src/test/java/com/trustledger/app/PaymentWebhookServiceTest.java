@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.ObjectMapper;
 
 class PaymentWebhookServiceTest {
@@ -32,7 +33,12 @@ class PaymentWebhookServiceTest {
         assertEquals(fixture.tenantId(), fixture.adapter().verification.get().tenantId());
         assertEquals(fixture.configId(), fixture.adapter().verification.get().tenantProviderConfigId());
         assertEquals("SANDBOX", fixture.adapter().verification.get().providerEnvironment());
-        verify(fixture.webhookEvents()).save(argThat(PaymentWebhookEventEntity::isProcessed));
+        // The service saves the same entity instance twice (created, then flagged processed), so an
+        // argThat matcher would match both recorded invocations. Assert the persisted end state instead.
+        ArgumentCaptor<PaymentWebhookEventEntity> saved = ArgumentCaptor.forClass(PaymentWebhookEventEntity.class);
+        verify(fixture.webhookEvents(), atLeastOnce()).save(saved.capture());
+        assertTrue(saved.getValue().isProcessed(), "the applied event is recorded as processed");
+        assertTrue(saved.getValue().isSignatureValid(), "a processed event carries a verified signature");
     }
 
     @Test

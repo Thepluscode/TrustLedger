@@ -65,9 +65,12 @@ class ExternalPaymentReversalIntegrationTest {
             "reversal-key", "provider reversal");
         transfer.setChannel("EXTERNAL");
         transfers.save(transfer);
+        // Reversal accounting is provider-agnostic, so this uses the sandbox rail: it is the one rail that
+        // legitimately carries no tenant config, payout instrument, or recipient mapping. Inventing random
+        // UUIDs for those instead violates fk_attempt_tenant_provider_config and fk_attempt_recipient_binding.
         ExternalPaymentAttemptEntity attempt = attempts.save(new ExternalPaymentAttemptEntity(UUID.randomUUID(),
-            tenant, transferId, "PAYSTACK", UUID.randomUUID(), "SANDBOX", UUID.randomUUID(), UUID.randomUUID(),
-            "paystack_reversal_1234", ExternalPaymentStatus.SETTLED, new BigDecimal("200.0000"), "NGN",
+            tenant, transferId, SandboxPaymentRailAdapter.RAIL, null, null, null, null,
+            "sandbox_reversal_1234", ExternalPaymentStatus.SETTLED, new BigDecimal("200.0000"), "NGN",
             "{}", Instant.now()));
 
         reversals.reverse(attempt);

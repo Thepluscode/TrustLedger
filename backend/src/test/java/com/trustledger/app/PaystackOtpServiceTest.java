@@ -25,6 +25,12 @@ import tools.jackson.databind.ObjectMapper;
 
 class PaystackOtpServiceTest {
 
+    /**
+     * Must not be a substring of any other fixture value — notably the provider reference — or the
+     * "OTP never reaches the audit" assertion passes or fails by coincidence rather than by behaviour.
+     */
+    private static final String OTP = "406913";
+
     @Test
     void recoversTransferCodeExecutesWriteOnlyOtpAndAuditsNoSecret() {
         UUID tenant = UUID.randomUUID();
@@ -60,7 +66,7 @@ class PaystackOtpServiceTest {
         var submission = new ExternalRailSubmissionService.SubmissionResult(attemptId,
             ExternalPaymentStatus.PENDING_SETTLEMENT, PaystackPaymentRailAdapter.RAIL,
             "paystack_1234567890", "{\"status\":\"PENDING_SETTLEMENT\"}", null, "TRF_native");
-        when(submissions.executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, "123456"))
+        when(submissions.executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, OTP))
             .thenReturn(submission);
         ExternalPaymentService externalPayments = mock(ExternalPaymentService.class);
         ExternalPaymentResponse expected = new ExternalPaymentResponse(transaction, "paystack_1234567890",
@@ -73,13 +79,15 @@ class PaystackOtpServiceTest {
         PaystackOtpService service = new PaystackOtpService(attempts, configs, ref -> "sk_test_secret", api,
             submissions, externalPayments, auditLogs, new ObjectMapper(), transactionManager, false);
 
-        assertSame(expected, service.finalizeOtp(tenant, actor, transaction, "123456"));
+        assertSame(expected, service.finalizeOtp(tenant, actor, transaction, OTP));
         verify(attempt).setProviderObjectId("TRF_native");
-        verify(submissions).executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, "123456");
+        verify(submissions).executeAction(attemptId, PaystackPaymentRailAdapter.OTP_FINALIZE, OTP);
         ArgumentCaptor<AuditLogEntity> audit = ArgumentCaptor.forClass(AuditLogEntity.class);
         verify(auditLogs).save(audit.capture());
         String metadata = audit.getValue().getMetadata();
-        assertFalse(metadata.contains("123456"));
+        assertTrue(metadata.contains("paystack_1234567890"),
+            "guard: the OTP assertion below must be inspecting real metadata, not an empty string");
+        assertFalse(metadata.contains(OTP), "the OTP must never reach audit metadata");
         assertEquals("EXTERNAL_PAYMENT_OTP_SUBMITTED", audit.getValue().getAction());
     }
 
@@ -103,7 +111,7 @@ class PaystackOtpServiceTest {
             mock(AuditLogRepository.class), new ObjectMapper(), transactionManager, false);
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
-            () -> service.finalizeOtp(tenant, UUID.randomUUID(), transaction, "123456"));
+            () -> service.finalizeOtp(tenant, UUID.randomUUID(), transaction, OTP));
         assertTrue(error.getMessage().contains("globally disabled"));
     }
 }
