@@ -216,6 +216,10 @@ export const api = {
   changePlan: (plan: string) =>
     request<{ plan: string }>("/api/v1/tenant/plan", { method: "PUT", body: JSON.stringify({ plan }) }),
   getBillingEvents: () => request<string[]>("/api/v1/tenant/billing/events"),
+  getProductionReadiness: () =>
+    request<{ productionExecutionEnabled: boolean; activeCanaryRequired: boolean; policy: string }>(
+      "/api/v1/tenant/production-readiness",
+    ),
   listProviderConfigs: () => request<ProviderConfigView[]>("/api/v1/tenant/provider-configs"),
   listProductionCanaries: (configId: string) =>
     request<ProductionCanaryView[]>(`/api/v1/tenant/provider-configs/${configId}/production-canaries`),
