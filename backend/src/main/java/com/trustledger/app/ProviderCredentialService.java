@@ -50,7 +50,6 @@ public class ProviderCredentialService {
         this.json = json;
     }
 
-    /** Creates a non-executable version. Secret material is rejected; only URI-style references are accepted. */
     @Transactional
     public ProviderCredentialVersionEntity createPending(UUID tenantId, UUID actorId, UUID configId,
                                                           String purpose, String secretReference) {
@@ -69,10 +68,6 @@ public class ProviderCredentialService {
         return created;
     }
 
-    /**
-     * Activates one version atomically. The previous ACTIVE version becomes verification-only GRACE.
-     * graceSeconds may be zero for an immediate cutover, but never exceeds seven days.
-     */
     @Transactional
     public ProviderCredentialVersionEntity activate(UUID tenantId, UUID actorId, UUID configId,
                                                     UUID credentialId, long graceSeconds) {
@@ -88,11 +83,10 @@ public class ProviderCredentialService {
 
         ProviderCredentialVersionEntity previous = versions.findActiveForUpdate(configId, target.getPurpose())
             .orElse(null);
-        if (previous != null && previous.getId().equals(target.getId())) return target;
         if (previous != null) {
             previous.moveToGrace(Instant.now().plus(graceSeconds, ChronoUnit.SECONDS));
             if (graceSeconds == 0) previous.retire();
-            versions.save(previous);
+            versions.saveAndFlush(previous);
         }
 
         target.activate(actorId);
@@ -104,7 +98,6 @@ public class ProviderCredentialService {
         return target;
     }
 
-    /** Active-key revocation fails closed by disabling the provider configuration. */
     @Transactional
     public ProviderCredentialVersionEntity revoke(UUID tenantId, UUID actorId, UUID configId,
                                                    UUID credentialId) {
@@ -130,7 +123,6 @@ public class ProviderCredentialService {
         return versions.findByTenantProviderConfigIdOrderByPurposeAscVersionNumberDesc(configId);
     }
 
-    /** Called inside provider-config creation so new configurations start with immutable ACTIVE version 1 rows. */
     void bootstrapInitial(UUID tenantId, UUID actorId, TenantProviderConfigEntity config) {
         bootstrap(tenantId, actorId, config, ProviderCredentialResolver.API, config.getCredentialsSecretRef());
         bootstrap(tenantId, actorId, config, ProviderCredentialResolver.WEBHOOK, config.getWebhookSecretRef());
