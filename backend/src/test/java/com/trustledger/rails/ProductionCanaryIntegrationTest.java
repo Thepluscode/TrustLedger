@@ -78,6 +78,15 @@ class ProductionCanaryIntegrationTest {
         assertEquals("ACTIVE", active.getStatus());
         assertEquals(requester, active.getRequestedBy());
         assertEquals(approver, active.getApprovedBy());
+        assertThrows(IllegalArgumentException.class,
+            () -> canaries.pause(tenant, approver, UUID.randomUUID(), plan.getId(), "wrong resource path"));
+
+        canaries.request(tenant, requester, config.getId(),
+            new ProductionCanaryService.CreateCommand(Instant.now().plus(2, ChronoUnit.HOURS),
+                Instant.now().plus(3, ChronoUnit.HOURS), new BigDecimal("1000.00"),
+                new BigDecimal("5000.00"), 5, 1, 1, 1));
+        assertNull(canaries.rejectionReason(tenant, config.getId(), "PRODUCTION",
+            new BigDecimal("100.00")), "newer pending plan must not hide the active canary");
 
         UUID user = UUID.randomUUID();
         AccountEntity account = accounts.save(new AccountEntity(UUID.randomUUID(), tenant, user, "NGN",
