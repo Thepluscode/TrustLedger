@@ -81,7 +81,7 @@ class ProductionCanaryIntegrationTest {
         assertThrows(IllegalArgumentException.class,
             () -> canaries.pause(tenant, approver, UUID.randomUUID(), plan.getId(), "wrong resource path"));
 
-        canaries.request(tenant, requester, config.getId(),
+        ProductionCanaryPlanEntity replacement = canaries.request(tenant, requester, config.getId(),
             new ProductionCanaryService.CreateCommand(Instant.now().plus(2, ChronoUnit.HOURS),
                 Instant.now().plus(3, ChronoUnit.HOURS), new BigDecimal("1000.00"),
                 new BigDecimal("5000.00"), 5, 1, 1, 1));
@@ -113,6 +113,9 @@ class ProductionCanaryIntegrationTest {
         assertEquals(1, exhausted.getReservedTransactions());
         assertEquals(0, exhausted.getReservedAmount().compareTo(new BigDecimal("100.0000")));
         assertEquals(1, reservations.count());
+        IllegalStateException unresolved = assertThrows(IllegalStateException.class,
+            () -> canaries.approve(tenant, approver, config.getId(), replacement.getId()));
+        assertTrue(unresolved.getMessage().contains("unresolved payouts"));
 
         UUID winningTransfer = reservations.findByTransferId(firstTransfer).isPresent()
             ? firstTransfer : secondTransfer;
