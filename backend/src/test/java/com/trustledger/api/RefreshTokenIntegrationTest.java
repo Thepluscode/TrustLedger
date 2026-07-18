@@ -110,12 +110,8 @@ class RefreshTokenIntegrationTest {
         // Replay the same (now consumed) token — must be rejected and must revoke the family
         HttpResponse<String> replay = send("/api/v1/auth/refresh", "POST", null, refreshBody);
         assertEquals(401, replay.statusCode(), "replaying a consumed token must return 401");
-
-        // The successor token (from the first rotate) must also now be dead
-        LoginResponse firstRotated = json.readValue(
-                send("/api/v1/auth/refresh", "POST", null, refreshBody).body(), LoginResponse.class);
-        // We don't have the successor token to try, but the replay 401 already confirms family revocation.
-        // Verify the replay body signals an error, not a valid LoginResponse
+        // The 401 confirms the reused token was rejected and its family revoked; the error body must not
+        // carry a JWT. (The successor token from the first rotate is not available to this test to retry.)
         assertFalse(replay.body().contains("\"token\":"), "revoked response must not contain a JWT");
     }
 
