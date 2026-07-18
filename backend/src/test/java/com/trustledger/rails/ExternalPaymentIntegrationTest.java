@@ -3,6 +3,7 @@ package com.trustledger.rails;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
+import com.trustledger.app.PaymentWebhookInboxWorker;
 import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.DeviceFingerprintEntity;
 import com.trustledger.persistence.repo.*;
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -39,6 +42,9 @@ class ExternalPaymentIntegrationTest {
         r.add("spring.datasource.password", POSTGRES::getPassword);
         r.add("trustledger.outbox.publisher.enabled", () -> "false");
         r.add("trustledger.reconciliation.enabled", () -> "false");
+        // Webhook processing is now durable-async. Disable the scheduled sweep so these tests drive the
+        // inbox worker explicitly and assert the settled end-state deterministically.
+        r.add("trustledger.payment-rails.webhook-inbox.worker-enabled", () -> "false");
     }
 
     @Value("${local.server.port}") int port;
@@ -50,6 +56,8 @@ class ExternalPaymentIntegrationTest {
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired DeviceFingerprintRepository devices;
     @Autowired FraudCaseRepository fraudCases;
+    @Autowired PaymentWebhookInboxWorker inboxWorker;
+    @Autowired NamedParameterJdbcTemplate jdbc;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
@@ -86,13 +94,32 @@ class ExternalPaymentIntegrationTest {
         return json.readValue(r.body(), Map.class);
     }
 
+    /**
+     * Delivers a webhook and drains the durable inbox synchronously, so callers can assert the settled
+     * end-state. The endpoint now durably accepts the delivery (202, or 200 for a repeat transport
+     * delivery) and the inbox worker applies the financial effect. Returns the HTTP acceptance code.
+     */
     private int webhook(String providerRef, String eventType, String eventId, boolean validSig) throws Exception {
+        int code = deliverWebhook(providerRef, eventType, eventId, validSig);
+        drainInbox();
+        return code;
+    }
+
+    private int deliverWebhook(String providerRef, String eventType, String eventId, boolean validSig)
+            throws Exception {
         String body = json.writeValueAsString(Map.of("eventId", eventId, "providerReference", providerRef, "eventType", eventType));
         String sig = validSig ? signer.sign(body) : "deadbeef";
         HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri("/api/v1/payment-rails/webhooks/sandbox"))
             .header("Content-Type", "application/json").header("X-Signature", sig)
             .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
         return r.statusCode();
+    }
+
+    /** Forces every pending delivery due and runs one worker sweep — clock-skew-proof, deterministic. */
+    private void drainInbox() {
+        jdbc.update("UPDATE payment_webhook_inbox SET available_at = now() - interval '1 hour' "
+            + "WHERE status IN ('RECEIVED', 'RETRY')", new MapSqlParameterSource());
+        inboxWorker.runOnce();
     }
 
     private BigDecimal available(UUID id) { return accounts.findById(id).orElseThrow().getAvailableBalance(); }
@@ -111,7 +138,7 @@ class ExternalPaymentIntegrationTest {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "1000.0000");
         String ref = initiate(s.token(), src, "200.00", "success", "wh-init").get("providerReference").toString();
-        assertEquals(200, webhook(ref, "SETTLED", "wh-evt-1", true));
+        assertEquals(202, webhook(ref, "SETTLED", "wh-evt-1", true));
 
         java.util.List<java.util.Map<String, Object>> rows = json.readValue(webhookList(s.token()).body(), java.util.List.class);
         assertTrue(rows.stream().anyMatch(r -> "wh-evt-1".equals(r.get("eventId"))
@@ -158,7 +185,7 @@ class ExternalPaymentIntegrationTest {
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
 
         String ref = attempts.findByTransactionId(txn).orElseThrow().getProviderReference();
-        assertEquals(200, webhook(ref, "SETTLED", "evt-held-settle", true));
+        assertEquals(202, webhook(ref, "SETTLED", "evt-held-settle", true));
         assertEquals("SETTLED", attemptStatus(ref));
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")), "reservation consumed");
         assertEquals(0, available(src.getId()).compareTo(new BigDecimal("800.0000")));
@@ -213,7 +240,7 @@ class ExternalPaymentIntegrationTest {
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
 
         String ref = res.get("providerReference").toString();
-        assertEquals(200, webhook(ref, "SETTLED", "evt-1", true));
+        assertEquals(202, webhook(ref, "SETTLED", "evt-1", true));
 
         assertEquals("SETTLED", attemptStatus(ref));
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")), "reservation consumed");
@@ -247,8 +274,8 @@ class ExternalPaymentIntegrationTest {
         AccountEntity src = account(s.tenantId(), "1000.0000");
         String ref = initiate(s.token(), src, "200.00", "success", "ext-dup").get("providerReference").toString();
 
-        assertEquals(200, webhook(ref, "SETTLED", "evt-dup", true));
-        assertEquals(200, webhook(ref, "SETTLED", "evt-dup", true)); // same event id -> ignored
+        assertEquals(202, webhook(ref, "SETTLED", "evt-dup", true));
+        assertEquals(200, webhook(ref, "SETTLED", "evt-dup", true)); // identical transport delivery -> deduped
 
         assertEquals(1, sourceDebits(src.getId()), "duplicate webhook must not post a second ledger entry");
         assertEquals(0, accounts.findById(src.getId()).orElseThrow().getPostedBalance().compareTo(new BigDecimal("800.0000")));
@@ -260,7 +287,7 @@ class ExternalPaymentIntegrationTest {
         AccountEntity src = account(s.tenantId(), "1000.0000");
         String ref = initiate(s.token(), src, "200.00", "timeout", "ext-late-ok").get("providerReference").toString();
         // Provider eventually confirms success via webhook.
-        assertEquals(200, webhook(ref, "SETTLED", "evt-late-ok", true));
+        assertEquals(202, webhook(ref, "SETTLED", "evt-late-ok", true));
         assertEquals("SETTLED", attemptStatus(ref));
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("0.0000")));
         assertEquals(1, sourceDebits(src.getId()));
@@ -271,7 +298,7 @@ class ExternalPaymentIntegrationTest {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "1000.0000");
         String ref = initiate(s.token(), src, "200.00", "timeout", "ext-late-fail").get("providerReference").toString();
-        assertEquals(200, webhook(ref, "FAILED", "evt-late-fail", true));
+        assertEquals(202, webhook(ref, "FAILED", "evt-late-fail", true));
         assertEquals("FAILED", attemptStatus(ref));
         assertEquals(0, available(src.getId()).compareTo(new BigDecimal("1000.0000")), "funds released once");
         assertEquals(0, sourceDebits(src.getId()), "no ledger posting on failure");
@@ -282,7 +309,8 @@ class ExternalPaymentIntegrationTest {
         Session s = register();
         AccountEntity src = account(s.tenantId(), "1000.0000");
         String ref = initiate(s.token(), src, "200.00", "success", "ext-badsig").get("providerReference").toString();
-        assertEquals(401, webhook(ref, "SETTLED", "evt-badsig", false));
+        // Durably accepted (202), then rejected asynchronously by the worker — money is never touched.
+        assertEquals(202, webhook(ref, "SETTLED", "evt-badsig", false));
         assertEquals("PENDING_SETTLEMENT", attemptStatus(ref), "state unchanged on bad signature");
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
     }

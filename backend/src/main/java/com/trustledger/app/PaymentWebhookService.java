@@ -23,6 +23,8 @@ public class PaymentWebhookService {
 
     public enum Result { PROCESSED, DUPLICATE, INVALID_SIGNATURE, UNKNOWN_REFERENCE, IGNORED, BAD_REQUEST }
 
+    public record ProcessingOutcome(Result result, UUID tenantId, String providerReference, String eventId) {}
+
     private final PaymentWebhookEventRepository webhookEvents;
     private final ExternalPaymentAttemptRepository attempts;
     private final ExternalPaymentTransitionService transitions;
@@ -43,13 +45,20 @@ public class PaymentWebhookService {
 
     @Transactional
     public Result process(String rawBody, String signature) {
-        return process(SandboxPaymentRailAdapter.RAIL, rawBody, signature);
+        return processDetailed(SandboxPaymentRailAdapter.RAIL, rawBody, signature).result();
     }
 
     @Transactional
     public Result process(String providerOrAlias, String rawBody, String signature) {
+        return processDetailed(providerOrAlias, rawBody, signature).result();
+    }
+
+    @Transactional
+    public ProcessingOutcome processDetailed(String providerOrAlias, String rawBody, String signature) {
         Optional<PaymentRailAdapter> resolved = registry.find(providerOrAlias);
-        if (resolved.isEmpty() || rawBody == null || rawBody.isBlank()) return Result.BAD_REQUEST;
+        if (resolved.isEmpty() || rawBody == null || rawBody.isBlank()) {
+            return outcome(Result.BAD_REQUEST, null, null, null);
+        }
         PaymentRailAdapter adapter = resolved.get();
         String provider = adapter.rail();
 
@@ -57,16 +66,18 @@ public class PaymentWebhookService {
         if (normalized == null) normalized = parseLegacy(rawBody);
         if (normalized == null || blank(normalized.eventId()) || blank(normalized.providerReference())
                 || blank(normalized.eventType())) {
-            return Result.BAD_REQUEST;
+            return outcome(Result.BAD_REQUEST, null, null, null);
         }
 
         Optional<ExternalPaymentAttemptEntity> found =
             attempts.findByProviderAndProviderReference(provider, normalized.providerReference());
-        if (found.isEmpty()) return Result.UNKNOWN_REFERENCE;
+        if (found.isEmpty()) {
+            return outcome(Result.UNKNOWN_REFERENCE, null, normalized.providerReference(), normalized.eventId());
+        }
         ExternalPaymentAttemptEntity attempt = found.get();
 
         if (webhookEvents.findByProviderAndEventId(provider, normalized.eventId()).isPresent()) {
-            return Result.DUPLICATE;
+            return outcome(Result.DUPLICATE, attempt.getTenantId(), normalized.providerReference(), normalized.eventId());
         }
 
         boolean valid = adapter.verifyWebhook(new PaymentRailAdapter.WebhookVerificationRequest(
@@ -78,7 +89,8 @@ public class PaymentWebhookService {
                 webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(), attempt.getTenantId(), provider,
                     normalized.providerReference(), invalidEventId, normalized.eventType(), rawBody, false, false));
             }
-            return Result.INVALID_SIGNATURE;
+            return outcome(Result.INVALID_SIGNATURE, attempt.getTenantId(), normalized.providerReference(),
+                normalized.eventId());
         }
 
         if (!blank(normalized.providerObjectId())
@@ -90,7 +102,8 @@ public class PaymentWebhookService {
                     provider, normalized.providerReference(), conflictEventId, normalized.eventType(),
                     rawBody, true, false));
             }
-            return Result.BAD_REQUEST;
+            return outcome(Result.BAD_REQUEST, attempt.getTenantId(), normalized.providerReference(),
+                normalized.eventId());
         }
 
         PaymentWebhookEventEntity event = webhookEvents.save(new PaymentWebhookEventEntity(UUID.randomUUID(),
@@ -104,17 +117,24 @@ public class PaymentWebhookService {
             case "IGNORED" -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);
-                return Result.IGNORED;
+                return outcome(Result.IGNORED, attempt.getTenantId(), normalized.providerReference(),
+                    normalized.eventId());
             }
             default -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);
-                return Result.IGNORED;
+                return outcome(Result.IGNORED, attempt.getTenantId(), normalized.providerReference(),
+                    normalized.eventId());
             }
         }
         event.setProcessed(true);
         webhookEvents.save(event);
-        return Result.PROCESSED;
+        return outcome(Result.PROCESSED, attempt.getTenantId(), normalized.providerReference(), normalized.eventId());
+    }
+
+    private static ProcessingOutcome outcome(Result result, UUID tenantId, String providerReference,
+                                             String eventId) {
+        return new ProcessingOutcome(result, tenantId, providerReference, eventId);
     }
 
     @SuppressWarnings("unchecked")
