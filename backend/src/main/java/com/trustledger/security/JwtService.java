@@ -37,12 +37,18 @@ public class JwtService {
         this.json = json;
     }
 
+    public long ttlSeconds() { return ttlSeconds; }
+
     public String issue(AuthPrincipal p) {
         long now = Instant.now().getEpochSecond();
         String header = B64.encodeToString(writeJson(Map.of("alg", "HS256", "typ", "JWT")));
+        // jti makes every issued token unique even when the claims and second-granularity iat/exp are
+        // otherwise identical (e.g. a refresh rotation in the same second as login). Without it, HS256
+        // over identical claims yields a byte-identical token, so a "rotated" session reuses the old JWT.
         String claims = B64.encodeToString(writeJson(Map.of(
             "sub", p.userId().toString(), "tenantId", p.tenantId().toString(),
-            "role", p.role(), "email", p.email(), "iat", now, "exp", now + ttlSeconds)));
+            "role", p.role(), "email", p.email(), "iat", now, "exp", now + ttlSeconds,
+            "jti", UUID.randomUUID().toString())));
         String signingInput = header + "." + claims;
         return signingInput + "." + B64.encodeToString(hmac(signingInput));
     }

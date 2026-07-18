@@ -8,6 +8,8 @@ import com.trustledger.persistence.repo.UserRepository;
 import com.trustledger.security.AuthPrincipal;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.JwtService;
+import com.trustledger.security.RefreshTokenService;
+import com.trustledger.security.RefreshTokenService.RotationResult;
 import com.trustledger.security.UnauthorizedException;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,17 +23,20 @@ public class AuthController {
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final JwtService jwt;
+    private final RefreshTokenService refreshTokens;
 
-    public AuthController(TenantRepository tenants, UserRepository users, PasswordEncoder encoder, JwtService jwt) {
+    public AuthController(TenantRepository tenants, UserRepository users, PasswordEncoder encoder,
+                          JwtService jwt, RefreshTokenService refreshTokens) {
         this.tenants = tenants;
         this.users = users;
         this.encoder = encoder;
         this.jwt = jwt;
+        this.refreshTokens = refreshTokens;
     }
 
-    /** Creates a new tenant and its first OWNER, returning a JWT. */
+    /** Creates a new tenant and its first OWNER, returning a JWT + refresh token. */
     @PostMapping("/register")
-    public AuthResponse register(@RequestBody RegisterRequest req) {
+    public LoginResponse register(@RequestBody RegisterRequest req) {
         if (req.tenantName() == null || req.tenantName().isBlank()) throw new IllegalArgumentException("tenantName is required");
         if (req.email() == null || req.email().isBlank()) throw new IllegalArgumentException("email is required");
         if (req.password() == null || req.password().length() < 8) throw new IllegalArgumentException("password must be >= 8 chars");
@@ -39,18 +44,46 @@ public class AuthController {
         TenantEntity tenant = tenants.save(new TenantEntity(UUID.randomUUID(), req.tenantName()));
         UserEntity user = users.save(new UserEntity(UUID.randomUUID(), tenant.getId(),
             req.email().toLowerCase(), encoder.encode(req.password()), "OWNER"));
-        return tokenFor(user);
+        return loginResponseFor(user);
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@RequestBody LoginRequest req) {
+    public LoginResponse login(@RequestBody LoginRequest req) {
         if (req.tenantId() == null) throw new IllegalArgumentException("tenantId is required");
         UserEntity user = users.findByTenantIdAndEmail(req.tenantId(), req.email() == null ? "" : req.email().toLowerCase())
             .orElseThrow(() -> new UnauthorizedException("Invalid credentials"));
         if (!encoder.matches(req.password(), user.getPasswordHash())) {
             throw new UnauthorizedException("Invalid credentials");
         }
-        return tokenFor(user);
+        return loginResponseFor(user);
+    }
+
+    /**
+     * Rotates a refresh token. Returns a new short-lived JWT + successor refresh token.
+     * Replaying a consumed refresh token revokes the entire token family (reuse detection).
+     */
+    @PostMapping("/refresh")
+    public LoginResponse refresh(@RequestBody RefreshRequest req) {
+        if (req.refreshToken() == null || req.refreshToken().isBlank()) {
+            throw new UnauthorizedException("refreshToken is required");
+        }
+        RotationResult rotation = refreshTokens.rotate(req.refreshToken());
+        UserEntity user = users.findById(rotation.userId())
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
+        AuthPrincipal principal = new AuthPrincipal(user.getId(), user.getTenantId(), user.getEmail(), user.getRole());
+        return new LoginResponse(jwt.issue(principal), user.getTenantId(), user.getId(),
+                user.getRole(), user.getEmail(), rotation.newRawToken(), refreshTokens.ttlSeconds());
+    }
+
+    /**
+     * Revokes the refresh token family. The short-lived JWT remains valid until expiry —
+     * clients should discard it locally.
+     */
+    @PostMapping("/logout")
+    public void logout(@RequestBody LogoutRequest req) {
+        if (req.refreshToken() != null && !req.refreshToken().isBlank()) {
+            refreshTokens.logout(req.refreshToken());
+        }
     }
 
     @GetMapping("/me")
@@ -59,8 +92,10 @@ public class AuthController {
         return new AuthResponse(null, p.tenantId(), p.userId(), p.role(), p.email());
     }
 
-    private AuthResponse tokenFor(UserEntity user) {
+    private LoginResponse loginResponseFor(UserEntity user) {
         AuthPrincipal principal = new AuthPrincipal(user.getId(), user.getTenantId(), user.getEmail(), user.getRole());
-        return new AuthResponse(jwt.issue(principal), user.getTenantId(), user.getId(), user.getRole(), user.getEmail());
+        String rawRefresh = refreshTokens.issue(user.getId());
+        return new LoginResponse(jwt.issue(principal), user.getTenantId(), user.getId(),
+                user.getRole(), user.getEmail(), rawRefresh, refreshTokens.ttlSeconds());
     }
 }
