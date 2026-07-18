@@ -1,0 +1,16 @@
+# Trivy suppressions for the blocking dependency scan (.github/workflows/security.yml).
+#
+# This file is INTENTIONALLY EMPTY. As of the Spring Boot 4.0.7 upgrade the backend and
+# frontend scan clean at 0 HIGH/CRITICAL, so nothing is suppressed and the gate blocks on
+# every HIGH/CRITICAL finding.
+#
+# Only add an entry when a HIGH/CRITICAL vulnerability has NO available fix yet and is
+# genuinely not exploitable in our usage. Each entry MUST carry a justification and a review
+# date, e.g.:
+#
+#   # CVE-2026-XXXXX — transitive via <lib>; no fix released; not reachable because <reason>.
+#   # Added 2026-07-18 by <who>. Re-check by 2026-08-18.
+#   CVE-2026-XXXXX
+#
+# Never add an entry just to make CI green. A suppression is a tracked, dated exception —
+# not a way to weaken the gate.
