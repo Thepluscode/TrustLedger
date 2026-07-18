@@ -3,7 +3,30 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-06-15
+Last updated: 2026-06-21
+
+## CI security hardening — SAST + blocking dependency gate (2026-06-21) — DEPLOYED
+
+Hardened `.github/workflows/security.yml` (which already had gitleaks, an *advisory* Trivy scan,
+and SBOM). Three changes, all measured before commit:
+
+| Change | Evidence |
+|--------|----------|
+| **Add SAST (Semgrep)** — Java + JS, OWASP Top-10, secrets; blocking (`--error`) | 200 rules / 255 files → **0 findings** after the Dockerfile fixes below |
+| **Fix 2 Semgrep findings** — both Dockerfiles ran as root | non-root added; `docker build` of both images **succeeds** and runs as `uid=999(app)` / `uid=1000(node)` |
+| **Flip Trivy advisory → blocking** (`exit-code 0`→`1`) with `.trivyignore` baseline | gated scan exits 0; blocks **new** HIGH/CRIT |
+
+Semgrep pinned (1.167.0); Trivy stays on `aquasecurity/trivy-action@v0.36.0` (repo convention).
+
+### Surfaced backlog — Spring Boot 4.0.0 → 4.0.6 patch bump (PLANNED)
+
+Trivy found **24 HIGH/CRITICAL CVEs** (6 critical), all backend Maven, baselined in `.trivyignore`.
+Despite being on Spring Boot 4.0.0, these are `.0`-release issues — incl. embedded Tomcat
+`CVE-2026-43512/43515` (critical), spring-security-web `CVE-2026-22732` (critical), spring-boot
+`CVE-2026-40976` (critical, fix=4.0.6), kafka-clients `CVE-2026-33557` (critical). Most clear with a
+**4.0.0 → 4.0.6** patch bump; a few stragglers (spring-security-config 7.0.5, kafka-clients 4.1.2,
+jackson-core 3.1.1) may need targeted overrides. Deliberately a **separate, `mvn test`-verified PR** —
+not folded into this CI change. The baseline ratchets: new HIGH/CRIT blocks CI; entries clear on upgrade.
 
 ## v1.0 — ledger-first domain spine
 
