@@ -34,7 +34,12 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
-          exit-code: "0"   # advisory for the pilot; flip to 1 to block
+          # Blocking. The backend (Spring Boot 4.0.7) and frontend both scan clean at 0
+          # HIGH/CRITICAL, so this gates regressions rather than an existing backlog — no
+          # suppressions are needed today. When a HIGH/CRITICAL has no fix yet, add a dated,
+          # justified entry to .trivyignore rather than weakening this gate.
+          exit-code: "1"
+          trivyignores: .trivyignore
 
   sbom:
     name: SBOM (CycloneDX)
