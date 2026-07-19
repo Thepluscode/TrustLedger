@@ -29,4 +29,5 @@ public record DrillContext(
         ExternalPaymentAttemptRepository externalPaymentAttempts,
         LedgerEntryRepository ledgerEntries,
         AccountRepository accounts,
-        ReconciliationIssueRepository reconciliationIssues) {}
+        ReconciliationIssueRepository reconciliationIssues,
+        CertificationSyntheticFixtures fixtures) {}
