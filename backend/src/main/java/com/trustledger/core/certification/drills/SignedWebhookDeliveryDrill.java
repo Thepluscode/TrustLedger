@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Component;
 
@@ -77,22 +78,21 @@ public class SignedWebhookDeliveryDrill implements CertificationDrill {
 
     private void deliverAndDrain(DrillContext ctx, Fixture fixture, String eventType, String signature) {
         String body = webhookBody(fixture, eventType);
-        ctx.inbox().receive("sandbox", body, signature);
-        forceClaimableNow(ctx);
+        UUID inboxId = ctx.inbox().receive("sandbox", body, signature).inboxId();
+        forceClaimableNow(ctx, inboxId);
         ctx.worker().runOnce();
     }
 
     /**
-     * Forces every currently-pending inbox row past its {@code available_at} so the next worker sweep
-     * claims it immediately, regardless of JVM/DB clock skew — the same clock-skew-proof pattern used
-     * by {@code PaymentWebhookInboxIntegrationTest#makeClaimableNow} and
-     * {@code ExternalPaymentIntegrationTest#drainInbox}.
+     * Forces this drill's own inbox row past its {@code available_at} so the next worker sweep claims
+     * it immediately, regardless of JVM/DB clock skew — the same clock-skew-proof pattern used by
+     * {@code PaymentWebhookInboxIntegrationTest#makeClaimableNow}. Scoped by row id so it never touches
+     * any other tenant's or provider's in-flight webhooks.
      */
-    private void forceClaimableNow(DrillContext ctx) {
+    private void forceClaimableNow(DrillContext ctx, UUID inboxId) {
         ctx.jdbc().update(
-                "UPDATE payment_webhook_inbox SET available_at = now() - interval '1 hour' "
-                        + "WHERE status IN ('RECEIVED', 'RETRY')",
-                new MapSqlParameterSource());
+                "UPDATE payment_webhook_inbox SET available_at = now() - interval '1 hour' WHERE id = :id",
+                new MapSqlParameterSource("id", inboxId));
     }
 
     private ExternalPaymentAttemptEntity requireAttempt(DrillContext ctx, Fixture fixture) {
