@@ -109,4 +109,66 @@ class ProviderCertificationIntegrationTest {
         assertTrue(results.stream().anyMatch(r -> "FAIL".equals(r.getStatus())),
                 "the reconciliation drill must be recorded FAIL");
     }
+
+    @Test
+    void differentActorSignOffMakesItTheCurrentValidCertification() {
+        UUID tenant = UUID.randomUUID();
+        UUID initiator = UUID.randomUUID();
+        UUID configId = productionConfig(tenant);
+        CertificationRunEntity run = certifications.run(tenant, initiator, configId, "PRODUCTION");
+        assertEquals("PASSED", run.getStatus());
+
+        assertTrue(certifications.currentValidCertification(tenant, configId, "PRODUCTION").isEmpty(),
+                "a PASSED run is not valid for the gate until it is signed off");
+
+        UUID approver = UUID.randomUUID();
+        certifications.signOff(tenant, approver, run.getId(), "reviewed and approved");
+
+        var current = certifications.currentValidCertification(tenant, configId, "PRODUCTION");
+        assertTrue(current.isPresent(), "a signed-off PASSED run must be the current valid certification");
+        assertEquals(run.getId(), current.get().getId());
+    }
+
+    @Test
+    void signOffBySameActorAsInitiatorIsRejected() {
+        UUID tenant = UUID.randomUUID();
+        UUID initiator = UUID.randomUUID();
+        UUID configId = productionConfig(tenant);
+        CertificationRunEntity run = certifications.run(tenant, initiator, configId, "PRODUCTION");
+
+        assertThrows(IllegalStateException.class,
+                () -> certifications.signOff(tenant, initiator, run.getId(), "self approval"),
+                "dual control: the initiator must not be able to sign off their own run");
+    }
+
+    @Test
+    void signOffOnAFailedRunIsRejected() {
+        UUID tenant = UUID.randomUUID();
+        UUID initiator = UUID.randomUUID();
+        UUID configId = productionConfig(tenant);
+        UUID badTxId = UUID.randomUUID();
+        AccountEntity account = accounts.save(new AccountEntity(
+                UUID.randomUUID(), tenant, UUID.randomUUID(), "NGN", new BigDecimal("1000.0000")));
+        ledgerTransactions.save(new LedgerTransactionEntity(badTxId, tenant, UUID.randomUUID(),
+                "cert-unbalanced-" + badTxId, "EXTERNAL_TRANSFER_OUT", "POSTED", "NGN", Instant.now()));
+        ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), tenant, badTxId, account.getId(),
+                "DEBIT", new BigDecimal("100.0000"), "NGN", "PRINCIPAL"));
+        CertificationRunEntity run = certifications.run(tenant, initiator, configId, "PRODUCTION");
+        assertEquals("FAILED", run.getStatus());
+
+        assertThrows(IllegalStateException.class,
+                () -> certifications.signOff(tenant, UUID.randomUUID(), run.getId(), "should be blocked"));
+    }
+
+    @Test
+    void aRunCanBeSignedOffOnlyOnce() {
+        UUID tenant = UUID.randomUUID();
+        UUID initiator = UUID.randomUUID();
+        UUID configId = productionConfig(tenant);
+        CertificationRunEntity run = certifications.run(tenant, initiator, configId, "PRODUCTION");
+        certifications.signOff(tenant, UUID.randomUUID(), run.getId(), "first");
+
+        assertThrows(IllegalStateException.class,
+                () -> certifications.signOff(tenant, UUID.randomUUID(), run.getId(), "second"));
+    }
 }

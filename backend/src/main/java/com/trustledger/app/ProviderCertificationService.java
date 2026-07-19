@@ -9,18 +9,22 @@ import com.trustledger.core.certification.DrillResult.Assertion;
 import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.CertificationDrillResultEntity;
 import com.trustledger.persistence.entity.CertificationRunEntity;
+import com.trustledger.persistence.entity.CertificationSignOffEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.CertificationDrillResultRepository;
 import com.trustledger.persistence.repo.CertificationRunRepository;
+import com.trustledger.persistence.repo.CertificationSignOffRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -37,6 +41,7 @@ public class ProviderCertificationService {
 
     private final CertificationRunRepository runs;
     private final CertificationDrillResultRepository drillResults;
+    private final CertificationSignOffRepository signoffs;
     private final CertificationDrillRegistry registry;
     private final DrillContextFactory contextFactory;
     private final EvidenceService evidence;
@@ -46,11 +51,13 @@ public class ProviderCertificationService {
 
     public ProviderCertificationService(CertificationRunRepository runs,
                                         CertificationDrillResultRepository drillResults,
+                                        CertificationSignOffRepository signoffs,
                                         CertificationDrillRegistry registry, DrillContextFactory contextFactory,
                                         EvidenceService evidence, AuditLogRepository auditLogs, ObjectMapper json,
                                         @Value("${trustledger.certification.validity-days:90}") long validityDays) {
         this.runs = runs;
         this.drillResults = drillResults;
+        this.signoffs = signoffs;
         this.registry = registry;
         this.contextFactory = contextFactory;
         this.evidence = evidence;
@@ -106,6 +113,41 @@ public class ProviderCertificationService {
                 "status", finalStatus, "catalogueVersion", registry.catalogueVersion(),
                 "evidenceExportId", evidenceExportId.toString()));
         return run;
+    }
+
+    /**
+     * Records an explicit human sign-off of a PASSED certification. Enforces dual control: the signer
+     * must differ from the run's initiator, the run must have PASSED, and a run may be signed off once.
+     */
+    @Transactional
+    public CertificationSignOffEntity signOff(UUID tenantId, UUID actorId, UUID runId, String note) {
+        CertificationRunEntity run = runs.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("Certification run not found: " + runId));
+        if (!run.getTenantId().equals(tenantId)) {
+            throw new IllegalArgumentException("Certification run belongs to another tenant");
+        }
+        if (!"PASSED".equals(run.getStatus())) {
+            throw new IllegalStateException("Only a PASSED certification can be signed off");
+        }
+        if (actorId.equals(run.getInitiatedBy())) {
+            throw new IllegalStateException("Certification initiator cannot sign off their own run (dual control)");
+        }
+        if (signoffs.findByCertificationRunId(runId).isPresent()) {
+            throw new IllegalStateException("Certification is already signed off");
+        }
+        CertificationSignOffEntity signoff =
+                signoffs.save(new CertificationSignOffEntity(UUID.randomUUID(), runId, tenantId, actorId, note));
+        audit(tenantId, actorId, "CERTIFICATION_SIGNED_OFF", runId, Map.of("signedBy", actorId.toString()));
+        return signoff;
+    }
+
+    /**
+     * The current valid certification for a config, if any: a PASSED run with a sign-off that has not
+     * expired. This is the precondition the production-activation gate consults.
+     */
+    @Transactional(readOnly = true)
+    public Optional<CertificationRunEntity> currentValidCertification(UUID tenantId, UUID configId, String environment) {
+        return runs.findCurrentValid(tenantId, configId, environment, Instant.now()).stream().findFirst();
     }
 
     private void audit(UUID tenantId, UUID actorId, String action, UUID runId, Map<String, Object> metadata) {
