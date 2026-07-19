@@ -150,6 +150,35 @@ public class ProviderCertificationService {
         return runs.findCurrentValid(tenantId, configId, environment, Instant.now()).stream().findFirst();
     }
 
+    /** All certification runs for a tenant, newest first. */
+    @Transactional(readOnly = true)
+    public List<CertificationRunEntity> runsForTenant(UUID tenantId) {
+        return runs.findByTenantIdOrderByStartedAtDesc(tenantId);
+    }
+
+    /** A single run, verified to belong to the tenant. */
+    @Transactional(readOnly = true)
+    public CertificationRunEntity runForTenant(UUID tenantId, UUID runId) {
+        CertificationRunEntity run = runs.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("Certification run not found: " + runId));
+        if (!run.getTenantId().equals(tenantId)) {
+            throw new IllegalArgumentException("Certification run belongs to another tenant");
+        }
+        return run;
+    }
+
+    /** The per-drill results for a run (assertions/observations; never secrets). */
+    @Transactional(readOnly = true)
+    public List<CertificationDrillResultEntity> drillResults(UUID runId) {
+        return drillResults.findByCertificationRunId(runId);
+    }
+
+    /** Whether a run carries a human sign-off. */
+    @Transactional(readOnly = true)
+    public boolean isSignedOff(UUID runId) {
+        return signoffs.findByCertificationRunId(runId).isPresent();
+    }
+
     private void audit(UUID tenantId, UUID actorId, String action, UUID runId, Map<String, Object> metadata) {
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId, action,
                 "CERTIFICATION_RUN", runId, json.writeValueAsString(metadata)));

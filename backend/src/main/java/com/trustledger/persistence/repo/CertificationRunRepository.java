@@ -19,4 +19,6 @@ public interface CertificationRunRepository extends JpaRepository<CertificationR
         order by r.startedAt desc""")
     List<CertificationRunEntity> findCurrentValid(@Param("tenantId") UUID tenantId,
         @Param("configId") UUID configId, @Param("environment") String environment, @Param("now") Instant now);
+
+    List<CertificationRunEntity> findByTenantIdOrderByStartedAtDesc(UUID tenantId);
 }
