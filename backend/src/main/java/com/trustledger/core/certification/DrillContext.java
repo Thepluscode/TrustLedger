@@ -1,6 +1,8 @@
 package com.trustledger.core.certification;
 
+import com.trustledger.app.ExternalPaymentService;
 import com.trustledger.app.ExternalPaymentTransitionService;
+import com.trustledger.app.ExternalRailSubmissionService;
 import com.trustledger.app.PaymentWebhookInboxService;
 import com.trustledger.app.PaymentWebhookInboxWorker;
 import com.trustledger.persistence.repo.AccountRepository;
@@ -27,6 +29,8 @@ public record DrillContext(
         PaymentWebhookInboxService inbox,
         PaymentWebhookInboxWorker worker,
         ExternalPaymentTransitionService transitions,
+        ExternalRailSubmissionService submissions,
+        ExternalPaymentService externalPayments,
         com.trustledger.reconciliation.ReconciliationService reconciliation,
         WebhookSigner signer,
         ExternalPaymentAttemptRepository externalPaymentAttempts,

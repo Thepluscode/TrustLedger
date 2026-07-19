@@ -64,8 +64,9 @@ class SignedWebhookDeliveryDrillIntegrationTest {
     @Autowired NamedParameterJdbcTemplate jdbc;
 
     private DrillContext context(PaymentWebhookInboxWorker workerToUse) {
-        return new DrillContext(UUID.randomUUID(), null, inbox, workerToUse, transitions, reconciliation, signer,
-                externalPaymentAttempts, ledgerEntries, accounts, reconciliationIssues, fixtures, jdbc);
+        // submissions/externalPayments are null here: the signed-webhook drill never uses them.
+        return new DrillContext(UUID.randomUUID(), null, inbox, workerToUse, transitions, null, null, reconciliation,
+                signer, externalPaymentAttempts, ledgerEntries, accounts, reconciliationIssues, fixtures, jdbc);
     }
 
     @Test

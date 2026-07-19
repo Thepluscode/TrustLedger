@@ -93,4 +93,39 @@ public class CertificationSyntheticFixtures {
 
         return new Fixture(source.getId(), clearing.getId(), transferId, attempt.getId(), providerReference);
     }
+
+    /**
+     * Creates a fixture whose attempt is {@code READY_TO_SUBMIT} and carries the given sandbox
+     * {@code scenario} (e.g. {@code "timeout"}) in its request payload, so a drill can drive it through
+     * {@code ExternalRailSubmissionService.execute} and exercise the real provider-submission path.
+     * The source account already holds a 200.0000 reservation (available 800 / posted 1000 / pending 200),
+     * mirroring the state {@code initiate} leaves before submission.
+     */
+    public Fixture createReadyToSubmit(UUID tenantId, String scenario) {
+        AccountEntity source =
+                new AccountEntity(UUID.randomUUID(), tenantId, CERT_SYSTEM_USER, "NGN", new BigDecimal("1000.0000"));
+        source.setAvailableBalance(new BigDecimal("800.0000"));
+        source.setPendingBalance(new BigDecimal("200.0000"));
+        source = accounts.save(source);
+
+        AccountEntity clearing =
+                accounts.save(new AccountEntity(UUID.randomUUID(), tenantId, SYSTEM_USER, "NGN", BigDecimal.ZERO));
+
+        UUID transferId = UUID.randomUUID();
+        TransferEntity transfer = new TransferEntity(
+                transferId, tenantId, CERT_SYSTEM_USER, source.getId(), source.getId(), UUID.randomUUID(),
+                new BigDecimal("200.0000"), "NGN", ExternalPaymentStatus.PENDING_SETTLEMENT, 0, "ALLOW",
+                "cert-fixture-" + transferId, "certification fixture");
+        transfer.setChannel("EXTERNAL");
+        transfers.save(transfer);
+
+        String providerReference = "sbx_cert_" + UUID.randomUUID();
+        ExternalPaymentAttemptEntity attempt = attempts.save(new ExternalPaymentAttemptEntity(
+                UUID.randomUUID(), tenantId, transferId, SandboxPaymentRailAdapter.RAIL,
+                null, null, null, null, providerReference,
+                ExternalPaymentStatus.READY_TO_SUBMIT, new BigDecimal("200.0000"), "NGN",
+                "{\"scenario\":\"" + scenario + "\"}", Instant.now()));
+
+        return new Fixture(source.getId(), clearing.getId(), transferId, attempt.getId(), providerReference);
+    }
 }
