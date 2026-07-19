@@ -6,9 +6,11 @@
 
 ## Problem
 
-Production payouts are disabled by default and gated by an AND-chain (global kill switch,
-approved provider config, active credentials, independently-approved canary, available
-exposure, no circuit breaker — see `ProductionCanaryService.rejectionReason`). Missing from
+Production payouts are disabled by default and gated by an AND-chain composed in
+`TenantPaymentRouteService.rejectionReason` (global kill switch, emergency-disabled, enabled,
+compliance-approved, operational-active, configured credentials, then
+`ProductionCanaryService.rejectionReason` for independently-approved canary / exposure /
+circuit-breaker). Missing from
 that chain is any *proof that the provider integration actually survives the hard cases* —
 signed-webhook delivery, ambiguous-outcome recovery, reconciliation integrity — before live
 money is trusted to it. Today that proof is ad-hoc.
@@ -41,9 +43,10 @@ New bounded module `com.trustledger.core.certification` (mirroring `core/fraud`,
 `core/reconciliation`). A `CertificationDrill` sealed-interface catalogue is executed by
 `ProviderCertificationService` against a `(tenant, provider config, sandbox)` context; results
 become a checksummed evidence pack (reusing the existing `EvidenceService`); a run that PASSES
-can be signed off by a *different* actor; and `ProductionCanaryService.rejectionReason` gains
-one new AND-condition that rejects with `production_not_certified` when no current signed-off
-PASS certification exists for the config.
+can be signed off by a *different* actor; and `TenantPaymentRouteService.rejectionReason` gains
+one new AND-condition — alongside its existing canary check, keeping `ProductionCanaryService`
+and `ProviderCertificationService` decoupled — that rejects with `production_not_certified` when
+no current signed-off PASS certification exists for the config.
 
 ```
 POST /certifications ──▶ ProviderCertificationService.run()
@@ -53,7 +56,7 @@ POST /certifications ──▶ ProviderCertificationService.run()
      ├─ EvidenceService: one checksummed pack ─▶ evidence_export_id
      └─ audit
 POST /certifications/{id}/sign-off ──▶ certification_signoffs (actor ≠ initiator)
-ProductionCanaryService.rejectionReason ──▶ currentValidCertification() ? allow : "production_not_certified"
+TenantPaymentRouteService.rejectionReason (+canary) ──▶ currentValidCertification() ? allow : "production_not_certified"
 ```
 
 ## Components
@@ -79,9 +82,11 @@ ProductionCanaryService.rejectionReason ──▶ currentValidCertification() ? 
    `SETTLED` webhook through the real inbox (`PaymentWebhookInboxService.receive` + drive the
    worker) → assert it settles exactly once; deliver an invalid-signature webhook → assert
    rejected with no state change. Proves webhook auth + apply-once.
-2. **`AmbiguousOutcomeRecoveryDrill`** — sandbox payout with the `connection_reset`/`timeout`
-   scenario → assert `PENDING_UNKNOWN` with the reservation held (no double-pay); verification
-   resolves it. Proves ambiguous-result safety.
+2. **`AmbiguousOutcomeRecoveryDrill`** — sandbox payout with the `timeout` scenario (the
+   scenario that exists in `SandboxPaymentRailAdapter` — it raises `PaymentRailTimeoutException`;
+   note `connection_reset` is *not* in main, so the drill uses `timeout`) → assert
+   `PENDING_UNKNOWN` with the reservation held (no double-pay); verification resolves it. Proves
+   ambiguous-result safety.
 3. **`ReconciliationProofDrill`** — post a known sandbox settlement, run reconciliation →
    assert ledger balanced (debits == credits) and zero reconciliation exceptions. Proves
    double-entry integrity.
@@ -95,12 +100,17 @@ evidence trail (no teardown in this slice).
 
 ### Orchestration & reuse
 - `ProviderCertificationService` — runs the catalogue, persists results, aggregates, generates
-  one evidence pack via the existing `EvidenceService`/`Checksums` (SHA-256, object storage,
-  audit) — **no new evidence infrastructure** — and stamps `evidence_export_id`, `expires_at`.
+  one evidence pack. Reuses `EvidenceService`'s checksum/object-storage/audit internals by
+  adding a new `exportCertification(tenantId, runId, generatedBy)` public method that follows
+  the existing `exportFraudCase` / `exportLedgerTransaction` pattern (the generic `record(...)`
+  helper is private) — so no new evidence *infrastructure*, just one method on the existing
+  service. Stamps `evidence_export_id`, `expires_at`.
 - Sign-off — a service method enforcing `PASSED` + `signed_by ≠ initiated_by` (dual-control,
   reusing the canary's requester≠approver pattern) + one-sign-off-per-run.
-- Gate hook — `ProductionCanaryService.rejectionReason` calls
-  `ProviderCertificationService.currentValidCertification(tenant, config, PRODUCTION)`.
+- Gate hook — `TenantPaymentRouteService.rejectionReason` (the AND-composition layer that
+  already calls `canaries.rejectionReason`) calls
+  `ProviderCertificationService.currentValidCertification(tenant, config, PRODUCTION)` in its
+  `PRODUCTION` block. `ProductionCanaryService` is untouched — no service coupling.
 
 ### REST surface (`CertificationController`, thin — delegates to service)
 - `POST /api/v1/tenant/certifications` — run a certification for a config.
@@ -172,7 +182,7 @@ and `expires_at > now()` (or null). Most recent wins. None → `production_not_c
 
 - **Per-drill:** each drill PASSes on the good path and FAILs on an injected bad path
   (invalid signature → `SignedWebhookDeliveryDrill` FAIL; released reservation on
-  `connection_reset` → `AmbiguousOutcomeRecoveryDrill` FAIL; unbalanced ledger →
+  `timeout` → `AmbiguousOutcomeRecoveryDrill` FAIL; unbalanced ledger →
   `ReconciliationProofDrill` FAIL).
 - **End-to-end:** full run → 3 drills PASS → run PASSED → evidence pack has a SHA-256 checksum
   → different-actor sign-off succeeds; **same-actor** sign-off → 409; a run with a forced drill
