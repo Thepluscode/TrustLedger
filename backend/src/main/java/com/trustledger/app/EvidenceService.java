@@ -102,6 +102,22 @@ public class EvidenceService {
         return persist(tenantId, "LEDGER_TRANSACTION", ledgerTxId, generatedBy, bundle);
     }
 
+    /**
+     * Generates a checksummed evidence pack for a certification run. The caller (the certification
+     * service) assembles {@code certificationBundle} from the run and its per-drill results, so this
+     * method stays free of certification internals and simply reuses the shared checksum/object-storage/
+     * audit path via {@link #persist}.
+     */
+    @Transactional
+    public EvidenceExportEntity exportCertification(UUID tenantId, UUID runId, UUID generatedBy,
+                                                    Map<String, Object> certificationBundle) {
+        Map<String, Object> bundle = new LinkedHashMap<>();
+        bundle.put("kind", "CERTIFICATION_EVIDENCE");
+        bundle.put("certificationRunId", runId.toString());
+        bundle.putAll(certificationBundle);
+        return persist(tenantId, "CERTIFICATION", runId, generatedBy, bundle);
+    }
+
     @Transactional(readOnly = true)
     public byte[] download(UUID tenantId, UUID exportId) {
         EvidenceExportEntity e = exports.findById(exportId).orElseThrow(() -> new IllegalArgumentException("Export not found: " + exportId));

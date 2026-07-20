@@ -316,6 +316,27 @@ zero-state components, AUDITOR-200 / FINANCE_OPERATOR-403); full suite **124/124
 is surfaced and live-wired. The held-case approve/reject modal is **live-testable end-to-end**: the
 intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
 
+## v3.1 — provider certification & production evidence (first slice)
+
+Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8.2, first slice only.
+
+| Feature | Status | Evidence / note |
+|---------|--------|------|
+| Cert data model (V31: runs / drill_results / signoffs) | **DEPLOYED (PR #46)** | `CertificationPersistenceIntegrationTest`; composite FK to `tenant_provider_configs(tenant_id,id,environment)` |
+| Drill contract + registry (sealed catalogue, SHA-256 catalogue stamp) | **DEPLOYED (PR #46)** | `CertificationDrillRegistry`; catalogue version = 32-hex stamp |
+| 3 drills vs sandbox rail (signed-webhook, ambiguous-recovery, reconciliation-proof) | **DEPLOYED (PR #46)** | 3 drill integration tests; synthetic fixtures only (`CERT_SYSTEM_USER`) |
+| Run orchestration + checksummed evidence pack | **DEPLOYED (PR #46)** | `ProviderCertificationIntegrationTest` (PASS + FAIL-records-all) |
+| Dual-control sign-off (signer≠initiator, PASSED-only, once) | **DEPLOYED (PR #46)** | 4 sign-off tests |
+| **Production-activation gate (`production_not_certified`)** | **DEPLOYED (PR #46)** | `CertificationGateIntegrationTest`: block → allow(cert+signoff) → block(expiry) + per-config |
+| REST surface `/api/v1/tenant/certifications` (run/sign-off/list/detail) | **DEPLOYED (PR #46)** | `CertificationApiIntegrationTest`: E2E + no-secrets assertion + cross-tenant deny |
+| **Whole backend: `mvn test`** | **DEPLOYED (PR #46)** | `Tests run: 224, Failures: 0` (2026-07-20, real PG via colima) |
+
+Whole-branch review (java-reviewer) caught + fixed a CRITICAL: the reconciliation-proof drill
+originally ran the GLOBAL cross-tenant reconciliation sweep (live provider calls for other tenants) →
+now tenant-scoped `checkTenantLedgerBalance`. Not yet **VERIFIED** (needs merge + CI/production evidence).
+Residuals for later slices: full ~8-drill catalogue, real Paystack test-env drills, cert UI,
+fixture retention, list pagination.
+
 ## Session summary — 2026-06-15 (v3.0 console deferred-screens cleared)
 
 One sitting that closed out the entire design.md v3.0 deferred-console-screens list, one verified slice at
