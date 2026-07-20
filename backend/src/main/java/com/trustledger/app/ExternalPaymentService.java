@@ -10,6 +10,7 @@ import com.trustledger.core.model.LedgerTransactionType;
 import com.trustledger.core.model.Money;
 import com.trustledger.core.transfer.TransferCommand;
 import com.trustledger.persistence.entity.*;
+import com.trustledger.security.ForbiddenException;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
 import com.trustledger.rails.PaymentRailAdapter;
@@ -140,7 +141,7 @@ public class ExternalPaymentService {
         TenantPaymentRouteDecision route = routes.route(req.tenantId(), amount.amount(), req.currency(),
             req.destinationCountry(), req.preferredProvider(), req.preferredEnvironment());
         ResolvedProviderRecipient recipient = resolveRecipient(req, route);
-        reserve(req.sourceAccountId(), req.currency(), amount);
+        reserve(req.tenantId(), req.sourceAccountId(), req.currency(), amount);
         auditRouteDecision(req.tenantId(), transferId, route, recipient, req.destinationCountry());
 
         if (decision.requiresManualReview()) {
@@ -327,8 +328,13 @@ public class ExternalPaymentService {
             req.idempotencyKey(), hash, "PROCESSING"));
     }
 
-    private AccountEntity reserve(UUID sourceAccountId, String currency, Money amount) {
+    private AccountEntity reserve(UUID tenantId, UUID sourceAccountId, String currency, Money amount) {
         AccountEntity source = lock(sourceAccountId);
+        // Authorization before money moves: the source account must belong to the caller's tenant.
+        // Without this a caller can reserve/drain another tenant's account by supplying its id (BOLA).
+        if (!source.getTenantId().equals(tenantId)) {
+            throw new ForbiddenException("Source account does not belong to the caller's tenant");
+        }
         requireActive(source);
         requireCurrency(source, currency);
         Money available = money(source.getAvailableBalance(), source.getCurrency());
