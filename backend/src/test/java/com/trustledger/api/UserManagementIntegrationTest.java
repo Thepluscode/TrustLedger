@@ -93,6 +93,31 @@ class UserManagementIntegrationTest {
         assertEquals(400, send("PATCH", owner.token(), "/api/v1/users/" + viewerId + "/role", Map.of("role", "WIZARD")).statusCode());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonOwnerCannotMintAnOwnerViaInvite() throws Exception {
+        AuthResponse owner = register();
+
+        // Owner invites an ADMIN (has USER_MANAGE, is not OWNER) and we log in as them.
+        String adminEmail = "admin-" + UUID.randomUUID() + "@x.com";
+        Map<String, Object> invited = json.readValue(send("POST", owner.token(), "/api/v1/users/invite",
+            Map.of("email", adminEmail, "role", "ADMIN")).body(), Map.class);
+        AuthResponse admin = json.readValue(
+            login(owner.tenantId(), adminEmail, invited.get("temporaryPassword").toString()).body(), AuthResponse.class);
+
+        // The takeover: an ADMIN must NOT be able to invite an OWNER (would hand back an OWNER's password).
+        assertEquals(403, send("POST", admin.token(), "/api/v1/users/invite",
+            Map.of("email", "takeover-" + UUID.randomUUID() + "@x.com", "role", "OWNER")).statusCode(),
+            "a non-OWNER must not be able to mint an OWNER via invite");
+
+        // Control: the ADMIN can still invite a non-OWNER, and an OWNER can still invite an OWNER.
+        assertEquals(200, send("POST", admin.token(), "/api/v1/users/invite",
+            Map.of("email", "analyst-" + UUID.randomUUID() + "@x.com", "role", "FRAUD_ANALYST")).statusCode());
+        assertEquals(200, send("POST", owner.token(), "/api/v1/users/invite",
+            Map.of("email", "coowner-" + UUID.randomUUID() + "@x.com", "role", "OWNER")).statusCode(),
+            "an OWNER may still grant OWNER");
+    }
+
     private AuthResponse register() throws Exception {
         String body = json.writeValueAsString(Map.of("tenantName", "T-" + UUID.randomUUID(),
             "email", "owner-" + UUID.randomUUID() + "@x.com", "password", "Password!1"));
