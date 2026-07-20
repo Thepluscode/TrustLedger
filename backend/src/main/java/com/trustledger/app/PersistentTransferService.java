@@ -11,6 +11,7 @@ import com.trustledger.core.model.Money;
 import com.trustledger.core.transfer.TransferCommand;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
+import com.trustledger.security.ForbiddenException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -115,6 +116,11 @@ public class PersistentTransferService {
         AccountEntity second = lock(secondId);
         AccountEntity source = sourceFirst ? first : second;
         AccountEntity destination = sourceFirst ? second : first;
+
+        // Authorization before any money touches: both accounts must belong to the caller's tenant.
+        // Without this, a caller can debit another tenant's account by supplying its id (BOLA).
+        requireOwnedBy(source, req.tenantId());
+        requireOwnedBy(destination, req.tenantId());
 
         requireActive(source);
         requireActive(destination);
@@ -272,6 +278,12 @@ public class PersistentTransferService {
 
     private AccountEntity lock(UUID id) {
         return accounts.findByIdForUpdate(id).orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+    }
+
+    private static void requireOwnedBy(AccountEntity account, UUID tenantId) {
+        if (!account.getTenantId().equals(tenantId)) {
+            throw new ForbiddenException("Account does not belong to the caller's tenant");
+        }
     }
 
     private PersistentTransferResponse finish(IdempotencyKeyEntity idem, PersistentTransferResponse response) {

@@ -40,7 +40,8 @@ public class UserController {
     @PostMapping("/invite")
     public InvitedUserView invite(@RequestBody InviteRequest body) {
         access.require(Permission.USER_MANAGE);
-        Invited invited = userService.invite(CurrentUser.tenantId(), CurrentUser.userId(), body.email(), body.role());
+        Invited invited = userService.invite(CurrentUser.tenantId(), CurrentUser.role(), CurrentUser.userId(),
+            body.email(), body.role());
         return new InvitedUserView(invited.user().getId(), invited.user().getEmail(), invited.user().getRole(),
             invited.temporaryPassword());
     }

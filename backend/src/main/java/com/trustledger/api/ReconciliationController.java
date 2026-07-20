@@ -3,10 +3,12 @@ package com.trustledger.api;
 import com.trustledger.api.ApiViews.ReconciliationIssueView;
 import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
+import com.trustledger.app.AccessControlService;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
+import com.trustledger.security.Permission;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -22,10 +24,13 @@ public class ReconciliationController {
 
     private final ReconciliationIssueRepository issues;
     private final AuditLogRepository auditLogs;
+    private final AccessControlService access;
 
-    public ReconciliationController(ReconciliationIssueRepository issues, AuditLogRepository auditLogs) {
+    public ReconciliationController(ReconciliationIssueRepository issues, AuditLogRepository auditLogs,
+                                    AccessControlService access) {
         this.issues = issues;
         this.auditLogs = auditLogs;
+        this.access = access;
     }
 
     @GetMapping
@@ -40,14 +45,15 @@ public class ReconciliationController {
     }
 
     @PostMapping("/{id}/resolve")
-    public ReconciliationIssueView resolve(@PathVariable UUID id,
-                                           @RequestHeader(value = "X-Actor", defaultValue = "operator") String actor) {
+    public ReconciliationIssueView resolve(@PathVariable UUID id) {
+        access.require(Permission.TENANT_ADMIN);
         ReconciliationIssueEntity issue = require(id);
         issue.setStatus("RESOLVED");
         issue.setResolvedAt(Instant.now());
         issues.save(issue);
-        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), issue.getTenantId(), "OPERATOR", null,
-            "RECONCILIATION_ISSUE_RESOLVED", "RECONCILIATION_ISSUE", id, "{\"actor\":\"" + actor + "\"}"));
+        // The resolving actor is the authenticated user — never a spoofable client header.
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), issue.getTenantId(), "USER", CurrentUser.userId(),
+            "RECONCILIATION_ISSUE_RESOLVED", "RECONCILIATION_ISSUE", id, "{}"));
         return view(issue);
     }
 

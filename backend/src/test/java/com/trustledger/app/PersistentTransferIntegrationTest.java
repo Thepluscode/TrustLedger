@@ -57,8 +57,12 @@ class PersistentTransferIntegrationTest {
         return new FraudContext(true, true, 8, 0, "GB", "GB", 5000, false, false, false, java.util.Map.of(), java.time.Instant.now());
     }
 
+    // Internal transfers are same-tenant by definition; both accounts share one tenant so the
+    // ownership guard (a transfer's accounts must belong to the caller's tenant) is satisfied.
+    private final UUID tenant = UUID.randomUUID();
+
     private AccountEntity account(String opening) {
-        return accounts.save(new AccountEntity(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+        return accounts.save(new AccountEntity(UUID.randomUUID(), tenant, UUID.randomUUID(),
             "GBP", new BigDecimal(opening)));
     }
 

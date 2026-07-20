@@ -1,11 +1,13 @@
 package com.trustledger.api;
 
+import com.trustledger.app.AccessControlService;
 import com.trustledger.app.IntelligentTransferGateway;
 import com.trustledger.app.PersistentTransferRequest;
 import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.UsageMeteringService;
 import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.security.CurrentUser;
+import com.trustledger.security.Permission;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,17 +19,21 @@ public class TransferController {
     private final IntelligentTransferGateway gateway;
     private final TransferMetrics metrics;
     private final UsageMeteringService usage;
+    private final AccessControlService access;
 
-    public TransferController(IntelligentTransferGateway gateway, TransferMetrics metrics, UsageMeteringService usage) {
+    public TransferController(IntelligentTransferGateway gateway, TransferMetrics metrics, UsageMeteringService usage,
+                             AccessControlService access) {
         this.gateway = gateway;
         this.metrics = metrics;
         this.usage = usage;
+        this.access = access;
     }
 
     @PostMapping
     public ResponseEntity<PersistentTransferResponse> createTransfer(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody TransferApiRequest body) {
+        access.require(Permission.TRANSFER_CREATE);
 
         PersistentTransferRequest request = new PersistentTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.destinationAccountId(),
