@@ -93,12 +93,19 @@ class CertificationApiIntegrationTest {
             HttpResponse.BodyHandlers.ofString());
     }
 
-    /** No secret, credential reference, or OTP may ever reach a client. */
+    /**
+     * No secret, credential reference, or OTP VALUE may ever reach a client. We check the concrete leak
+     * vectors — vault refs, a credential/secret-ref field, a raw action sensitive-value field, and the
+     * sandbox OTP value itself — rather than the bare word "otp", which legitimately appears in the
+     * OTP-drill's assertion names (that metadata documents the test; it does not leak a code).
+     */
     private void assertNoSecrets(String body) {
         String lower = body.toLowerCase();
         assertFalse(body.contains("vault://"), "response leaked a secret reference: " + body);
         assertFalse(lower.contains("secretref"), "response leaked a credential/webhook secret ref: " + body);
-        assertFalse(lower.contains("otp"), "response leaked an OTP field: " + body);
+        assertFalse(lower.contains("sensitivevalue"), "response leaked a sensitive action value field: " + body);
+        assertFalse(body.contains(com.trustledger.rails.SandboxPaymentRailAdapter.VALID_OTP),
+            "response leaked an OTP value: " + body);
     }
 
     @Test
@@ -114,7 +121,7 @@ class CertificationApiIntegrationTest {
         Map<?, ?> runBody = json.readValue(run.body(), Map.class);
         assertEquals("PASSED", runBody.get("status"));
         assertEquals(false, runBody.get("signedOff"));
-        assertEquals(3, ((List<?>) runBody.get("drills")).size(), "every drill must be reported");
+        assertEquals(6, ((List<?>) runBody.get("drills")).size(), "every drill must be reported");
         assertNotNull(runBody.get("evidenceExportId"), "a passed run carries an evidence pack");
         String runId = runBody.get("id").toString();
 
@@ -136,7 +143,7 @@ class CertificationApiIntegrationTest {
         assertNoSecrets(detail.body());
         Map<?, ?> detailBody = json.readValue(detail.body(), Map.class);
         assertEquals(true, detailBody.get("signedOff"));
-        assertEquals(3, ((List<?>) detailBody.get("drills")).size());
+        assertEquals(6, ((List<?>) detailBody.get("drills")).size());
     }
 
     @Test

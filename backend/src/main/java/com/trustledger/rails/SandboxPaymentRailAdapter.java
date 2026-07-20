@@ -11,6 +11,10 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
 
     public static final String RAIL = "SANDBOX_EXTERNAL";
 
+    /** The deterministic OTP the sandbox accepts for the {@code action_required} scenario. */
+    public static final String OTP_FINALIZE = "OTP_FINALIZE";
+    public static final String VALID_OTP = "123456";
+
     private final Map<String, String> eventualStatus = new ConcurrentHashMap<>();
     private final WebhookSigner webhookSigner;
 
@@ -47,6 +51,10 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
                 eventualStatus.put(ref, ExternalPaymentStatus.SETTLED);
                 return new PaymentSubmitResult(ref, ExternalPaymentStatus.PENDING_SETTLEMENT);
             }
+            case "action_required" -> {
+                // Provider demands an OTP/action before it will move money; not yet settled.
+                return new PaymentSubmitResult(ref, ExternalPaymentStatus.ACTION_REQUIRED);
+            }
             default -> {
                 eventualStatus.put(ref, ExternalPaymentStatus.SETTLED);
                 return new PaymentSubmitResult(ref, ExternalPaymentStatus.ACCEPTED);
@@ -62,6 +70,26 @@ public class SandboxPaymentRailAdapter implements PaymentRailAdapter {
     @Override
     public boolean verifyWebhook(String rawBody, String signature) {
         return webhookSigner.verify(rawBody, signature);
+    }
+
+    @Override
+    public boolean supportsAction(String action) {
+        return OTP_FINALIZE.equals(action);
+    }
+
+    /**
+     * Finalizes the {@code action_required} scenario: the correct OTP settles the payout; a wrong OTP
+     * leaves it {@code ACTION_REQUIRED} so the caller can retry — it must never be turned into a
+     * terminal failure. The OTP value itself is never persisted or returned.
+     */
+    @Override
+    public PaymentSubmitResult executeAction(PaymentActionRequest request) {
+        String ref = request.providerReference();
+        if (OTP_FINALIZE.equals(request.action()) && VALID_OTP.equals(request.sensitiveValue())) {
+            eventualStatus.put(ref, ExternalPaymentStatus.SETTLED);
+            return new PaymentSubmitResult(ref, ExternalPaymentStatus.SETTLED);
+        }
+        return new PaymentSubmitResult(ref, ExternalPaymentStatus.ACTION_REQUIRED);
     }
 
     public void setEventualStatus(String providerReference, String status) {
