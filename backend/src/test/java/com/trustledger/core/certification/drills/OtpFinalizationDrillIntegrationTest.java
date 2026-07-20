@@ -11,6 +11,7 @@ import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -48,14 +49,14 @@ class OtpFinalizationDrillIntegrationTest {
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired CertificationSyntheticFixtures fixtures;
 
-    private DrillContext context() {
-        return new DrillContext(UUID.randomUUID(), null, null, null, null, submissions, externalPayments, null,
+    private DrillContext context(ExternalRailSubmissionService subs, ExternalPaymentService extPay) {
+        return new DrillContext(UUID.randomUUID(), null, null, null, null, subs, extPay, null,
                 null, attempts, ledgerEntries, null, null, fixtures, null);
     }
 
     @Test
     void wrongOtpDoesNotFailAndCorrectOtpSettlesOnce() {
-        DrillResult result = drill.run(context());
+        DrillResult result = drill.run(context(submissions, externalPayments));
 
         assertTrue(result.passed(), () -> "expected drill to pass but got: " + result.assertions());
         assertEquals("otp_finalization", result.drillId());
@@ -67,9 +68,25 @@ class OtpFinalizationDrillIntegrationTest {
 
     @Test
     void noAssertionOrObservationLeaksTheOtp() {
-        DrillResult result = drill.run(context());
+        DrillResult result = drill.run(context(submissions, externalPayments));
         String dump = result.assertions().toString() + result.observations().toString();
         assertFalse(dump.contains("123456"), "the OTP value must never appear in drill output");
         assertFalse(dump.contains("000000"), "the wrong OTP value must never appear in drill output");
+    }
+
+    @Test
+    void drillFailsWhenSubmissionPipelineIsBroken() {
+        // Load-bearing negative path: a submission/action pipeline that never processes the attempt.
+        // The real fixture is created, but the mocked collaborators do nothing, so the attempt never
+        // reaches ACTION_REQUIRED or SETTLED — proving the drill detects breakage, not always-green.
+        ExternalRailSubmissionService brokenSubmissions = Mockito.mock(ExternalRailSubmissionService.class);
+        ExternalPaymentService noopPayments = Mockito.mock(ExternalPaymentService.class);
+
+        DrillResult result = drill.run(context(brokenSubmissions, noopPayments));
+
+        assertFalse(result.passed(),
+                () -> "expected drill to fail when the submission pipeline is broken: " + result.assertions());
+        assertTrue(result.assertions().stream().anyMatch(a -> !a.ok()),
+                "at least one assertion must have failed");
     }
 }
