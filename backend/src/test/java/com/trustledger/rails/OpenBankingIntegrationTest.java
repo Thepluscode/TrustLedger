@@ -95,7 +95,8 @@ class OpenBankingIntegrationTest {
     @Test
     void consentCreationReturnsAuthorisationUrl() throws Exception {
         Session s = register();
-        Map<String, Object> r = createConsent(s, UUID.randomUUID(), UUID.randomUUID(), "http://localhost:3000/cb");
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        Map<String, Object> r = createConsent(s, src.getId(), UUID.randomUUID(), "http://localhost:3000/cb");
         assertEquals(200, r.get("status"), r.get("body").toString());
         assertTrue(r.get("body").toString().contains("authorisationUrl"));
         assertTrue(r.get("body").toString().contains("AWAITING_AUTHORISATION"));
@@ -117,7 +118,8 @@ class OpenBankingIntegrationTest {
     @Test
     void callbackAuthorisesAndReplayIsRejected() throws Exception {
         Session s = register();
-        String ref = createAndGetRef(s, UUID.randomUUID(), UUID.randomUUID());
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        String ref = createAndGetRef(s, src.getId(), UUID.randomUUID());
         PaymentConsentEntity consent = consentRepo.findByConsentReference(ref).orElseThrow();
 
         assertEquals(200, callback(consent.getStateToken(), ref, "AUTHORISED"));
