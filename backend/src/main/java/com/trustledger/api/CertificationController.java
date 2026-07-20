@@ -38,10 +38,9 @@ public class CertificationController {
     @PostMapping
     public CertificationRunResponse run(@RequestBody RunRequest body) {
         access.require(Permission.PROVIDER_CONFIG_MANAGE);
-        String environment = body.environment() == null || body.environment().isBlank()
-                ? "PRODUCTION" : body.environment();
+        // environment is optional; the service derives/validates it against the provider config.
         CertificationRunEntity run = certifications.run(
-                CurrentUser.tenantId(), CurrentUser.userId(), body.tenantProviderConfigId(), environment);
+                CurrentUser.tenantId(), CurrentUser.userId(), body.tenantProviderConfigId(), body.environment());
         return detailOf(run);
     }
 

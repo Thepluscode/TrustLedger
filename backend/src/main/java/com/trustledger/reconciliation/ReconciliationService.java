@@ -167,22 +167,41 @@ public class ReconciliationService {
     private int checkUnbalancedLedgerTransactions() {
         int created = 0;
         for (LedgerTransactionEntity transaction : ledgerTransactions.findAll()) {
-            List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(transaction.getId());
-            BigDecimal debits = BigDecimal.ZERO;
-            BigDecimal credits = BigDecimal.ZERO;
-            for (LedgerEntryEntity entry : entries) {
-                if ("DEBIT".equals(entry.getDirection())) debits = debits.add(entry.getAmount());
-                else credits = credits.add(entry.getAmount());
-            }
-            if (entries.size() < 2 || debits.compareTo(credits) != 0) {
-                created += raise(transaction.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
-                    "LEDGER_TRANSACTION", transaction.getId(), "debits == credits",
-                    "debits=" + debits + " credits=" + credits, Map.of(
-                        "debits", debits.toPlainString(), "credits", credits.toPlainString(),
-                        "entryCount", entries.size()));
-            }
+            created += checkLedgerTransactionBalanced(transaction);
         }
         return created;
+    }
+
+    /**
+     * Tenant-scoped double-entry balance check — the same rule as the global sweep, restricted to one
+     * tenant and touching no provider adapter. Provider certification uses this so a certification drill
+     * can prove ledger integrity for its own tenant without ever triggering the global, cross-tenant
+     * reconciliation (which queries and can mutate every other tenant's live provider payments).
+     */
+    public int checkTenantLedgerBalance(UUID tenantId) {
+        int created = 0;
+        for (LedgerTransactionEntity transaction : ledgerTransactions.findByTenantId(tenantId)) {
+            created += checkLedgerTransactionBalanced(transaction);
+        }
+        return created;
+    }
+
+    private int checkLedgerTransactionBalanced(LedgerTransactionEntity transaction) {
+        List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(transaction.getId());
+        BigDecimal debits = BigDecimal.ZERO;
+        BigDecimal credits = BigDecimal.ZERO;
+        for (LedgerEntryEntity entry : entries) {
+            if ("DEBIT".equals(entry.getDirection())) debits = debits.add(entry.getAmount());
+            else credits = credits.add(entry.getAmount());
+        }
+        if (entries.size() < 2 || debits.compareTo(credits) != 0) {
+            return raise(transaction.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
+                "LEDGER_TRANSACTION", transaction.getId(), "debits == credits",
+                "debits=" + debits + " credits=" + credits, Map.of(
+                    "debits", debits.toPlainString(), "credits", credits.toPlainString(),
+                    "entryCount", entries.size()));
+        }
+        return 0;
     }
 
     private int checkExpiredReservations() {

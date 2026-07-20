@@ -7,4 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface LedgerTransactionRepository extends JpaRepository<LedgerTransactionEntity, UUID> {
     boolean existsByTenantIdAndIdempotencyKey(UUID tenantId, String idempotencyKey);
     java.util.List<LedgerTransactionEntity> findByBusinessTransactionId(UUID businessTransactionId);
+    java.util.List<LedgerTransactionEntity> findByTenantId(UUID tenantId);
 }

@@ -22,8 +22,9 @@ import org.springframework.stereotype.Component;
  * {@code UNBALANCED_LEDGER_TRANSACTION} issue for the certified tenant. The settlement is produced by
  * delivering a correctly-signed {@code SETTLED} webhook through the real inbox+worker against a
  * cert-scoped synthetic fixture; the balance is then checked both directly (summing the settle
- * transaction's entries) and through {@link DrillContext#reconciliation()} — the same engine that
- * guards production ledger integrity.
+ * transaction's entries) and through the reconciliation engine's tenant-scoped balance check
+ * ({@code checkTenantLedgerBalance}) — the same rule that guards production ledger integrity, run for
+ * this tenant only so a drill never triggers the global, cross-tenant sweep.
  */
 @Component
 public class ReconciliationProofDrill implements CertificationDrill {
@@ -68,8 +69,10 @@ public class ReconciliationProofDrill implements CertificationDrill {
                 "debits == credits, >= 2 entries",
                 "entries=" + settleEntries.size() + " debits=" + debits + " credits=" + credits, balanced));
 
-        // The real reconciliation sweep must find no unbalanced ledger transaction for this tenant.
-        ctx.reconciliation().runReconciliation();
+        // The real reconciliation balance check must find no unbalanced ledger transaction for this
+        // tenant. Scoped to this tenant only: a certification drill must never trigger the global sweep,
+        // which queries and can mutate every other tenant's live provider payments.
+        ctx.reconciliation().checkTenantLedgerBalance(ctx.tenantId());
         long unbalancedIssues = ctx.reconciliationIssues().findByTenantIdOrderByCreatedAtDesc(ctx.tenantId()).stream()
                 .filter(issue -> UNBALANCED.equals(issue.getType()))
                 .count();

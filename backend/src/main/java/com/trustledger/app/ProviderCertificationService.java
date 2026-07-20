@@ -10,10 +10,12 @@ import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.CertificationDrillResultEntity;
 import com.trustledger.persistence.entity.CertificationRunEntity;
 import com.trustledger.persistence.entity.CertificationSignOffEntity;
+import com.trustledger.persistence.entity.TenantProviderConfigEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.CertificationDrillResultRepository;
 import com.trustledger.persistence.repo.CertificationRunRepository;
 import com.trustledger.persistence.repo.CertificationSignOffRepository;
+import com.trustledger.persistence.repo.TenantProviderConfigRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -42,6 +44,7 @@ public class ProviderCertificationService {
     private final CertificationRunRepository runs;
     private final CertificationDrillResultRepository drillResults;
     private final CertificationSignOffRepository signoffs;
+    private final TenantProviderConfigRepository providerConfigs;
     private final CertificationDrillRegistry registry;
     private final DrillContextFactory contextFactory;
     private final EvidenceService evidence;
@@ -52,12 +55,14 @@ public class ProviderCertificationService {
     public ProviderCertificationService(CertificationRunRepository runs,
                                         CertificationDrillResultRepository drillResults,
                                         CertificationSignOffRepository signoffs,
+                                        TenantProviderConfigRepository providerConfigs,
                                         CertificationDrillRegistry registry, DrillContextFactory contextFactory,
                                         EvidenceService evidence, AuditLogRepository auditLogs, ObjectMapper json,
                                         @Value("${trustledger.certification.validity-days:90}") long validityDays) {
         this.runs = runs;
         this.drillResults = drillResults;
         this.signoffs = signoffs;
+        this.providerConfigs = providerConfigs;
         this.registry = registry;
         this.contextFactory = contextFactory;
         this.evidence = evidence;
@@ -68,8 +73,22 @@ public class ProviderCertificationService {
 
     /** Runs the full drill catalogue for {@code (tenantId, configId, environment)} and records the outcome. */
     public CertificationRunEntity run(UUID tenantId, UUID actorId, UUID configId, String environment) {
+        // Validate the config up front (tenant-owned, exists) so a bad id is a clean 400 rather than an
+        // FK-violation 500, and derive the run's environment from the config so the composite FK
+        // (tenant_id, config_id, environment) always matches its target row.
+        TenantProviderConfigEntity config = providerConfigs.findById(configId)
+                .orElseThrow(() -> new IllegalArgumentException("Provider config not found: " + configId));
+        if (!config.getTenantId().equals(tenantId)) {
+            throw new IllegalArgumentException("Provider config belongs to another tenant");
+        }
+        if (environment != null && !environment.isBlank()
+                && !environment.equalsIgnoreCase(config.getEnvironment())) {
+            throw new IllegalArgumentException(
+                    "Requested environment does not match the provider config's environment");
+        }
+        String env = config.getEnvironment();
         CertificationRunEntity run = runs.save(new CertificationRunEntity(UUID.randomUUID(), tenantId, configId,
-                environment, "RUNNING", registry.catalogueVersion(), actorId));
+                env, "RUNNING", registry.catalogueVersion(), actorId));
 
         DrillContext ctx = contextFactory.build(tenantId, configId);
         List<Map<String, Object>> drillSummaries = new ArrayList<>();
@@ -98,7 +117,7 @@ public class ProviderCertificationService {
         Map<String, Object> bundle = new LinkedHashMap<>();
         bundle.put("status", finalStatus);
         bundle.put("catalogueVersion", registry.catalogueVersion());
-        bundle.put("environment", environment);
+        bundle.put("environment", env);
         bundle.put("drills", drillSummaries);
         UUID evidenceExportId = evidence.exportCertification(tenantId, run.getId(), actorId, bundle).getId();
 
