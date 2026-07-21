@@ -124,6 +124,13 @@ export default function MonitoringPage() {
             <Card title="DB lock wait" status={snap.dbLockWait.status}>
               <Stat label="Waiting locks" value={snap.dbLockWait.waitingLocks} />
             </Card>
+
+            <Card title="Certification coverage" status={snap.certifications.status}>
+              <Stat label="Production configs" value={snap.certifications.productionConfigs} />
+              <Stat label="Certified" value={snap.certifications.certified} />
+              <Stat label="Expiring soon" value={snap.certifications.expiringSoon} />
+              <Stat label="Uncertified" value={snap.certifications.uncertified} />
+            </Card>
           </div>
         </>
       )}

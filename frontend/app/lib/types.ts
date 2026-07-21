@@ -281,6 +281,14 @@ export interface LockHealth {
   waitingLocks: number;
 }
 
+export interface CertificationHealth {
+  status: string;
+  productionConfigs: number;
+  certified: number;
+  expiringSoon: number;
+  uncertified: number;
+}
+
 export interface MonitoringSnapshot {
   overallStatus: string;
   banner: string;
@@ -292,6 +300,7 @@ export interface MonitoringSnapshot {
   reconciliation: ReconciliationHealth;
   payments: PaymentsHealth;
   dbLockWait: LockHealth;
+  certifications: CertificationHealth;
 }
 
 export interface ProviderConfigView {
