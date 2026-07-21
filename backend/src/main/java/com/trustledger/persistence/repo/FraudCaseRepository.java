@@ -9,5 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface FraudCaseRepository extends JpaRepository<FraudCaseEntity, UUID> {
     Optional<FraudCaseEntity> findByTransactionId(UUID transactionId);
     List<FraudCaseEntity> findByTenantId(UUID tenantId);
+    Optional<FraudCaseEntity> findByIdAndTenantId(UUID id, UUID tenantId);
     long countByTenantIdAndStatus(UUID tenantId, String status);
 }
