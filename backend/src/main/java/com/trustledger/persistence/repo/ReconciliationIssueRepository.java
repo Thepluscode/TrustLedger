@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ReconciliationIssueRepository extends JpaRepository<ReconciliationIssueEntity, UUID> {
     boolean existsByTypeAndEntityId(String type, UUID entityId);
+    boolean existsByTypeAndEntityIdAndStatus(String type, UUID entityId, String status);
     long countByStatus(String status);
     long countByTenantIdAndStatus(UUID tenantId, String status);
     java.util.List<ReconciliationIssueEntity> findByStatus(String status);
