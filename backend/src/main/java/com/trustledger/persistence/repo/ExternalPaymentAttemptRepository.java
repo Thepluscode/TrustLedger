@@ -13,8 +13,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface ExternalPaymentAttemptRepository extends JpaRepository<ExternalPaymentAttemptEntity, UUID> {
     Optional<ExternalPaymentAttemptEntity> findByProviderAndProviderReference(String provider, String providerReference);
+    Optional<ExternalPaymentAttemptEntity> findByTenantIdAndProviderReference(UUID tenantId, String providerReference);
     Optional<ExternalPaymentAttemptEntity> findByTransactionId(UUID transactionId);
     List<ExternalPaymentAttemptEntity> findByStatus(String status);
+    List<ExternalPaymentAttemptEntity> findByTenantIdAndProviderAndStatus(UUID tenantId, String provider, String status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ExternalPaymentAttemptEntity a where a.id = :id")
