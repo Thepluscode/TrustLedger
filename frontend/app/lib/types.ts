@@ -290,6 +290,8 @@ export interface WebhookHealth {
 export interface ReconciliationHealth {
   status: string;
   openIssues: number;
+  criticalOpen: number;
+  oldestOpenAgeSeconds: number | null;
   lastIssueAt: string | null;
 }
 

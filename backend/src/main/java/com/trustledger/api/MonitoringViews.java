@@ -35,7 +35,8 @@ public final class MonitoringViews {
 
     public record WebhookHealth(String status, long total, long invalidSignature, long unprocessed, double failureRatePct) {}
 
-    public record ReconciliationHealth(String status, long openIssues, Instant lastIssueAt) {}
+    public record ReconciliationHealth(String status, long openIssues, long criticalOpen,
+                                       Long oldestOpenAgeSeconds, Instant lastIssueAt) {}
 
     public record PaymentsHealth(String status, long awaitingProviderConfirmation) {}
 

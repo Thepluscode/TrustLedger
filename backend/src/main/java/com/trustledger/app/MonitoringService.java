@@ -40,6 +40,8 @@ public class MonitoringService {
     private static final String OK = "OK", WARN = "WARN", CRITICAL = "CRITICAL";
     private static final String OUTBOX_PENDING = "PENDING";
     private static final String RECON_OPEN = "OPEN";
+    private static final String RECON_CRITICAL = "CRITICAL";
+    private static final long RECON_AGE_CRITICAL_SECONDS = 86_400; // an open break unresolved > 24h is escalated
     private static final String TRANSFER_PENDING_UNKNOWN = "PENDING_UNKNOWN";
 
     private final JdbcTemplate jdbc;
@@ -164,9 +166,21 @@ public class MonitoringService {
 
     private ReconciliationHealth reconciliation(UUID tenantId) {
         long open = reconciliation.countByTenantIdAndStatus(tenantId, RECON_OPEN);
-        List<ReconciliationIssueEntity> recent = reconciliation.findByTenantIdOrderByCreatedAtDesc(tenantId);
-        Instant last = recent.isEmpty() ? null : recent.get(0).getCreatedAt();
-        return new ReconciliationHealth(open > 0 ? WARN : OK, open, last);
+        long criticalOpen = reconciliation.countByTenantIdAndStatusAndSeverity(tenantId, RECON_OPEN, RECON_CRITICAL);
+        Instant oldestOpen = open > 0 ? reconciliation.oldestCreatedAtByStatus(tenantId, RECON_OPEN) : null;
+        Long oldestAge = oldestOpen == null ? null : Duration.between(oldestOpen, Instant.now()).toSeconds();
+        Instant last = reconciliation.latestCreatedAt(tenantId);
+        // Severity/age-aware: any open break is a WARN, but a CRITICAL-severity break or one left open past
+        // the SLA escalates the card to CRITICAL so an urgent, unreconciled loss doesn't read like noise.
+        String status;
+        if (open == 0) {
+            status = OK;
+        } else if (criticalOpen > 0 || (oldestAge != null && oldestAge > RECON_AGE_CRITICAL_SECONDS)) {
+            status = CRITICAL;
+        } else {
+            status = WARN;
+        }
+        return new ReconciliationHealth(status, open, criticalOpen, oldestAge, last);
     }
 
     private PaymentsHealth payments(UUID tenantId) {

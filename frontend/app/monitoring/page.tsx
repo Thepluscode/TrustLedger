@@ -114,6 +114,8 @@ export default function MonitoringPage() {
 
             <Card title="Reconciliation" status={snap.reconciliation.status}>
               <Stat label="Open issues" value={snap.reconciliation.openIssues} />
+              <Stat label="Critical open" value={snap.reconciliation.criticalOpen} />
+              <Stat label="Oldest open" value={num(snap.reconciliation.oldestOpenAgeSeconds, " s")} />
               <Stat label="Last issue" value={snap.reconciliation.lastIssueAt ? dateTime(snap.reconciliation.lastIssueAt) : "none"} />
             </Card>
 
