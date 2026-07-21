@@ -45,6 +45,8 @@ class MlFraudIntegrationTest {
         r.add("spring.datasource.password", POSTGRES::getPassword);
         r.add("trustledger.outbox.publisher.enabled", () -> "false");
         r.add("trustledger.reconciliation.enabled", () -> "false");
+        // This suite exercises global model promote/rollback, which is off by default.
+        r.add("trustledger.ml.model-governance-enabled", () -> "true");
     }
 
     @Value("${local.server.port}") int port;
@@ -53,6 +55,7 @@ class MlFraudIntegrationTest {
     @Autowired ModelRegistryService registry;
     @Autowired PersistentTransferService transferService;
     @Autowired AccountRepository accounts;
+    @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
@@ -114,9 +117,13 @@ class MlFraudIntegrationTest {
     @Test
     void analystFeedbackIsCaptured() throws Exception {
         Session s = register();
-        String fb = json.writeValueAsString(Map.of("transactionId", UUID.randomUUID().toString(),
+        // Feedback must reference a real case owned by the tenant, with the case's own transaction.
+        UUID txn = UUID.randomUUID();
+        var fraudCase = fraudCases.save(new com.trustledger.persistence.entity.FraudCaseEntity(
+            UUID.randomUUID(), s.tenantId(), txn, UUID.randomUUID(), "OPEN", "HIGH", 90, "test", "{}"));
+        String fb = json.writeValueAsString(Map.of("transactionId", txn.toString(),
             "label", "CONFIRMED_FRAUD", "confidence", "0.95", "reason", "customer reported"));
-        assertEquals(200, req("POST", "/api/v2/fraud/cases/" + UUID.randomUUID() + "/feedback", s.token(), fb).statusCode());
+        assertEquals(200, req("POST", "/api/v2/fraud/cases/" + fraudCase.getId() + "/feedback", s.token(), fb).statusCode());
         HttpResponse<String> list = req("GET", "/api/v2/fraud/feedback", s.token(), null);
         assertTrue(list.body().contains("CONFIRMED_FRAUD"), list.body());
     }
