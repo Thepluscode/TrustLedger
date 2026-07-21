@@ -114,6 +114,7 @@ public class PaymentWebhookService {
             case ExternalPaymentStatus.SETTLED -> transitions.settle(attempt.getId());
             case ExternalPaymentStatus.FAILED -> transitions.release(attempt.getId(), ExternalPaymentStatus.FAILED);
             case ExternalPaymentStatus.REVERSED -> transitions.reverse(attempt.getId());
+            case ExternalPaymentStatus.CHARGEBACK -> transitions.chargeback(attempt.getId());
             case "IGNORED" -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);

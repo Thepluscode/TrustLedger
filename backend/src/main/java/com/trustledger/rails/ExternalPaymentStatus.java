@@ -16,5 +16,9 @@ public final class ExternalPaymentStatus {
     public static final String CANCELLED = "CANCELLED";
     public static final String RETURNED = "RETURNED";
     public static final String REVERSED = "REVERSED";
+    // A dispute/chargeback opened against a settled payment. Used as a normalized
+    // webhook EVENT TYPE (the provider clawed the funds back); the compensating
+    // ledger post is a CHARGEBACK transaction and the attempt lands in REVERSED.
+    public static final String CHARGEBACK = "CHARGEBACK";
     public static final String PENDING_UNKNOWN = "PENDING_UNKNOWN";
 }

@@ -34,6 +34,38 @@ class PaystackPaymentRailAdapterTest {
     }
 
     @Test
+    void parsesPaystackDisputeAsChargebackWithTransactionReference() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        // A dispute carries the disputed txn under data.transaction.reference, not data.reference.
+        String dispute = "{\"event\":\"charge.dispute.create\",\"data\":{"
+            + "\"status\":\"pending\",\"transaction\":{\"reference\":\"paystack_chargeback_1234\"}}}";
+        PaymentRailAdapter.ProviderWebhookEvent event = adapter.parseWebhook(dispute);
+        assertNotNull(event, "dispute must not be dropped as a blank/null event");
+        assertEquals(ExternalPaymentStatus.CHARGEBACK, event.eventType());
+        assertEquals("paystack_chargeback_1234", event.providerReference());
+    }
+
+    @Test
+    void disputeReminderAlsoMapsToChargeback() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        String reminder = "{\"event\":\"charge.dispute.reminder\",\"data\":{"
+            + "\"transaction\":{\"reference\":\"paystack_chargeback_9\"}}}";
+        assertEquals(ExternalPaymentStatus.CHARGEBACK, adapter.parseWebhook(reminder).eventType());
+    }
+
+    @Test
+    void existingTransferEventMappingUnchanged() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        assertEquals(ExternalPaymentStatus.REVERSED, adapter.parseWebhook(
+            "{\"event\":\"transfer.reversed\",\"data\":{\"reference\":\"paystack_1234567890\"}}").eventType());
+        assertEquals(ExternalPaymentStatus.SETTLED, adapter.parseWebhook(
+            "{\"event\":\"transfer.success\",\"data\":{\"reference\":\"paystack_1234567890\"}}").eventType());
+        assertNull(adapter.parseWebhook(
+            "{\"event\":\"charge.dispute.create\",\"data\":{\"status\":\"pending\"}}"),
+            "a dispute with no resolvable reference parses to null, not a misrouted event");
+    }
+
+    @Test
     void sendsExactRecipientAndDefersImmediateSuccessToVerification() {
         Fixture fixture = fixture(new PaystackApiClient.PaystackResponse("success", "paystack_1234567890",
             "TRF_test", "ok", 200, false));

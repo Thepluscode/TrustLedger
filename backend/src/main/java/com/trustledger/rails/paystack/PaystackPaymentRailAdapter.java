@@ -156,11 +156,18 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
             String event = text(body.get("event"));
             Map<String, Object> data = map(body.get("data"));
             String reference = text(data.get("reference"));
+            // Dispute events carry the disputed transaction under data.transaction,
+            // not data.reference — resolve it so the dispute isn't dropped as blank.
+            if (reference == null) {
+                Map<String, Object> transaction = map(data.get("transaction"));
+                if (transaction != null) reference = text(transaction.get("reference"));
+            }
             if (event == null || reference == null) return null;
             String canonical = switch (event) {
                 case "transfer.success" -> ExternalPaymentStatus.SETTLED;
                 case "transfer.failed" -> ExternalPaymentStatus.FAILED;
                 case "transfer.reversed" -> ExternalPaymentStatus.REVERSED;
+                case "charge.dispute.create", "charge.dispute.reminder" -> ExternalPaymentStatus.CHARGEBACK;
                 default -> "IGNORED";
             };
             return new ProviderWebhookEvent(eventId(event, data, rawBody), reference, canonical,
