@@ -71,6 +71,16 @@ public class ExternalPaymentTransitionService {
         safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.REVERSED);
     }
 
+    /** A dispute/chargeback clawed the funds back: post the compensating CHARGEBACK
+     *  ledger transaction and land the attempt in REVERSED. Same row-lock + terminal
+     *  semantics as {@link #reverse}; the webhook inbox already dedupes replays. */
+    @Transactional
+    public void chargeback(UUID attemptId) {
+        ExternalPaymentAttemptEntity attempt = lock(attemptId);
+        reversals.chargeback(attempt);
+        safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.REVERSED);
+    }
+
     /** Applies provider progress only while the local attempt remains non-terminal. */
     @Transactional
     public void updateResolvable(UUID attemptId, String providerStatus) {

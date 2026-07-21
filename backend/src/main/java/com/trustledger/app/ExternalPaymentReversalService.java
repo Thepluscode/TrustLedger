@@ -105,6 +105,78 @@ public class ExternalPaymentReversalService {
             source.getId(), "CREDIT", amount.amount(), attempt.getCurrency(), "REVERSAL_PRINCIPAL"));
     }
 
+    /** A dispute/chargeback clawed settled funds back. Same money movement and
+     *  accounting as {@link #reverse}, but the compensating ledger transaction is
+     *  classified CHARGEBACK (the risk-labelled variant), making the previously
+     *  never-produced LedgerTransactionType.CHARGEBACK live. Idempotent on an
+     *  already-reversed attempt; the webhook inbox dedupes replays upstream. */
+    @Transactional
+    public void chargeback(ExternalPaymentAttemptEntity attempt) {
+        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdate(attempt.getId())
+            .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found"));
+        if (ExternalPaymentStatus.REVERSED.equals(lockedAttempt.getStatus())) return;
+
+        TransferEntity transfer = transfers.findById(lockedAttempt.getTransactionId())
+            .orElseThrow(() -> new IllegalStateException("External payment transfer not found"));
+        Money amount = money(lockedAttempt.getAmount(), lockedAttempt.getCurrency());
+
+        if (ExternalPaymentStatus.SETTLED.equals(lockedAttempt.getStatus())
+                || "COMPLETED".equals(transfer.getStatus())) {
+            chargebackSettled(lockedAttempt, transfer, amount);
+        } else if (isReserved(lockedAttempt.getStatus())) {
+            releaseReservation(lockedAttempt, transfer, amount);
+        } else {
+            throw new IllegalStateException("Cannot charge back attempt in status " + lockedAttempt.getStatus());
+        }
+
+        lockedAttempt.setStatus(ExternalPaymentStatus.REVERSED);
+        attempts.save(lockedAttempt);
+        transfer.setStatus(ExternalPaymentStatus.REVERSED);
+        auditChargeback(lockedAttempt, transfer);
+        outbox.save(new OutboxEventEntity(UUID.randomUUID(), lockedAttempt.getTenantId(), "TRANSFER",
+            transfer.getId(), "EXTERNAL_PAYMENT_CHARGEBACK", write(Map.of(
+                "ref", lockedAttempt.getProviderReference(),
+                "provider", lockedAttempt.getProvider())), "PENDING"));
+    }
+
+    private void chargebackSettled(ExternalPaymentAttemptEntity attempt, TransferEntity transfer, Money amount) {
+        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity clearing = clearing(attempt.getTenantId(), attempt.getCurrency());
+        Money clearingAvailable = money(clearing.getAvailableBalance(), clearing.getCurrency());
+        Money clearingPosted = money(clearing.getPostedBalance(), clearing.getCurrency());
+        if (clearingAvailable.compareTo(amount) < 0 || clearingPosted.compareTo(amount) < 0) {
+            throw new IllegalStateException("External clearing account lacks funds for chargeback");
+        }
+
+        clearing.setAvailableBalance(clearingAvailable.minus(amount).amount());
+        clearing.setPostedBalance(clearingPosted.minus(amount).amount());
+        source.setAvailableBalance(money(source.getAvailableBalance(), source.getCurrency()).plus(amount).amount());
+        source.setPostedBalance(money(source.getPostedBalance(), source.getCurrency()).plus(amount).amount());
+
+        UUID ledgerId = UUID.randomUUID();
+        String idempotencyKey = transfer.getIdempotencyKey() + ":chargeback";
+        LedgerTransaction transaction = new LedgerTransaction(ledgerId, attempt.getTenantId(), transfer.getId(),
+            idempotencyKey, LedgerTransactionType.CHARGEBACK);
+        transaction.addEntry(clearing.getId(), Direction.DEBIT, amount, "CHARGEBACK_CLEARING");
+        transaction.addEntry(source.getId(), Direction.CREDIT, amount, "CHARGEBACK_PRINCIPAL");
+        transaction.validateBalanced();
+
+        ledgerTransactions.save(new LedgerTransactionEntity(ledgerId, attempt.getTenantId(), transfer.getId(),
+            idempotencyKey, "CHARGEBACK", "POSTED", attempt.getCurrency(), Instant.now()));
+        ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), attempt.getTenantId(), ledgerId,
+            clearing.getId(), "DEBIT", amount.amount(), attempt.getCurrency(), "CHARGEBACK_CLEARING"));
+        ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), attempt.getTenantId(), ledgerId,
+            source.getId(), "CREDIT", amount.amount(), attempt.getCurrency(), "CHARGEBACK_PRINCIPAL"));
+    }
+
+    private void auditChargeback(ExternalPaymentAttemptEntity attempt, TransferEntity transfer) {
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), attempt.getTenantId(), "SYSTEM", null,
+            "EXTERNAL_PAYMENT_CHARGEBACK", "TRANSFER", transfer.getId(), write(Map.of(
+                "ref", attempt.getProviderReference(),
+                "provider", attempt.getProvider(),
+                "attemptId", attempt.getId().toString()))));
+    }
+
     private void releaseReservation(ExternalPaymentAttemptEntity attempt, TransferEntity transfer, Money amount) {
         AccountEntity source = lock(transfer.getSourceAccountId());
         Money pending = money(source.getPendingBalance(), source.getCurrency());
