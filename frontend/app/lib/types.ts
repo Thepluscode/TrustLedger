@@ -197,6 +197,18 @@ export interface ReconciliationIssue {
   resolvedAt: string | null;
 }
 
+export interface ReconciliationListSummary {
+  total: number;
+  open: number;
+  criticalOpen: number;
+  resolved: number;
+}
+
+export interface ReconciliationIssueList {
+  items: ReconciliationIssue[];
+  summary: ReconciliationListSummary;
+}
+
 export interface TeamMember {
   id: string;
   email: string;

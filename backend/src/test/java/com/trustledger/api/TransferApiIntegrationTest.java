@@ -280,7 +280,8 @@ class TransferApiIntegrationTest {
             "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION", "LEDGER_TRANSACTION", UUID.randomUUID(),
             "balanced", "off by 1.00", "{\"delta\":\"1.00\"}", "OPEN"));
 
-        List<Map<String, Object>> rows = json.readValue(get(s.token(), "/api/v1/reconciliation/issues").body(), List.class);
+        Map<String, Object> listBody = json.readValue(get(s.token(), "/api/v1/reconciliation/issues").body(), Map.class);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) listBody.get("items");
         assertTrue(rows.stream().anyMatch(r -> issueId.toString().equals(r.get("id"))), "list contains the issue");
         assertEquals("OPEN", json.readValue(get(s.token(), "/api/v1/reconciliation/issues/" + issueId).body(), Map.class).get("status"));
 

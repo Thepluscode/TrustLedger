@@ -6,25 +6,30 @@ import { EmptyState, SeverityPill, SkeletonRows, StatusPill } from "../component
 import Shell from "../components/Shell";
 import { api } from "../lib/api";
 import { dateTime, shortId } from "../lib/format";
-import type { ReconciliationIssue } from "../lib/types";
+import type { ReconciliationIssueList } from "../lib/types";
 
 export default function ReconciliationPage() {
-  const [issues, setIssues] = useState<ReconciliationIssue[] | null>(null);
+  const [data, setData] = useState<ReconciliationIssueList | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+  const [severity, setSeverity] = useState("");
 
   useEffect(() => {
-    api.listReconciliationIssues().then(setIssues).catch((e) => setError((e as Error).message));
-  }, []);
+    setData(null);
+    api.listReconciliationIssues(status, severity).then(setData).catch((e) => setError((e as Error).message));
+  }, [status, severity]);
 
-  const open = (issues ?? []).filter((i) => i.status === "OPEN");
-  const cards: { label: string; value: number; alert?: boolean }[] = issues
+  const s = data?.summary;
+  const cards: { label: string; value: number; alert?: boolean }[] = s
     ? [
-        { label: "Open issues", value: open.length, alert: open.length > 0 },
-        { label: "Critical (open)", value: open.filter((i) => i.severity === "CRITICAL").length, alert: open.some((i) => i.severity === "CRITICAL") },
-        { label: "Resolved", value: issues.filter((i) => i.status === "RESOLVED").length },
-        { label: "Total", value: issues.length },
+        { label: "Open issues", value: s.open, alert: s.open > 0 },
+        { label: "Critical (open)", value: s.criticalOpen, alert: s.criticalOpen > 0 },
+        { label: "Resolved", value: s.resolved },
+        { label: "Total", value: s.total },
       ]
     : [];
+
+  const items = data?.items ?? null;
 
   return (
     <Shell active="/reconciliation">
@@ -51,13 +56,30 @@ export default function ReconciliationPage() {
       </section>
 
       <section className="panel">
+        <div className="panelHeader">
+          <div><h2>Issues</h2></div>
+          <div className="row" style={{ gap: 8 }}>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
+              <option value="">All statuses</option>
+              <option value="OPEN">Open</option>
+              <option value="RESOLVED">Resolved</option>
+            </select>
+            <select value={severity} onChange={(e) => setSeverity(e.target.value)} aria-label="Filter by severity">
+              <option value="">All severities</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
+          </div>
+        </div>
         <table>
           <thead>
             <tr><th>Severity</th><th>Type</th><th>Affected entity</th><th>Status</th><th>Created</th></tr>
           </thead>
           <tbody>
-            {issues === null && <SkeletonRows cols={5} />}
-            {issues?.map((i) => (
+            {items === null && <SkeletonRows cols={5} />}
+            {items?.map((i) => (
               <tr key={i.id}>
                 <td><SeverityPill value={i.severity} /></td>
                 <td><Link href={`/reconciliation/${i.id}`}>{i.type.replace(/_/g, " ").toLowerCase()}</Link></td>
@@ -68,10 +90,12 @@ export default function ReconciliationPage() {
             ))}
           </tbody>
         </table>
-        {issues !== null && issues.length === 0 && (
+        {items !== null && items.length === 0 && (
           <EmptyState
-            title="No reconciliation issues"
-            hint="Clean books. Mismatches (unbalanced ledger, pending-unknown payments, expired reservations, stuck outbox) would appear here."
+            title={status || severity ? "No issues match this filter" : "No reconciliation issues"}
+            hint={status || severity
+              ? "Try clearing the status or severity filter."
+              : "Clean books. Mismatches (unbalanced ledger, pending-unknown payments, expired reservations, stuck outbox) would appear here."}
           />
         )}
       </section>
