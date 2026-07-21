@@ -7,7 +7,7 @@ import { ConfirmModal, SeverityPill, StatusPill } from "../../components/ui";
 import Shell from "../../components/Shell";
 import { api } from "../../lib/api";
 import { dateTime, shortId } from "../../lib/format";
-import type { ReconciliationIssue } from "../../lib/types";
+import type { ReconciliationAuditEntry, ReconciliationIssue } from "../../lib/types";
 
 function pretty(json: string | null): string {
   if (!json) return "—";
@@ -15,6 +15,15 @@ function pretty(json: string | null): string {
     return JSON.stringify(JSON.parse(json), null, 2);
   } catch {
     return json;
+  }
+}
+
+function resolutionFields(metadata: string): { outcome?: string; note?: string } {
+  try {
+    const m = JSON.parse(metadata) as { outcome?: string; note?: string };
+    return { outcome: m.outcome, note: m.note };
+  } catch {
+    return {};
   }
 }
 
@@ -27,9 +36,15 @@ export default function ReconciliationIssuePage() {
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState("");
   const [note, setNote] = useState("");
+  const [audit, setAudit] = useState<ReconciliationAuditEntry[]>([]);
+
+  function loadAudit() {
+    if (id) api.reconciliationIssueAudit(id).then(setAudit).catch(() => {});
+  }
 
   useEffect(() => {
     if (id) api.getReconciliationIssue(id).then(setIssue).catch((e) => setError((e as Error).message));
+    loadAudit();
   }, [id]);
 
   async function resolve() {
@@ -39,6 +54,7 @@ export default function ReconciliationIssuePage() {
     try {
       setIssue(await api.resolveReconciliationIssue(id, outcome, note));
       setConfirm(false);
+      loadAudit();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -106,6 +122,30 @@ export default function ReconciliationIssuePage() {
               <pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: 12 }}>{pretty(issue.evidence)}</pre>
             </div>
           </section>
+
+          {audit.length > 0 && (
+            <section className="panel" style={{ marginTop: 18 }}>
+              <div className="panelHeader"><div><h2>Activity</h2><p className="sub">Every action on this issue, from the auditable record.</p></div></div>
+              <div className="panelBody">
+                {audit.map((a, i) => {
+                  const isResolution = a.action === "RECONCILIATION_ISSUE_RESOLVED";
+                  const { outcome: o, note: n } = isResolution ? resolutionFields(a.metadata) : {};
+                  return (
+                    <div key={i} className="entry" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
+                      <span>
+                        <b>{a.action.replace(/_/g, " ").toLowerCase()}</b>
+                        {o && <> — <span className="mono">{o.replace(/_/g, " ").toLowerCase()}</span></>}
+                      </span>
+                      {n && <span className="muted">{n}</span>}
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {dateTime(a.at)}{a.actorId ? ` · ${shortId(a.actorId)}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </>
       )}
 

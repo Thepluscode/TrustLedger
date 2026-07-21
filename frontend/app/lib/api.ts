@@ -20,6 +20,7 @@ import type {
   ProductionCanaryRequest,
   ProductionCanaryView,
   ProviderConfigView,
+  ReconciliationAuditEntry,
   ReconciliationIssue,
   ReconciliationIssueList,
   SettlementStatement,
@@ -159,6 +160,8 @@ export const api = {
     return request<ReconciliationIssueList>(`/api/v1/reconciliation/issues${qs ? `?${qs}` : ""}`);
   },
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
+  reconciliationIssueAudit: (id: string) =>
+    request<ReconciliationAuditEntry[]>(`/api/v1/reconciliation/issues/${id}/audit`),
   resolveReconciliationIssue: (id: string, outcome: string, note: string) =>
     request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, {
       method: "POST",
