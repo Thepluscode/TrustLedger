@@ -237,7 +237,8 @@ public class ReconciliationService {
 
     private int raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
                       String expected, String actual, Map<String, Object> evidence) {
-        if (issues.existsByTypeAndEntityId(type, entityId)) return 0;
+        // Dedup only against an OPEN issue: a resolved-then-recurring break must re-raise, not stay silent.
+        if (issues.existsByTypeAndEntityIdAndStatus(type, entityId, "OPEN")) return 0;
         issues.save(new ReconciliationIssueEntity(UUID.randomUUID(), tenantId, severity, type, entityType,
             entityId, expected, actual, writeJson(evidence), "OPEN"));
         log.warn("Reconciliation issue {} on {} {}: {}", type, entityType, entityId, actual);

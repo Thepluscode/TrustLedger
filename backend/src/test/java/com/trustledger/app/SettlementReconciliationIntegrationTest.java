@@ -187,4 +187,31 @@ class SettlementReconciliationIntegrationTest {
         assertEquals(2, lines.findByStatementId(second.statement().getId()).size(), "no duplicate lines");
         assertEquals(1, issues.findByTenantIdOrderByCreatedAtDesc(tenant).size(), "no duplicate issues");
     }
+
+    @Test
+    void aResolvedBreakReRaisesWhenItRecursButOpenOnesAreDeduped() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-a", "50.0000");
+
+        // First statement: the line amount (55) disagrees with the attempt (50) → one AMOUNT_MISMATCH.
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-1", List.of(line("ref-a", "55.0000"))));
+        var mismatches = issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .filter(i -> "SETTLEMENT_AMOUNT_MISMATCH".equals(i.getType())).toList();
+        assertEquals(1, mismatches.size());
+
+        // The same break in a second statement while the issue is still OPEN → deduped, still one.
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-2", List.of(line("ref-a", "55.0000"))));
+        assertEquals(1, issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .filter(i -> "SETTLEMENT_AMOUNT_MISMATCH".equals(i.getType())).count(), "OPEN break must not duplicate");
+
+        // Resolve it, then the same break recurs → a FRESH issue is raised, not silently swallowed.
+        var resolved = mismatches.get(0);
+        resolved.setStatus("RESOLVED");
+        resolved.setResolvedAt(Instant.now());
+        issues.save(resolved);
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-3", List.of(line("ref-a", "55.0000"))));
+        assertEquals(2, issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .filter(i -> "SETTLEMENT_AMOUNT_MISMATCH".equals(i.getType())).count(),
+                "a resolved break that recurs must re-raise a new issue");
+    }
 }
