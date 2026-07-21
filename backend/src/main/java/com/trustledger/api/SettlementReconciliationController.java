@@ -34,14 +34,15 @@ public class SettlementReconciliationController {
     public record LineRequest(String providerReference, BigDecimal amount, BigDecimal fee, String status) {}
 
     public record IngestRequest(String provider, String currency, String statementRef,
-                                Instant periodStart, Instant periodEnd, List<LineRequest> lines) {}
+                                Instant periodStart, Instant periodEnd, List<LineRequest> lines,
+                                BigDecimal declaredTotalAmount, BigDecimal declaredTotalFees) {}
 
     public record StatementView(UUID id, String provider, String currency, String statementRef,
                                 Instant periodStart, Instant periodEnd, int lineCount,
                                 String totalAmount, String totalFees, Instant ingestedAt) {}
 
     public record IngestResponse(StatementView statement, boolean alreadyIngested,
-                                 int matched, int unmatched, int amountMismatch, int missing) {}
+                                 int matched, int unmatched, int amountMismatch, int missing, boolean totalMismatch) {}
 
     @PostMapping
     public IngestResponse ingest(@RequestBody IngestRequest body) {
@@ -50,9 +51,10 @@ public class SettlementReconciliationController {
                 .map(l -> new LineInput(l.providerReference(), l.amount(), l.fee(), l.status())).toList();
         IngestResult result = settlements.ingest(CurrentUser.tenantId(), CurrentUser.userId(),
                 new StatementInput(body.provider(), body.currency(), body.statementRef(),
-                        body.periodStart(), body.periodEnd(), lineInputs));
+                        body.periodStart(), body.periodEnd(), lineInputs,
+                        body.declaredTotalAmount(), body.declaredTotalFees()));
         return new IngestResponse(view(result.statement()), result.alreadyIngested(),
-                result.matched(), result.unmatched(), result.amountMismatch(), result.missing());
+                result.matched(), result.unmatched(), result.amountMismatch(), result.missing(), result.totalMismatch());
     }
 
     @GetMapping

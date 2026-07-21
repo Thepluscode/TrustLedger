@@ -69,7 +69,14 @@ class SettlementReconciliationIntegrationTest {
     }
 
     private StatementInput statement(String statementRef, List<LineInput> lineInputs) {
-        return new StatementInput(PROVIDER, "NGN", statementRef, periodStart, periodEnd, lineInputs);
+        return statement(statementRef, lineInputs, null, null);
+    }
+
+    private StatementInput statement(String statementRef, List<LineInput> lineInputs,
+                                     String declaredAmount, String declaredFees) {
+        return new StatementInput(PROVIDER, "NGN", statementRef, periodStart, periodEnd, lineInputs,
+                declaredAmount == null ? null : new BigDecimal(declaredAmount),
+                declaredFees == null ? null : new BigDecimal(declaredFees));
     }
 
     private static LineInput line(String ref, String amount) {
@@ -135,6 +142,35 @@ class SettlementReconciliationIntegrationTest {
         assertEquals(0, result.amountMismatch());
         assertEquals(0, result.missing(), "the other provider's attempt must not count as missing for PAYSTACK");
         assertTrue(issues.findByTenantIdOrderByCreatedAtDesc(tenant).isEmpty());
+    }
+
+    @Test
+    void declaredBatchTotalThatDisagreesWithLinesRaisesATotalMismatch() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-a", "10.0000");
+        settledAttempt(tenant, "ref-b", "20.0000");
+
+        // Lines sum to 30.0000 but the provider declares 100.0000 — the statement is truncated/corrupted.
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(),
+                statement("STMT-TRUNC", List.of(line("ref-a", "10.0000"), line("ref-b", "20.0000")),
+                        "100.0000", null));
+
+        assertTrue(result.totalMismatch());
+        var raised = issues.findByTenantIdOrderByCreatedAtDesc(tenant);
+        assertTrue(raised.stream().anyMatch(i -> "SETTLEMENT_TOTAL_MISMATCH".equals(i.getType())), raised.toString());
+    }
+
+    @Test
+    void declaredBatchTotalThatMatchesRaisesNoTotalMismatch() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-a", "10.0000");
+
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(),
+                statement("STMT-OK", List.of(line("ref-a", "10.0000")), "10.0000", "1.00"));
+
+        assertFalse(result.totalMismatch());
+        assertTrue(issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .noneMatch(i -> "SETTLEMENT_TOTAL_MISMATCH".equals(i.getType())));
     }
 
     @Test

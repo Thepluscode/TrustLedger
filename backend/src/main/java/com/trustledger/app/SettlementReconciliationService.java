@@ -37,10 +37,12 @@ public class SettlementReconciliationService {
     public record LineInput(String providerReference, BigDecimal amount, BigDecimal fee, String status) {}
 
     public record StatementInput(String provider, String currency, String statementRef,
-                                 Instant periodStart, Instant periodEnd, List<LineInput> lines) {}
+                                 Instant periodStart, Instant periodEnd, List<LineInput> lines,
+                                 BigDecimal declaredTotalAmount, BigDecimal declaredTotalFees) {}
 
     public record IngestResult(SettlementStatementEntity statement, boolean alreadyIngested,
-                               int matched, int unmatched, int amountMismatch, int missing) {}
+                               int matched, int unmatched, int amountMismatch, int missing,
+                               boolean totalMismatch) {}
 
     private static final String MATCHED = "MATCHED", UNMATCHED = "UNMATCHED", AMOUNT_MISMATCH = "AMOUNT_MISMATCH";
 
@@ -85,6 +87,10 @@ public class SettlementReconciliationService {
                 in.provider(), in.currency(), in.statementRef(), in.periodStart(), in.periodEnd(),
                 in.lines().size(), totalAmount, totalFees, actorId));
 
+        // Batch-total integrity: if the provider declares totals, they must equal the sum of the lines,
+        // otherwise the statement is truncated/corrupted (e.g. a partial upload) — a data-integrity break.
+        boolean totalMismatch = checkDeclaredTotals(tenantId, stmtId, in, totalAmount, totalFees);
+
         int matched = 0, unmatched = 0, mismatch = 0;
         Set<String> statementRefs = new HashSet<>();
         for (LineInput li : in.lines()) {
@@ -127,7 +133,29 @@ public class SettlementReconciliationService {
 
         int missing = reverseSweep(tenantId, in, statementRefs);
         audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing);
-        return new IngestResult(stmt, false, matched, unmatched, mismatch, missing);
+        return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch);
+    }
+
+    /** Raises SETTLEMENT_TOTAL_MISMATCH if a declared batch total disagrees with the sum of the lines. */
+    private boolean checkDeclaredTotals(UUID tenantId, UUID stmtId, StatementInput in,
+                                        BigDecimal computedAmount, BigDecimal computedFees) {
+        boolean amountOff = in.declaredTotalAmount() != null
+                && in.declaredTotalAmount().compareTo(computedAmount) != 0;
+        boolean feesOff = in.declaredTotalFees() != null
+                && in.declaredTotalFees().compareTo(computedFees) != 0;
+        if (!amountOff && !feesOff) return false;
+        raise(tenantId, "HIGH", "SETTLEMENT_TOTAL_MISMATCH", "SETTLEMENT_STATEMENT", stmtId,
+                "declared totals equal the sum of the lines",
+                "declared amount=" + declared(in.declaredTotalAmount()) + " fees=" + declared(in.declaredTotalFees())
+                        + " but lines sum to amount=" + computedAmount.toPlainString() + " fees=" + computedFees.toPlainString(),
+                Map.of("statementRef", in.statementRef(),
+                        "declaredAmount", declared(in.declaredTotalAmount()), "computedAmount", computedAmount.toPlainString(),
+                        "declaredFees", declared(in.declaredTotalFees()), "computedFees", computedFees.toPlainString()));
+        return true;
+    }
+
+    private static String declared(BigDecimal v) {
+        return v == null ? "—" : v.toPlainString();
     }
 
     /** Our locally-SETTLED attempts for this provider/currency in the period, absent from the statement. */
@@ -193,7 +221,9 @@ public class SettlementReconciliationService {
         // Re-derive missing (read-only, no re-raise) so a replay response is honest, not always 0.
         int missing = missingAttempts(stmt.getTenantId(), stmt.getProvider(), stmt.getCurrency(),
                 stmt.getPeriodStart(), stmt.getPeriodEnd(), statementRefs).size();
-        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing);
+        // On idempotent replay the declared totals aren't re-supplied; the total-mismatch check already
+        // ran (and raised, if applicable) on first ingest, so report false here rather than re-deriving.
+        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing, false);
     }
 
     private void raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
