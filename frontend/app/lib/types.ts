@@ -161,6 +161,28 @@ export interface UserProfile {
   lastPasswordChangeAt: string | null;
 }
 
+export interface SettlementStatement {
+  id: string;
+  provider: string;
+  currency: string;
+  statementRef: string;
+  periodStart: string;
+  periodEnd: string;
+  lineCount: number;
+  totalAmount: string;
+  totalFees: string;
+  ingestedAt: string;
+}
+
+export interface SettlementIngestResult {
+  statement: SettlementStatement;
+  alreadyIngested: boolean;
+  matched: number;
+  unmatched: number;
+  amountMismatch: number;
+  missing: number;
+}
+
 export interface ReconciliationIssue {
   id: string;
   severity: string;
