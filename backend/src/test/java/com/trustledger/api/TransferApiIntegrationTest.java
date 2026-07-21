@@ -285,7 +285,9 @@ class TransferApiIntegrationTest {
         assertEquals("OPEN", json.readValue(get(s.token(), "/api/v1/reconciliation/issues/" + issueId).body(), Map.class).get("status"));
 
         HttpResponse<String> resolved = http.send(HttpRequest.newBuilder(uri("/api/v1/reconciliation/issues/" + issueId + "/resolve"))
-            .header("Authorization", "Bearer " + s.token()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            .header("Authorization", "Bearer " + s.token()).header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
+                Map.of("outcome", "RECOVERED", "note", "ledger correction posted")))).build(),
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, resolved.statusCode(), resolved.body());
         Map<String, Object> rd = json.readValue(resolved.body(), Map.class);

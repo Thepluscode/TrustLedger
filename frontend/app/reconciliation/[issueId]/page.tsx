@@ -25,6 +25,8 @@ export default function ReconciliationIssuePage() {
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState("");
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     if (id) api.getReconciliationIssue(id).then(setIssue).catch((e) => setError((e as Error).message));
@@ -35,7 +37,7 @@ export default function ReconciliationIssuePage() {
     setBusy(true);
     setError(null);
     try {
-      setIssue(await api.resolveReconciliationIssue(id));
+      setIssue(await api.resolveReconciliationIssue(id, outcome, note));
       setConfirm(false);
     } catch (e) {
       setError((e as Error).message);
@@ -69,8 +71,22 @@ export default function ReconciliationIssuePage() {
                 <div className="entry"><span className="muted">Resolved</span><span>{issue.resolvedAt ? dateTime(issue.resolvedAt) : "—"}</span></div>
               </div>
               {issue.status === "OPEN" && (
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button onClick={() => setConfirm(true)}>Resolve issue</button>
+                <div style={{ marginTop: 16, maxWidth: 480 }}>
+                  <label className="muted" style={{ display: "block", marginBottom: 6 }}>Resolution outcome</label>
+                  <select value={outcome} onChange={(e) => setOutcome(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
+                    <option value="">Select an outcome…</option>
+                    <option value="RECOVERED">Recovered — funds landed</option>
+                    <option value="WRITTEN_OFF">Written off — unrecoverable</option>
+                    <option value="FALSE_POSITIVE">False positive — no real break</option>
+                    <option value="PROVIDER_CORRECTED">Provider corrected</option>
+                    <option value="DUPLICATE">Duplicate of another issue</option>
+                  </select>
+                  <label className="muted" style={{ display: "block", marginBottom: 6 }}>Reason (recorded in the audit log)</label>
+                  <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} style={{ width: "100%" }}
+                    placeholder="What did you verify, and what fixed the underlying mismatch?" />
+                  <div className="row" style={{ marginTop: 12 }}>
+                    <button disabled={!outcome || !note.trim()} onClick={() => setConfirm(true)}>Resolve issue</button>
+                  </div>
                 </div>
               )}
             </div>
