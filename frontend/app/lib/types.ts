@@ -310,6 +310,27 @@ export interface ProviderConfigView {
   webhookSecretConfigured: boolean;
 }
 
+export interface DrillResultView {
+  drillId: string;
+  drillVersion: string;
+  status: string; // PASS | FAIL
+  detail: unknown; // { assertions: [...], observations: {...} } — never contains secrets
+}
+
+export interface CertificationRun {
+  id: string;
+  tenantProviderConfigId: string;
+  environment: string;
+  status: string; // RUNNING | PASSED | FAILED
+  catalogueVersion: string;
+  evidenceExportId: string | null;
+  signedOff: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  expiresAt: string | null;
+  drills: DrillResultView[];
+}
+
 export interface ProductionCanaryView {
   id: string;
   tenantProviderConfigId: string;
