@@ -152,8 +152,11 @@ export const api = {
 
   listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
-  resolveReconciliationIssue: (id: string) =>
-    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, { method: "POST" }),
+  resolveReconciliationIssue: (id: string, outcome: string, note: string) =>
+    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ outcome, note }),
+    }),
 
   deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
   beneficiaryProfiles: () => request<BeneficiaryProfile[]>("/api/v1/fraud/risk-profiles/beneficiaries"),
