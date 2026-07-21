@@ -22,8 +22,8 @@ public class SettlementStatementEntity {
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "period_end", nullable = false) private Instant periodEnd;
     @Column(name = "line_count", nullable = false) private int lineCount;
-    @Column(name = "total_amount", nullable = false) private BigDecimal totalAmount;
-    @Column(name = "total_fees", nullable = false) private BigDecimal totalFees;
+    @Column(name = "total_amount", nullable = false, precision = 19, scale = 4) private BigDecimal totalAmount;
+    @Column(name = "total_fees", nullable = false, precision = 19, scale = 4) private BigDecimal totalFees;
     @Column(name = "ingested_by", nullable = false) private UUID ingestedBy;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "ingested_at", nullable = false, insertable = false, updatable = false) private Instant ingestedAt;

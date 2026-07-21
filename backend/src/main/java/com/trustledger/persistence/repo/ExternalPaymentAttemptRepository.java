@@ -13,7 +13,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface ExternalPaymentAttemptRepository extends JpaRepository<ExternalPaymentAttemptEntity, UUID> {
     Optional<ExternalPaymentAttemptEntity> findByProviderAndProviderReference(String provider, String providerReference);
-    Optional<ExternalPaymentAttemptEntity> findByTenantIdAndProviderReference(UUID tenantId, String providerReference);
+    // provider_reference is unique only per (tenant, provider) — scope by provider, not just tenant.
+    Optional<ExternalPaymentAttemptEntity> findByTenantIdAndProviderAndProviderReference(
+        UUID tenantId, String provider, String providerReference);
     Optional<ExternalPaymentAttemptEntity> findByTransactionId(UUID transactionId);
     List<ExternalPaymentAttemptEntity> findByStatus(String status);
     List<ExternalPaymentAttemptEntity> findByTenantIdAndProviderAndStatus(UUID tenantId, String provider, String status);

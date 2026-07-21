@@ -58,8 +58,12 @@ class SettlementReconciliationIntegrationTest {
     private final Instant periodEnd = now.plus(1, ChronoUnit.HOURS);
 
     private void settledAttempt(UUID tenant, String ref, String amount) {
+        settledAttempt(tenant, PROVIDER, ref, amount);
+    }
+
+    private void settledAttempt(UUID tenant, String provider, String ref, String amount) {
         ExternalPaymentAttemptEntity a = new ExternalPaymentAttemptEntity(UUID.randomUUID(), tenant, UUID.randomUUID(),
-                PROVIDER, null, null, null, null, ref, "SETTLED", new BigDecimal(amount), "NGN", "{}", now);
+                provider, null, null, null, null, ref, "SETTLED", new BigDecimal(amount), "NGN", "{}", now);
         a.setSettledAt(now);
         attempts.save(a);
     }
@@ -113,6 +117,23 @@ class SettlementReconciliationIntegrationTest {
         assertEquals(0, result.unmatched());
         assertEquals(0, result.amountMismatch());
         assertEquals(0, result.missing());
+        assertTrue(issues.findByTenantIdOrderByCreatedAtDesc(tenant).isEmpty());
+    }
+
+    @Test
+    void matchingIsScopedToTheStatementProviderNotJustTheTenant() {
+        UUID tenant = UUID.randomUUID();
+        // Same tenant + same provider_reference on two different providers (unique only per provider).
+        settledAttempt(tenant, "PAYSTACK", "shared-ref", "100.0000");
+        settledAttempt(tenant, "FLUTTERWAVE", "shared-ref", "999.0000");
+
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(),
+                statement("STMT-PROV", List.of(line("shared-ref", "100.0000"))));
+
+        // Must match the PAYSTACK attempt (100) — not throw, and not false-mismatch against FLUTTERWAVE's 999.
+        assertEquals(1, result.matched());
+        assertEquals(0, result.amountMismatch());
+        assertEquals(0, result.missing(), "the other provider's attempt must not count as missing for PAYSTACK");
         assertTrue(issues.findByTenantIdOrderByCreatedAtDesc(tenant).isEmpty());
     }
 

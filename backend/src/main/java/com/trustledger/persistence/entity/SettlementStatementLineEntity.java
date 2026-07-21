@@ -13,8 +13,8 @@ public class SettlementStatementLineEntity {
     @Column(name = "statement_id", nullable = false) private UUID statementId;
     @Column(name = "tenant_id", nullable = false) private UUID tenantId;
     @Column(name = "provider_reference", nullable = false, length = 120) private String providerReference;
-    @Column(nullable = false) private BigDecimal amount;
-    @Column(nullable = false) private BigDecimal fee;
+    @Column(nullable = false, precision = 19, scale = 4) private BigDecimal amount;
+    @Column(nullable = false, precision = 19, scale = 4) private BigDecimal fee;
     @Column(nullable = false, length = 32) private String status;
     @Column(name = "matched_attempt_id") private UUID matchedAttemptId;
     @Column(name = "match_status", nullable = false, length = 24) private String matchStatus;

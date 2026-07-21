@@ -13,6 +13,7 @@ import com.trustledger.persistence.repo.SettlementStatementRepository;
 import com.trustledger.rails.ExternalPaymentStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,9 +66,7 @@ public class SettlementReconciliationService {
 
     @Transactional
     public IngestResult ingest(UUID tenantId, UUID actorId, StatementInput in) {
-        if (in.lines() == null || in.lines().isEmpty()) {
-            throw new IllegalArgumentException("Settlement statement has no lines");
-        }
+        validate(in);
         Optional<SettlementStatementEntity> existing =
                 statements.findByTenantIdAndProviderAndStatementRef(tenantId, in.provider(), in.statementRef());
         if (existing.isPresent()) {
@@ -90,8 +89,8 @@ public class SettlementReconciliationService {
         Set<String> statementRefs = new HashSet<>();
         for (LineInput li : in.lines()) {
             statementRefs.add(li.providerReference());
-            Optional<ExternalPaymentAttemptEntity> attempt =
-                    attempts.findByTenantIdAndProviderReference(tenantId, li.providerReference());
+            Optional<ExternalPaymentAttemptEntity> attempt = attempts
+                    .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
             String matchStatus;
             UUID matchedId = null;
             if (attempt.isEmpty()) {
@@ -133,21 +132,45 @@ public class SettlementReconciliationService {
 
     /** Our locally-SETTLED attempts for this provider/currency in the period, absent from the statement. */
     private int reverseSweep(UUID tenantId, StatementInput in, Set<String> statementRefs) {
-        int missing = 0;
-        for (ExternalPaymentAttemptEntity a :
-                attempts.findByTenantIdAndProviderAndStatus(tenantId, in.provider(), ExternalPaymentStatus.SETTLED)) {
-            if (!in.currency().equals(a.getCurrency())) continue;
-            Instant settledAt = a.getSettledAt();
-            if (settledAt == null || settledAt.isBefore(in.periodStart()) || settledAt.isAfter(in.periodEnd())) continue;
-            if (statementRefs.contains(a.getProviderReference())) continue;
-            missing++;
+        List<ExternalPaymentAttemptEntity> missing = missingAttempts(tenantId, in.provider(), in.currency(),
+                in.periodStart(), in.periodEnd(), statementRefs);
+        for (ExternalPaymentAttemptEntity a : missing) {
             raise(tenantId, "CRITICAL", "SETTLEMENT_MISSING", "EXTERNAL_PAYMENT_ATTEMPT", a.getId(),
                     "present in the provider settlement statement",
                     "settled locally but absent from statement " + in.statementRef(),
                     Map.of("statementRef", in.statementRef(), "providerReference", a.getProviderReference(),
                             "amount", a.getAmount().toPlainString()));
         }
-        return missing;
+        return missing.size();
+    }
+
+    private List<ExternalPaymentAttemptEntity> missingAttempts(UUID tenantId, String provider, String currency,
+                                                               Instant periodStart, Instant periodEnd,
+                                                               Set<String> statementRefs) {
+        List<ExternalPaymentAttemptEntity> result = new ArrayList<>();
+        for (ExternalPaymentAttemptEntity a :
+                attempts.findByTenantIdAndProviderAndStatus(tenantId, provider, ExternalPaymentStatus.SETTLED)) {
+            if (!currency.equals(a.getCurrency())) continue;
+            Instant settledAt = a.getSettledAt();
+            if (settledAt == null || settledAt.isBefore(periodStart) || settledAt.isAfter(periodEnd)) continue;
+            if (statementRefs.contains(a.getProviderReference())) continue;
+            result.add(a);
+        }
+        return result;
+    }
+
+    private void validate(StatementInput in) {
+        if (in.provider() == null || in.provider().isBlank()) throw new IllegalArgumentException("provider is required");
+        if (in.currency() == null || in.currency().isBlank()) throw new IllegalArgumentException("currency is required");
+        if (in.statementRef() == null || in.statementRef().isBlank()) throw new IllegalArgumentException("statementRef is required");
+        if (in.periodStart() == null || in.periodEnd() == null) throw new IllegalArgumentException("period is required");
+        if (in.lines() == null || in.lines().isEmpty()) throw new IllegalArgumentException("Settlement statement has no lines");
+        for (LineInput li : in.lines()) {
+            if (li.providerReference() == null || li.providerReference().isBlank()) {
+                throw new IllegalArgumentException("each line requires a providerReference");
+            }
+            if (li.amount() == null) throw new IllegalArgumentException("each line requires an amount");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -157,7 +180,9 @@ public class SettlementReconciliationService {
 
     private IngestResult summarize(SettlementStatementEntity stmt) {
         int matched = 0, unmatched = 0, mismatch = 0;
+        Set<String> statementRefs = new HashSet<>();
         for (SettlementStatementLineEntity line : lines.findByStatementId(stmt.getId())) {
+            statementRefs.add(line.getProviderReference());
             switch (line.getMatchStatus()) {
                 case MATCHED -> matched++;
                 case UNMATCHED -> unmatched++;
@@ -165,7 +190,10 @@ public class SettlementReconciliationService {
                 default -> { }
             }
         }
-        return new IngestResult(stmt, true, matched, unmatched, mismatch, 0);
+        // Re-derive missing (read-only, no re-raise) so a replay response is honest, not always 0.
+        int missing = missingAttempts(stmt.getTenantId(), stmt.getProvider(), stmt.getCurrency(),
+                stmt.getPeriodStart(), stmt.getPeriodEnd(), statementRefs).size();
+        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing);
     }
 
     private void raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
