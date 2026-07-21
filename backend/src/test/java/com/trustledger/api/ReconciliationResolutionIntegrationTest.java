@@ -129,4 +129,33 @@ class ReconciliationResolutionIntegrationTest {
             .stream().filter(a -> "RECONCILIATION_ISSUE_RESOLVED".equals(a.getAction())).count(),
             "re-resolving must not emit a second resolution audit event");
     }
+
+    @Test
+    void concurrentResolvesYieldExactlyOneWinnerAndOneAuditEvent() throws Exception {
+        AuthResponse owner = register();
+        ReconciliationIssueEntity issue = openIssue(owner.tenantId());
+        var body = Map.<String, Object>of("outcome", "RECOVERED", "note", "concurrent resolve race");
+
+        int n = 8;
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(n);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+        for (int i = 0; i < n; i++) {
+            futures.add(pool.submit(() -> { start.await(); return resolve(issue.getId(), owner.token(), body).statusCode(); }));
+        }
+        start.countDown(); // release all callers at once to race on the same OPEN issue
+        int ok = 0, conflict = 0, other = 0;
+        for (var f : futures) {
+            int sc = f.get();
+            if (sc == 200) ok++; else if (sc == 409) conflict++; else other++;
+        }
+        pool.shutdown();
+
+        assertEquals(1, ok, "exactly one concurrent resolve may win");
+        assertEquals(n - 1, conflict, "every other concurrent resolve must get 409, not silently double-resolve");
+        assertEquals(0, other, "no caller should error");
+        assertEquals(1, auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(owner.tenantId(), issue.getId())
+            .stream().filter(a -> "RECONCILIATION_ISSUE_RESOLVED".equals(a.getAction())).count(),
+            "the row lock must guarantee exactly one resolution audit event under concurrency");
+    }
 }
