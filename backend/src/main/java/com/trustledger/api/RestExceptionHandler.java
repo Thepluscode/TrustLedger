@@ -1,6 +1,7 @@
 package com.trustledger.api;
 
 import com.trustledger.app.IdempotencyConflictException;
+import com.trustledger.security.ConflictException;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.UnauthorizedException;
 import java.util.Map;
@@ -26,6 +27,11 @@ public class RestExceptionHandler {
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<Map<String, Object>> conflict(IdempotencyConflictException e) {
         return body(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", e.getMessage());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<Map<String, Object>> stateConflict(ConflictException e) {
+        return body(HttpStatus.CONFLICT, "CONFLICT", e.getMessage());
     }
 
     @ExceptionHandler(com.trustledger.app.ConsentService.ConsentException.class)

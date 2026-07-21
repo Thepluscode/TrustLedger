@@ -1,15 +1,13 @@
 package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.ReconciliationIssueView;
-import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.app.AccessControlService;
-import com.trustledger.persistence.repo.AuditLogRepository;
+import com.trustledger.app.ReconciliationResolutionService;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.*;
@@ -22,15 +20,18 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/reconciliation/issues")
 public class ReconciliationController {
 
-    private final ReconciliationIssueRepository issues;
-    private final AuditLogRepository auditLogs;
-    private final AccessControlService access;
+    /** Body for resolving an issue: an outcome classification and a free-text reason — both required. */
+    public record ResolveRequest(String outcome, String note) {}
 
-    public ReconciliationController(ReconciliationIssueRepository issues, AuditLogRepository auditLogs,
-                                    AccessControlService access) {
+    private final ReconciliationIssueRepository issues;
+    private final AccessControlService access;
+    private final ReconciliationResolutionService resolution;
+
+    public ReconciliationController(ReconciliationIssueRepository issues, AccessControlService access,
+                                    ReconciliationResolutionService resolution) {
         this.issues = issues;
-        this.auditLogs = auditLogs;
         this.access = access;
+        this.resolution = resolution;
     }
 
     @GetMapping
@@ -45,16 +46,13 @@ public class ReconciliationController {
     }
 
     @PostMapping("/{id}/resolve")
-    public ReconciliationIssueView resolve(@PathVariable UUID id) {
+    public ReconciliationIssueView resolve(@PathVariable UUID id, @RequestBody(required = false) ResolveRequest body) {
         access.require(Permission.TENANT_ADMIN);
-        ReconciliationIssueEntity issue = require(id);
-        issue.setStatus("RESOLVED");
-        issue.setResolvedAt(Instant.now());
-        issues.save(issue);
-        // The resolving actor is the authenticated user — never a spoofable client header.
-        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), issue.getTenantId(), "USER", CurrentUser.userId(),
-            "RECONCILIATION_ISSUE_RESOLVED", "RECONCILIATION_ISSUE", id, "{}"));
-        return view(issue);
+        // The atomic, row-locked OPEN→RESOLVED transition + audit lives in the service. Actor and tenant
+        // come from the authenticated caller, never the request body.
+        String outcome = body == null ? null : body.outcome();
+        String note = body == null ? null : body.note();
+        return view(resolution.resolve(CurrentUser.tenantId(), CurrentUser.userId(), id, outcome, note));
     }
 
     private ReconciliationIssueEntity require(UUID id) {
