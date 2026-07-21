@@ -75,7 +75,7 @@ class ProviderCertificationIntegrationTest {
         assertEquals("PASSED", run.getStatus());
         assertNotNull(run.getExpiresAt(), "a passed certification must carry a validity window");
         var results = drillResults.findByCertificationRunId(run.getId());
-        assertEquals(6, results.size(), "every drill in the catalogue must be recorded");
+        assertEquals(8, results.size(), "every drill in the catalogue must be recorded");
         assertTrue(results.stream().allMatch(r -> "PASS".equals(r.getStatus())));
 
         assertNotNull(run.getEvidenceExportId(), "a run must produce an evidence pack");
@@ -105,7 +105,7 @@ class ProviderCertificationIntegrationTest {
         assertEquals("FAILED", run.getStatus());
         assertNull(run.getExpiresAt(), "a failed certification must not carry a validity window");
         var results = drillResults.findByCertificationRunId(run.getId());
-        assertEquals(6, results.size(), "every drill must still be recorded on a failed run");
+        assertEquals(8, results.size(), "every drill must still be recorded on a failed run");
         assertTrue(results.stream().anyMatch(r -> "FAIL".equals(r.getStatus())),
                 "the reconciliation drill must be recorded FAIL");
     }
@@ -170,5 +170,16 @@ class ProviderCertificationIntegrationTest {
 
         assertThrows(IllegalStateException.class,
                 () -> certifications.signOff(tenant, UUID.randomUUID(), run.getId(), "second"));
+    }
+
+    @Test
+    void drillResultsRejectARunFromAnotherTenant() {
+        UUID tenant = UUID.randomUUID();
+        CertificationRunEntity run = certifications.run(tenant, UUID.randomUUID(), productionConfig(tenant), "PRODUCTION");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> certifications.drillResults(UUID.randomUUID(), run.getId()),
+                "drillResults must reject a run that is not the caller's tenant, on its own");
+        assertFalse(certifications.drillResults(tenant, run.getId()).isEmpty(), "the owning tenant still reads them");
     }
 }

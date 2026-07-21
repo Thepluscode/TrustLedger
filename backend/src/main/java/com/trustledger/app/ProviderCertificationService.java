@@ -186,9 +186,13 @@ public class ProviderCertificationService {
         return run;
     }
 
-    /** The per-drill results for a run (assertions/observations; never secrets). */
+    /**
+     * The per-drill results for a run (assertions/observations; never secrets), verified to belong to
+     * the tenant — so the read is safe on its own, not only because callers happen to check first.
+     */
     @Transactional(readOnly = true)
-    public List<CertificationDrillResultEntity> drillResults(UUID runId) {
+    public List<CertificationDrillResultEntity> drillResults(UUID tenantId, UUID runId) {
+        runForTenant(tenantId, runId); // throws if the run is not this tenant's
         return drillResults.findByCertificationRunId(runId);
     }
 
