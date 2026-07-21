@@ -70,7 +70,7 @@ public class CertificationController {
 
     /** Detail view: includes each drill's assertions/observations. */
     private CertificationRunResponse detailOf(CertificationRunEntity run) {
-        List<DrillResultView> drills = certifications.drillResults(run.getId()).stream()
+        List<DrillResultView> drills = certifications.drillResults(CurrentUser.tenantId(), run.getId()).stream()
                 .map(r -> new DrillResultView(r.getDrillId(), r.getDrillVersion(), r.getStatus(), parse(r.getDetail())))
                 .toList();
         return response(run, drills);

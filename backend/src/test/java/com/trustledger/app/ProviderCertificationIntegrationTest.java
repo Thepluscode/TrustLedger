@@ -171,4 +171,15 @@ class ProviderCertificationIntegrationTest {
         assertThrows(IllegalStateException.class,
                 () -> certifications.signOff(tenant, UUID.randomUUID(), run.getId(), "second"));
     }
+
+    @Test
+    void drillResultsRejectARunFromAnotherTenant() {
+        UUID tenant = UUID.randomUUID();
+        CertificationRunEntity run = certifications.run(tenant, UUID.randomUUID(), productionConfig(tenant), "PRODUCTION");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> certifications.drillResults(UUID.randomUUID(), run.getId()),
+                "drillResults must reject a run that is not the caller's tenant, on its own");
+        assertFalse(certifications.drillResults(tenant, run.getId()).isEmpty(), "the owning tenant still reads them");
+    }
 }
