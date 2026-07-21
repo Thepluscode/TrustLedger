@@ -2,17 +2,22 @@ package com.trustledger.app;
 
 import com.trustledger.api.MonitoringViews.*;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
+import com.trustledger.persistence.entity.TenantProviderConfigEntity;
+import com.trustledger.persistence.repo.CertificationRunRepository;
 import com.trustledger.persistence.repo.OutboxEventRepository;
 import com.trustledger.persistence.repo.PaymentWebhookEventRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.TenantProviderConfigRepository;
 import com.trustledger.persistence.repo.TransferRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,16 +48,24 @@ public class MonitoringService {
     private final PaymentWebhookEventRepository webhooks;
     private final ReconciliationIssueRepository reconciliation;
     private final TransferRepository transfers;
+    private final TenantProviderConfigRepository providerConfigs;
+    private final CertificationRunRepository certificationRuns;
+    private final long certExpiryWarningDays;
 
     public MonitoringService(JdbcTemplate jdbc, MeterRegistry registry, OutboxEventRepository outbox,
                              PaymentWebhookEventRepository webhooks, ReconciliationIssueRepository reconciliation,
-                             TransferRepository transfers) {
+                             TransferRepository transfers, TenantProviderConfigRepository providerConfigs,
+                             CertificationRunRepository certificationRuns,
+                             @Value("${trustledger.certification.expiry-warning-days:14}") long certExpiryWarningDays) {
         this.jdbc = jdbc;
         this.registry = registry;
         this.outbox = outbox;
         this.webhooks = webhooks;
         this.reconciliation = reconciliation;
         this.transfers = transfers;
+        this.providerConfigs = providerConfigs;
+        this.certificationRuns = certificationRuns;
+        this.certExpiryWarningDays = certExpiryWarningDays;
     }
 
     @Transactional(readOnly = true)
@@ -65,10 +78,12 @@ public class MonitoringService {
         ReconciliationHealth reconHealth = reconciliation(tenantId);
         PaymentsHealth paymentsHealth = payments(tenantId);
         LockHealth lockHealth = locks();
+        CertificationHealth certHealth = certifications(tenantId);
 
         boolean critical = !database.up();
         boolean warn = anyWarn(transferLatency.status(), fraudLatency.status(), outboxHealth.status(),
-            webhookHealth.status(), reconHealth.status(), paymentsHealth.status(), lockHealth.status());
+            webhookHealth.status(), reconHealth.status(), paymentsHealth.status(), lockHealth.status(),
+            certHealth.status());
         String overall = critical ? CRITICAL : (warn ? WARN : OK);
         String banner = switch (overall) {
             case CRITICAL -> "Critical: database unreachable";
@@ -77,7 +92,31 @@ public class MonitoringService {
         };
 
         return new MonitoringSnapshot(overall, banner, database, transferLatency, fraudLatency,
-            outboxHealth, webhookHealth, reconHealth, paymentsHealth, lockHealth);
+            outboxHealth, webhookHealth, reconHealth, paymentsHealth, lockHealth, certHealth);
+    }
+
+    /**
+     * Production-certification coverage: how many production provider configs currently clear the gate,
+     * and how many are uncertified or expiring within the warning window. Purely tenant-scoped reads.
+     */
+    private CertificationHealth certifications(UUID tenantId) {
+        List<TenantProviderConfigEntity> prod = providerConfigs.findByTenantId(tenantId).stream()
+            .filter(c -> "PRODUCTION".equalsIgnoreCase(c.getEnvironment())).toList();
+        Instant now = Instant.now();
+        Instant warnBy = now.plus(certExpiryWarningDays, ChronoUnit.DAYS);
+        int certified = 0, expiring = 0, uncertified = 0;
+        for (TenantProviderConfigEntity c : prod) {
+            List<?> current = certificationRuns.findCurrentValid(tenantId, c.getId(), "PRODUCTION", now);
+            if (current.isEmpty()) {
+                uncertified++;
+                continue;
+            }
+            certified++;
+            var run = (com.trustledger.persistence.entity.CertificationRunEntity) current.get(0);
+            if (run.getExpiresAt() != null && run.getExpiresAt().isBefore(warnBy)) expiring++;
+        }
+        String status = (uncertified > 0 || expiring > 0) ? WARN : OK;
+        return new CertificationHealth(status, prod.size(), certified, expiring, uncertified);
     }
 
     private ComponentHealth probeDatabase() {

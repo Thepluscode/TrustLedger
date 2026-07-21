@@ -22,7 +22,8 @@ public final class MonitoringViews {
         WebhookHealth webhooks,
         ReconciliationHealth reconciliation,
         PaymentsHealth payments,
-        LockHealth dbLockWait) {}
+        LockHealth dbLockWait,
+        CertificationHealth certifications) {}
 
     /** Liveness of a dependency. {@code latencyMs} is the probe round-trip (null when down). */
     public record ComponentHealth(String status, boolean up, Long latencyMs) {}
@@ -39,4 +40,13 @@ public final class MonitoringViews {
     public record PaymentsHealth(String status, long awaitingProviderConfirmation) {}
 
     public record LockHealth(String status, long waitingLocks) {}
+
+    /**
+     * Production-provider certification coverage. The gate silently blocks production once a
+     * certification expires, so surfacing {@code expiringSoon}/{@code uncertified} lets operators
+     * re-certify before payouts start failing closed. WARN when any production config is uncertified
+     * or expiring within the warning window.
+     */
+    public record CertificationHealth(String status, int productionConfigs, int certified,
+                                      int expiringSoon, int uncertified) {}
 }
