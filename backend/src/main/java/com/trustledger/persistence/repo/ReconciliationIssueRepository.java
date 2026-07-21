@@ -3,8 +3,10 @@ package com.trustledger.persistence.repo;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -19,8 +21,15 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
     @Query("select i from ReconciliationIssueEntity i where i.id = :id")
     Optional<ReconciliationIssueEntity> findByIdForUpdate(@Param("id") UUID id);
     long countByStatus(String status);
+    long countByTenantId(UUID tenantId);
     long countByTenantIdAndStatus(UUID tenantId, String status);
     long countByTenantIdAndStatusAndSeverity(UUID tenantId, String status, String severity);
+
+    /** Bounded, optionally status/severity-filtered issue list for a tenant (pass null to skip a filter). */
+    @Query("select i from ReconciliationIssueEntity i where i.tenantId = :tenantId "
+        + "and (:status is null or i.status = :status) and (:severity is null or i.severity = :severity)")
+    List<ReconciliationIssueEntity> search(@Param("tenantId") UUID tenantId, @Param("status") String status,
+                                           @Param("severity") String severity, Pageable pageable);
     java.util.List<ReconciliationIssueEntity> findByStatus(String status);
     java.util.List<ReconciliationIssueEntity> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 

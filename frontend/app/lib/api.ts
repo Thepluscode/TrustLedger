@@ -21,6 +21,7 @@ import type {
   ProductionCanaryView,
   ProviderConfigView,
   ReconciliationIssue,
+  ReconciliationIssueList,
   SettlementStatement,
   SettlementIngestResult,
   TeamMember,
@@ -150,7 +151,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
+  listReconciliationIssues: (status?: string, severity?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    if (severity) q.set("severity", severity);
+    const qs = q.toString();
+    return request<ReconciliationIssueList>(`/api/v1/reconciliation/issues${qs ? `?${qs}` : ""}`);
+  },
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
   resolveReconciliationIssue: (id: string, outcome: string, note: string) =>
     request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, {

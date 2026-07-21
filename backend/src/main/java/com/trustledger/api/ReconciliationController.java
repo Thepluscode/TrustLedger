@@ -10,6 +10,8 @@ import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -23,6 +25,15 @@ public class ReconciliationController {
     /** Body for resolving an issue: an outcome classification and a free-text reason — both required. */
     public record ResolveRequest(String outcome, String note) {}
 
+    /** Tenant-wide counts for the overview cards — independent of any active list filter. */
+    public record ListSummary(long total, long open, long criticalOpen, long resolved) {}
+
+    /** Bounded, filtered issue list plus the tenant-wide summary. */
+    public record IssueList(List<ReconciliationIssueView> items, ListSummary summary) {}
+
+    /** Hard cap on rows returned — the list is never unbounded. Add paging if a tenant routinely exceeds this. */
+    private static final int MAX_ITEMS = 200;
+
     private final ReconciliationIssueRepository issues;
     private final AccessControlService access;
     private final ReconciliationResolutionService resolution;
@@ -35,9 +46,22 @@ public class ReconciliationController {
     }
 
     @GetMapping
-    public List<ReconciliationIssueView> list() {
-        return issues.findByTenantIdOrderByCreatedAtDesc(CurrentUser.tenantId()).stream()
-            .map(ReconciliationController::view).toList();
+    public IssueList list(@RequestParam(required = false) String status,
+                          @RequestParam(required = false) String severity) {
+        UUID tenant = CurrentUser.tenantId();
+        List<ReconciliationIssueView> items = issues.search(tenant, blankToNull(status), blankToNull(severity),
+                PageRequest.of(0, MAX_ITEMS, Sort.by(Sort.Direction.DESC, "createdAt")))
+            .stream().map(ReconciliationController::view).toList();
+        ListSummary summary = new ListSummary(
+            issues.countByTenantId(tenant),
+            issues.countByTenantIdAndStatus(tenant, "OPEN"),
+            issues.countByTenantIdAndStatusAndSeverity(tenant, "OPEN", "CRITICAL"),
+            issues.countByTenantIdAndStatus(tenant, "RESOLVED"));
+        return new IssueList(items, summary);
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s;
     }
 
     @GetMapping("/{id}")
