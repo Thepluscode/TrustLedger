@@ -29,7 +29,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
   },
   {
     label: "Payment Rails",
-    links: [["Webhooks", "/webhooks"], ["Production Readiness", "/production-readiness"]],
+    links: [["Webhooks", "/webhooks"], ["Certifications", "/certifications"], ["Production Readiness", "/production-readiness"]],
   },
   {
     label: "Compliance",

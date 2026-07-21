@@ -11,6 +11,7 @@ import type {
   EvidenceExportView,
   ExternalPaymentResponse,
   BeneficiaryProfile,
+  CertificationRun,
   DeviceProfile,
   FraudCaseView,
   FraudPolicy,
@@ -221,6 +222,19 @@ export const api = {
       "/api/v1/tenant/production-readiness",
     ),
   listProviderConfigs: () => request<ProviderConfigView[]>("/api/v1/tenant/provider-configs"),
+
+  listCertifications: () => request<CertificationRun[]>("/api/v1/tenant/certifications"),
+  getCertification: (id: string) => request<CertificationRun>(`/api/v1/tenant/certifications/${id}`),
+  runCertification: (tenantProviderConfigId: string) =>
+    request<CertificationRun>("/api/v1/tenant/certifications", {
+      method: "POST",
+      body: JSON.stringify({ tenantProviderConfigId }),
+    }),
+  signOffCertification: (id: string, note: string) =>
+    request<CertificationRun>(`/api/v1/tenant/certifications/${id}/sign-off`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
   listProductionCanaries: (configId: string) =>
     request<ProductionCanaryView[]>(`/api/v1/tenant/provider-configs/${configId}/production-canaries`),
   requestProductionCanary: (configId: string, body: ProductionCanaryRequest) =>
