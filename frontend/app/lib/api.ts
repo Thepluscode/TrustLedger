@@ -21,6 +21,8 @@ import type {
   ProductionCanaryView,
   ProviderConfigView,
   ReconciliationIssue,
+  SettlementStatement,
+  SettlementIngestResult,
   TeamMember,
   UserProfile,
   WebhookEvent,
@@ -140,6 +142,13 @@ export const api = {
   getMonitoring: () => request<MonitoringSnapshot>("/api/v1/monitoring"),
 
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
+
+  listSettlementStatements: () => request<SettlementStatement[]>("/api/v1/tenant/reconciliation/statements"),
+  ingestSettlementStatement: (body: Record<string, unknown>) =>
+    request<SettlementIngestResult>("/api/v1/tenant/reconciliation/statements", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
