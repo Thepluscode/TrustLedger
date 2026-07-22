@@ -197,6 +197,13 @@ export interface ReconciliationIssue {
   resolvedAt: string | null;
 }
 
+export interface ReconciliationAuditEntry {
+  action: string;
+  actorId: string | null;
+  at: string;
+  metadata: string;
+}
+
 export interface ReconciliationListSummary {
   total: number;
   open: number;

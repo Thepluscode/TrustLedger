@@ -4,10 +4,13 @@ import com.trustledger.api.ApiViews.ReconciliationIssueView;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.app.AccessControlService;
 import com.trustledger.app.ReconciliationResolutionService;
+import com.trustledger.persistence.entity.AuditLogEntity;
+import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -34,15 +37,20 @@ public class ReconciliationController {
     /** Hard cap on rows returned — the list is never unbounded. Add paging if a tenant routinely exceeds this. */
     private static final int MAX_ITEMS = 200;
 
+    /** One audit entry for an issue — includes metadata (e.g. the resolution outcome + reason). */
+    public record IssueAuditView(String action, UUID actorId, Instant at, String metadata) {}
+
     private final ReconciliationIssueRepository issues;
     private final AccessControlService access;
     private final ReconciliationResolutionService resolution;
+    private final AuditLogRepository auditLogs;
 
     public ReconciliationController(ReconciliationIssueRepository issues, AccessControlService access,
-                                    ReconciliationResolutionService resolution) {
+                                    ReconciliationResolutionService resolution, AuditLogRepository auditLogs) {
         this.issues = issues;
         this.access = access;
         this.resolution = resolution;
+        this.auditLogs = auditLogs;
     }
 
     @GetMapping
@@ -67,6 +75,15 @@ public class ReconciliationController {
     @GetMapping("/{id}")
     public ReconciliationIssueView get(@PathVariable UUID id) {
         return view(require(id));
+    }
+
+    /** The issue's audit trail (raise → resolve) — surfaces who resolved it, the outcome, and the reason. */
+    @GetMapping("/{id}/audit")
+    public List<IssueAuditView> audit(@PathVariable UUID id) {
+        require(id); // tenant-scopes: 404 if unknown, 403 if another tenant's, before reading its audit
+        return auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(CurrentUser.tenantId(), id).stream()
+            .map(a -> new IssueAuditView(a.getAction(), a.getActorId(), a.getCreatedAt(), a.getMetadata()))
+            .toList();
     }
 
     @PostMapping("/{id}/resolve")

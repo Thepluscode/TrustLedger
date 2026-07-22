@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -128,6 +129,32 @@ class ReconciliationResolutionIntegrationTest {
         assertEquals(1, auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(owner.tenantId(), issue.getId())
             .stream().filter(a -> "RECONCILIATION_ISSUE_RESOLVED".equals(a.getAction())).count(),
             "re-resolving must not emit a second resolution audit event");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theAuditEndpointSurfacesTheResolutionOutcomeAndActorTenantScoped() throws Exception {
+        AuthResponse owner = register();
+        ReconciliationIssueEntity issue = openIssue(owner.tenantId());
+        assertEquals(200, resolve(issue.getId(), owner.token(),
+            Map.of("outcome", "RECOVERED", "note", "provider re-settled; funds landed")).statusCode());
+
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(
+            uri("/api/v1/reconciliation/issues/" + issue.getId() + "/audit"))
+            .header("Authorization", "Bearer " + owner.token()).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, r.statusCode(), r.body());
+        List<Map<String, Object>> entries = json.readValue(r.body(), List.class);
+        Map<String, Object> resolved = entries.stream()
+            .filter(e -> "RECONCILIATION_ISSUE_RESOLVED".equals(e.get("action"))).findFirst().orElseThrow();
+        assertEquals(owner.userId().toString(), resolved.get("actorId"), "the resolving actor is recorded");
+        assertTrue(resolved.get("metadata").toString().contains("RECOVERED"), resolved.toString());
+        assertTrue(resolved.get("metadata").toString().contains("re-settled"), "the reason is surfaced, not hidden");
+
+        // Another tenant cannot read this issue's audit trail.
+        assertEquals(403, http.send(HttpRequest.newBuilder(
+            uri("/api/v1/reconciliation/issues/" + issue.getId() + "/audit"))
+            .header("Authorization", "Bearer " + register().token()).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     @Test
