@@ -109,7 +109,7 @@ public class SettlementReconciliationService {
                         UUID.nameUUIDFromBytes((stmtId + ":" + li.providerReference()).getBytes()),
                         "a matching payout attempt", "no attempt for provider_reference " + li.providerReference(),
                         Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
-                                "amount", li.amount().toPlainString()));
+                                "amount", li.amount().toPlainString(), "statementId", stmtId.toString()));
             } else {
                 ExternalPaymentAttemptEntity a = attempt.get();
                 matchedId = a.getId();
@@ -121,7 +121,7 @@ public class SettlementReconciliationService {
                             li.amount().toPlainString() + " " + in.currency(),
                             Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
                                     "ledgerAmount", a.getAmount().toPlainString(),
-                                    "statementAmount", li.amount().toPlainString()));
+                                    "statementAmount", li.amount().toPlainString(), "statementId", stmtId.toString()));
                 } else {
                     matchStatus = MATCHED;
                     matched++;
@@ -134,7 +134,7 @@ public class SettlementReconciliationService {
             lines.save(line);
         }
 
-        int missing = reverseSweep(tenantId, in, statementRefs);
+        int missing = reverseSweep(tenantId, stmtId, in, statementRefs);
         audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing);
         return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch);
     }
@@ -162,7 +162,7 @@ public class SettlementReconciliationService {
     }
 
     /** Our locally-SETTLED attempts for this provider/currency in the period, absent from the statement. */
-    private int reverseSweep(UUID tenantId, StatementInput in, Set<String> statementRefs) {
+    private int reverseSweep(UUID tenantId, UUID stmtId, StatementInput in, Set<String> statementRefs) {
         List<ExternalPaymentAttemptEntity> missing = missingAttempts(tenantId, in.provider(), in.currency(),
                 in.periodStart(), in.periodEnd(), statementRefs);
         for (ExternalPaymentAttemptEntity a : missing) {
@@ -170,7 +170,7 @@ public class SettlementReconciliationService {
                     "present in the provider settlement statement",
                     "settled locally but absent from statement " + in.statementRef(),
                     Map.of("statementRef", in.statementRef(), "providerReference", a.getProviderReference(),
-                            "amount", a.getAmount().toPlainString()));
+                            "amount", a.getAmount().toPlainString(), "statementId", stmtId.toString()));
         }
         return missing.size();
     }
