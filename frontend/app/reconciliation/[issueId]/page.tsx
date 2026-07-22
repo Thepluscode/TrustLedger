@@ -27,6 +27,17 @@ function resolutionFields(metadata: string): { outcome?: string; note?: string }
   }
 }
 
+/** The settlement statement a break came from, if any: the entity itself for a statement-level break,
+ *  else the statementId stamped into the evidence for a line/attempt break. */
+function sourceStatementId(issue: ReconciliationIssue): string | null {
+  if (issue.entityType === "SETTLEMENT_STATEMENT") return issue.entityId;
+  try {
+    return (JSON.parse(issue.evidence) as { statementId?: string })?.statementId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ReconciliationIssuePage() {
   const params = useParams<{ issueId: string }>();
   const id = params.issueId;
@@ -83,6 +94,10 @@ export default function ReconciliationIssuePage() {
               </p>
               <div style={{ maxWidth: 560 }}>
                 <div className="entry"><span className="muted">Affected entity</span><span><span className="mono">{shortId(issue.entityId)}</span> {issue.entityType.replace(/_/g, " ").toLowerCase()}</span></div>
+                {sourceStatementId(issue) && (
+                  <div className="entry"><span className="muted">Source statement</span>
+                    <Link href={`/reconciliation/statements/${sourceStatementId(issue)}`}>view statement</Link></div>
+                )}
                 <div className="entry"><span className="muted">Created</span><span>{dateTime(issue.createdAt)}</span></div>
                 <div className="entry"><span className="muted">Resolved</span><span>{issue.resolvedAt ? dateTime(issue.resolvedAt) : "—"}</span></div>
               </div>

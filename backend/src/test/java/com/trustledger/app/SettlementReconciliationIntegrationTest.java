@@ -189,6 +189,24 @@ class SettlementReconciliationIntegrationTest {
     }
 
     @Test
+    void raisedSettlementBreaksLinkBackToTheirSourceStatement() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-mismatch", "50.0000");
+        settledAttempt(tenant, "ref-missing", "77.0000"); // settled locally, absent from the statement → MISSING
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-LINK", List.of(
+            line("ref-mismatch", "55.0000"),      // AMOUNT_MISMATCH (attempt is 50.0000)
+            line("ref-orphan", "200.0000"))));    // UNMATCHED (no attempt)
+
+        String stmtId = result.statement().getId().toString();
+        var raised = issues.findByTenantIdOrderByCreatedAtDesc(tenant);
+        assertEquals(3, raised.size(), raised.toString());
+        for (var i : raised) {
+            assertTrue(i.getEvidence().contains(stmtId),
+                "every settlement break must carry its source statement id: " + i.getType() + " " + i.getEvidence());
+        }
+    }
+
+    @Test
     void detailReturnsTheStatementWithItsLinesAndIsTenantScoped() {
         UUID tenant = UUID.randomUUID();
         settledAttempt(tenant, "ref-a", "100.0000");
