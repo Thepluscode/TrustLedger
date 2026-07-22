@@ -23,6 +23,7 @@ import type {
   ReconciliationIssue,
   ReconciliationIssueList,
   SettlementStatement,
+  SettlementStatementDetail,
   SettlementIngestResult,
   TeamMember,
   UserProfile,
@@ -145,6 +146,8 @@ export const api = {
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 
   listSettlementStatements: () => request<SettlementStatement[]>("/api/v1/tenant/reconciliation/statements"),
+  getSettlementStatement: (id: string) =>
+    request<SettlementStatementDetail>(`/api/v1/tenant/reconciliation/statements/${id}`),
   ingestSettlementStatement: (body: Record<string, unknown>) =>
     request<SettlementIngestResult>("/api/v1/tenant/reconciliation/statements", {
       method: "POST",

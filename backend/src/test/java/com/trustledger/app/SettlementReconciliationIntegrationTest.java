@@ -189,6 +189,27 @@ class SettlementReconciliationIntegrationTest {
     }
 
     @Test
+    void detailReturnsTheStatementWithItsLinesAndIsTenantScoped() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-a", "100.0000");
+        IngestResult r = settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-DETAIL", List.of(
+            line("ref-a", "100.0000"),     // MATCHED
+            line("ref-orphan", "5.0000")))); // UNMATCHED
+
+        var d = settlements.detail(tenant, r.statement().getId());
+        assertEquals(r.statement().getId(), d.statement().getId());
+        assertEquals(2, d.lines().size());
+        assertTrue(d.lines().stream().anyMatch(l -> "MATCHED".equals(l.getMatchStatus())));
+        assertTrue(d.lines().stream().anyMatch(l -> "UNMATCHED".equals(l.getMatchStatus())));
+
+        // Tenant-scoped: another tenant cannot read it, and an unknown id is not found.
+        assertThrows(com.trustledger.security.ForbiddenException.class,
+            () -> settlements.detail(UUID.randomUUID(), r.statement().getId()));
+        assertThrows(IllegalArgumentException.class,
+            () -> settlements.detail(tenant, UUID.randomUUID()));
+    }
+
+    @Test
     void aResolvedBreakReRaisesWhenItRecursButOpenOnesAreDeduped() {
         UUID tenant = UUID.randomUUID();
         settledAttempt(tenant, "ref-a", "50.0000");
