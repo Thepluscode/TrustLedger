@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState, SkeletonRows } from "../../components/ui";
 import Shell from "../../components/Shell";
@@ -116,7 +117,7 @@ export default function SettlementStatementsPage() {
             {statements === null && <SkeletonRows cols={7} />}
             {statements?.map((s) => (
               <tr key={s.id}>
-                <td className="mono">{s.statementRef}</td>
+                <td className="mono"><Link href={`/reconciliation/statements/${s.id}`}>{s.statementRef}</Link></td>
                 <td>{s.provider}</td>
                 <td className="muted">{s.currency}</td>
                 <td>{s.lineCount}</td>

@@ -44,6 +44,11 @@ public class SettlementReconciliationController {
     public record IngestResponse(StatementView statement, boolean alreadyIngested,
                                  int matched, int unmatched, int amountMismatch, int missing, boolean totalMismatch) {}
 
+    public record LineView(String providerReference, String amount, String fee, String status,
+                           String matchStatus, UUID matchedAttemptId) {}
+
+    public record StatementDetailView(StatementView statement, List<LineView> lines) {}
+
     @PostMapping
     public IngestResponse ingest(@RequestBody IngestRequest body) {
         access.require(Permission.TENANT_ADMIN);
@@ -61,6 +66,17 @@ public class SettlementReconciliationController {
     public List<StatementView> list() {
         access.require(Permission.LEDGER_VIEW);
         return settlements.list(CurrentUser.tenantId()).stream().map(SettlementReconciliationController::view).toList();
+    }
+
+    @GetMapping("/{id}")
+    public StatementDetailView detail(@PathVariable UUID id) {
+        access.require(Permission.LEDGER_VIEW);
+        var d = settlements.detail(CurrentUser.tenantId(), id);
+        List<LineView> lines = d.lines().stream()
+                .map(l -> new LineView(l.getProviderReference(), l.getAmount().toPlainString(),
+                        l.getFee().toPlainString(), l.getStatus(), l.getMatchStatus(), l.getMatchedAttemptId()))
+                .toList();
+        return new StatementDetailView(view(d.statement()), lines);
     }
 
     private static StatementView view(SettlementStatementEntity s) {

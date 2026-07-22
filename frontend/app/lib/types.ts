@@ -183,6 +183,20 @@ export interface SettlementIngestResult {
   missing: number;
 }
 
+export interface SettlementLine {
+  providerReference: string;
+  amount: string;
+  fee: string;
+  status: string;
+  matchStatus: string;
+  matchedAttemptId: string | null;
+}
+
+export interface SettlementStatementDetail {
+  statement: SettlementStatement;
+  lines: SettlementLine[];
+}
+
 export interface ReconciliationIssue {
   id: string;
   severity: string;

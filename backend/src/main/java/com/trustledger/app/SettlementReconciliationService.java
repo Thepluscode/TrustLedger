@@ -5,6 +5,7 @@ import com.trustledger.persistence.entity.ExternalPaymentAttemptEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.persistence.entity.SettlementStatementEntity;
 import com.trustledger.persistence.entity.SettlementStatementLineEntity;
+import com.trustledger.security.ForbiddenException;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
@@ -43,6 +44,8 @@ public class SettlementReconciliationService {
     public record IngestResult(SettlementStatementEntity statement, boolean alreadyIngested,
                                int matched, int unmatched, int amountMismatch, int missing,
                                boolean totalMismatch) {}
+
+    public record StatementDetail(SettlementStatementEntity statement, List<SettlementStatementLineEntity> lines) {}
 
     private static final String MATCHED = "MATCHED", UNMATCHED = "UNMATCHED", AMOUNT_MISMATCH = "AMOUNT_MISMATCH";
 
@@ -204,6 +207,17 @@ public class SettlementReconciliationService {
     @Transactional(readOnly = true)
     public List<SettlementStatementEntity> list(UUID tenantId) {
         return statements.findByTenantIdOrderByIngestedAtDesc(tenantId);
+    }
+
+    /** A statement and its lines, tenant-scoped — another tenant's statement is never readable. */
+    @Transactional(readOnly = true)
+    public StatementDetail detail(UUID tenantId, UUID statementId) {
+        SettlementStatementEntity stmt = statements.findById(statementId)
+                .orElseThrow(() -> new IllegalArgumentException("Settlement statement not found: " + statementId));
+        if (!tenantId.equals(stmt.getTenantId())) {
+            throw new ForbiddenException("Settlement statement belongs to another tenant");
+        }
+        return new StatementDetail(stmt, lines.findByStatementId(statementId));
     }
 
     private IngestResult summarize(SettlementStatementEntity stmt) {
