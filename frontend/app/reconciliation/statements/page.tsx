@@ -12,6 +12,9 @@ const SAMPLE_LINES = `[
   { "providerReference": "psk_ref_001", "amount": "100.0000", "fee": "1.50", "status": "SETTLED" }
 ]`;
 
+const SAMPLE_CSV = `providerReference,amount,fee,status
+psk_ref_001,100.0000,1.50,SETTLED`;
+
 export default function SettlementStatementsPage() {
   const [statements, setStatements] = useState<SettlementStatement[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +27,8 @@ export default function SettlementStatementsPage() {
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const [linesJson, setLinesJson] = useState(SAMPLE_LINES);
+  const [linesCsv, setLinesCsv] = useState(SAMPLE_CSV);
+  const [format, setFormat] = useState<"json" | "csv">("json");
 
   function load() {
     api.listSettlementStatements().then(setStatements).catch((e) => setError((e as Error).message));
@@ -35,16 +40,21 @@ export default function SettlementStatementsPage() {
     setError(null);
     setResult(null);
     try {
-      const lines = JSON.parse(linesJson);
-      if (!Array.isArray(lines)) throw new Error("lines must be a JSON array");
-      const r = await api.ingestSettlementStatement({
+      const common = {
         provider,
         currency,
         statementRef,
         periodStart: new Date(periodStart).toISOString(),
         periodEnd: new Date(periodEnd).toISOString(),
-        lines,
-      });
+      };
+      let r: SettlementIngestResult;
+      if (format === "csv") {
+        r = await api.ingestSettlementStatementCsv({ ...common, linesCsv });
+      } else {
+        const lines = JSON.parse(linesJson);
+        if (!Array.isArray(lines)) throw new Error("lines must be a JSON array");
+        r = await api.ingestSettlementStatement({ ...common, lines });
+      }
       setResult(r);
       load();
     } catch (e) {
@@ -86,11 +96,24 @@ export default function SettlementStatementsPage() {
             <label>Period start<input type="datetime-local" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></label>
             <label>Period end<input type="datetime-local" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></label>
           </div>
-          <label style={{ display: "block", marginTop: 10 }}>
-            Lines (JSON)
-            <textarea value={linesJson} onChange={(e) => setLinesJson(e.target.value)} rows={6}
-              className="mono" style={{ width: "100%", fontSize: 12 }} />
-          </label>
+          <div className="row" style={{ gap: 8, marginTop: 10, alignItems: "center" }}>
+            <span className="muted">Lines as</span>
+            <button type="button" className={format === "json" ? "" : "secondary"} onClick={() => setFormat("json")}>JSON</button>
+            <button type="button" className={format === "csv" ? "" : "secondary"} onClick={() => setFormat("csv")}>CSV</button>
+          </div>
+          {format === "json" ? (
+            <label style={{ display: "block", marginTop: 8 }}>
+              Lines (JSON)
+              <textarea value={linesJson} onChange={(e) => setLinesJson(e.target.value)} rows={6}
+                className="mono" style={{ width: "100%", fontSize: 12 }} />
+            </label>
+          ) : (
+            <label style={{ display: "block", marginTop: 8 }}>
+              Lines (CSV — a provider settlement export; columns located by header name)
+              <textarea value={linesCsv} onChange={(e) => setLinesCsv(e.target.value)} rows={6}
+                className="mono" style={{ width: "100%", fontSize: 12 }} />
+            </label>
+          )}
           <div className="row" style={{ marginTop: 12 }}>
             <button onClick={ingest} disabled={!canIngest}>{busy ? "Ingesting…" : "Ingest statement"}</button>
           </div>

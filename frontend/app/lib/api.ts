@@ -154,6 +154,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  ingestSettlementStatementCsv: (body: Record<string, unknown>) =>
+    request<SettlementIngestResult>("/api/v1/tenant/reconciliation/statements/csv", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   listReconciliationIssues: (status?: string, severity?: string) => {
     const q = new URLSearchParams();
