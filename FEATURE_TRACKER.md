@@ -31,7 +31,7 @@ Last updated: 2026-07-20
 | REST API (ledger/fraud read endpoints) | PLANNED | only the transfer write path is wired so far |
 | Persistent hold/reservation + fraud case + approve/reject | **VERIFIED** | V2 `transfers` table + `FundReservation`/`FraudCase` entities; hold reserves + opens case, approve consumes + posts, reject releases — service tests (3) + HTTP approve test; `FraudCaseController` |
 | Outbox → Kafka/Redpanda publisher | **VERIFIED** | `OutboxPublisher` (scheduled, at-least-once, marks PUBLISHED only on broker ack) + explicit `KafkaConfig`; Testcontainers-Redpanda test proves real delivery + replay-safety |
-| Fraud signals table (`fraud_signals`) | PLANNED | signals stored in `fraud_cases.evidence` JSON for now; dedicated table deferred |
+| Fraud signals table (`fraud_signals`) | **VERIFIED** | the table existed in V1 but was never written to; now wired — every held case (in-house transfer **and** external rail) persists each signal as a queryable row, served per case (`GET /fraud/cases/{id}/signals`) + a tenant frequency summary (`GET /fraud/signals/summary`) (#73/#75/#76) |
 | Docker Compose stack up (core data plane) | **VERIFIED** | `docker compose up postgres redis redpanda` → all healthy (Postgres accepting connections, Redis PONG, Redpanda cluster healthy). **Fixed a real bug:** `postgres:18` needs the volume at `/var/lib/postgresql` (not `…/data`) or it refuses to boot — corrected in dev + prod compose |
 | Docker Compose observability (OpenSearch/MinIO/Prometheus/Grafana) | PLANNED | stock images; not smoke-tested here (host ports were occupied) |
 | Next.js frontend build (`npm run build`) | **VERIFIED** | Next.js 16.2.6 + React 19 + TS compiles clean, static pages generated; `next.config.js` pins the Turbopack root |
@@ -475,3 +475,32 @@ review rather than self-service OTP.
 Not a regulated bank / card issuer / production processor. This is an engineering
 baseline that gets the **ledger and fraud spine correct and tested first**, before any
 external rails — per the project's own brutal build rule.
+
+## Session summary — 2026-07-23 (reconciliation console, audit pack, fraud control graph)
+
+One long sitting; every item below is **merged to `main` with green CI** (backend Testcontainers
+suite + Trivy + gitleaks + SBOM). Ordered by area.
+
+**Reconciliation console — completed end to end (VERIFIED):**
+- #58 status-aware dedup — a resolved break re-raises if it recurs (OPEN-only partial unique index, V33); an OPEN one still dedups.
+- #60 controlled, evidence-bearing resolution — outcome classification + reason required, one-time OPEN→RESOLVED transition, **atomic under concurrency** (row lock; a review caught a TOCTOU race my own tests missed — fixed + stress-tested).
+- #62 severity/age-aware reconciliation health in the monitoring snapshot (CRITICAL-severity or >24h-open escalates; efficient aggregate queries, not an unbounded load).
+- #66 bounded, filterable issue list (`?status`/`?severity`, hard cap) + filter-independent tenant summary.
+- #67 resolution audit trail surfaced on the issue page (`GET /reconciliation/issues/{id}/audit`).
+- #68 settlement-statement detail view (lines + per-line match status).
+- #69 break → source-statement navigation (statement id stamped into evidence).
+- #70 settlement-statement CSV ingest (server-side parse, tested).
+
+**Fraud control graph (VERIFIED):** #73 signals persisted as first-class rows (the V1 `fraud_signals`
+table, never previously written to) served per case; #75 same coverage on the external-rail held path;
+#76 tenant signal-frequency summary. See the updated `fraud_signals` row above.
+
+**Security / evidence:**
+- #57 drillResults tenant-scoping (defence-in-depth).
+- #71 postgresql 42.7.11→42.7.12 + sharp→0.35.0 (2 HIGH CVEs, newly disclosed, cleared).
+- #74 next 16.2.6→16.2.11 (4 HIGH CVEs — SSRF/middleware-bypass/DoS — cleared).
+- #72 `docs/SECURITY_AUDIT_READINESS.md` — one questionnaire-answering evidence map, every claim linked to a real control + test.
+- #59 `pilot/PREMISE_KILL_TEST.md` — the Rule 0 commercial-premise gate (discovery script + pre-registered STOP thresholds).
+
+**Deferred / follow-ups (honest):** fraud-workspace UI over `/fraud/signals/summary`; org-unit *scoping* of
+permissions (tables modelled, enforcement still role-only); wiring the provider router into live payouts.
