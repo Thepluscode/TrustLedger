@@ -46,6 +46,21 @@ export interface FraudCaseView {
   riskScore: number;
 }
 
+export interface FraudSignalFrequency {
+  signalType: string;
+  occurrences: number;
+  totalScoreDelta: number;
+}
+
+export interface FraudSignalDetail {
+  signalType: string;
+  scoreDelta: number;
+  severity: string;
+  reason: string;
+  evidence: string;
+  createdAt: string;
+}
+
 export interface DashboardSummary {
   accounts: number;
   transfersCompleted: number;
