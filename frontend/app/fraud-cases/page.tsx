@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { ConfirmModal, EmptyState, RiskBadge, SeverityPill, SkeletonRows, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
 import { shortId } from "../lib/format";
-import type { FraudCaseView } from "../lib/types";
+import type { FraudCaseView, FraudSignalDetail, FraudSignalFrequency } from "../lib/types";
 
 const SEV_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
@@ -20,11 +20,25 @@ export default function FraudCasesPage() {
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<FraudSignalFrequency[] | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [caseSignals, setCaseSignals] = useState<FraudSignalDetail[] | null>(null);
 
   function load() {
     api.listFraudCases().then(setCases).catch((e) => setError((e as Error).message));
+    api.fraudSignalSummary().then(setSummary).catch(() => setSummary([]));
   }
   useEffect(load, []);
+
+  function toggleSignals(caseId: string) {
+    if (expanded === caseId) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(caseId);
+    setCaseSignals(null);
+    api.fraudCaseSignals(caseId).then(setCaseSignals).catch(() => setCaseSignals([]));
+  }
 
   // §10.2 priority: severity → risk score; open cases above closed.
   const sorted = (cases ?? []).slice().sort(
@@ -96,7 +110,32 @@ export default function FraudCasesPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      {summary && summary.length > 0 && (
+        <section className="panel">
+          <div className="panelHeader">
+            <div>
+              <h2>Signal frequency</h2>
+              <p className="sub">Which fraud signals fire most across your tenant — the control graph as insight. Tune thresholds against what actually drives holds.</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Signal</th><th>Times fired</th><th>Total score contribution</th></tr>
+            </thead>
+            <tbody>
+              {summary.map((f) => (
+                <tr key={f.signalType}>
+                  <td className="mono">{f.signalType.replace(/_/g, " ").toLowerCase()}</td>
+                  <td>{f.occurrences}</td>
+                  <td className="muted">{f.totalScoreDelta}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      <section className="panel" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr>
@@ -111,28 +150,50 @@ export default function FraudCasesPage() {
           <tbody>
             {cases === null && <SkeletonRows cols={6} />}
             {sorted.map((c) => (
-              <tr key={c.id}>
-                <td><SeverityPill value={c.severity} /></td>
-                <td><RiskBadge score={c.riskScore} /></td>
-                <td className="mono">{shortId(c.id)}</td>
-                <td className="mono">{shortId(c.transactionId)}</td>
-                <td><StatusPill value={c.status} /></td>
-                <td>
-                  <div className="row" style={{ gap: 8 }}>
-                    {c.status === "OPEN" && (
-                      <>
-                        <button onClick={() => setPending({ kind: "approve", caseId: c.id })}>Approve</button>
-                        <button className="danger" onClick={() => setPending({ kind: "reject", caseId: c.id })}>
-                          Reject
-                        </button>
-                      </>
-                    )}
-                    <button className="secondary" onClick={() => setPending({ kind: "export", caseId: c.id })}>
-                      Export evidence
-                    </button>
-                  </div>
-                </td>
-              </tr>
+              <Fragment key={c.id}>
+                <tr>
+                  <td><SeverityPill value={c.severity} /></td>
+                  <td><RiskBadge score={c.riskScore} /></td>
+                  <td className="mono">{shortId(c.id)}</td>
+                  <td className="mono">{shortId(c.transactionId)}</td>
+                  <td><StatusPill value={c.status} /></td>
+                  <td>
+                    <div className="row" style={{ gap: 8 }}>
+                      <button className="secondary" onClick={() => toggleSignals(c.id)}>
+                        {expanded === c.id ? "Hide why" : "Why?"}
+                      </button>
+                      {c.status === "OPEN" && (
+                        <>
+                          <button onClick={() => setPending({ kind: "approve", caseId: c.id })}>Approve</button>
+                          <button className="danger" onClick={() => setPending({ kind: "reject", caseId: c.id })}>
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      <button className="secondary" onClick={() => setPending({ kind: "export", caseId: c.id })}>
+                        Export evidence
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {expanded === c.id && (
+                  <tr>
+                    <td colSpan={6} style={{ background: "var(--surface-2, rgba(0,0,0,0.03))" }}>
+                      {caseSignals === null && <span className="muted">Loading signals…</span>}
+                      {caseSignals?.length === 0 && <span className="muted">No recorded signals for this case.</span>}
+                      {caseSignals?.map((s, i) => (
+                        <div key={i} className="entry" style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}>
+                          <span>
+                            <b>{s.signalType.replace(/_/g, " ").toLowerCase()}</b>{" "}
+                            <span className="muted">+{s.scoreDelta} · {s.severity.toLowerCase()}</span>
+                          </span>
+                          <span className="muted">{s.reason}</span>
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

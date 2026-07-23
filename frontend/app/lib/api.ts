@@ -14,6 +14,8 @@ import type {
   CertificationRun,
   DeviceProfile,
   FraudCaseView,
+  FraudSignalFrequency,
+  FraudSignalDetail,
   FraudPolicy,
   PolicyImpact,
   InvitedUser,
@@ -216,6 +218,9 @@ export const api = {
     }),
 
   listFraudCases: () => request<FraudCaseView[]>("/api/v1/fraud/cases"),
+  fraudSignalSummary: () => request<FraudSignalFrequency[]>("/api/v1/fraud/signals/summary"),
+  fraudCaseSignals: (caseId: string) =>
+    request<FraudSignalDetail[]>(`/api/v1/fraud/cases/${caseId}/signals`),
 
   approveCase: (caseId: string) =>
     request<TransferResponse>(`/api/v1/fraud/cases/${caseId}/approve`, { method: "POST" }),
