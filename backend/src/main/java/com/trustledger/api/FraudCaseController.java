@@ -6,9 +6,11 @@ import com.trustledger.app.IntelligentTransferGateway;
 import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.persistence.entity.FraudCaseEntity;
 import com.trustledger.persistence.repo.FraudCaseRepository;
+import com.trustledger.persistence.repo.FraudSignalRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -19,14 +21,20 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/fraud/cases")
 public class FraudCaseController {
 
+    /** A fraud signal that fired on the case — the explainable "why" behind the score. */
+    public record FraudSignalView(String signalType, int scoreDelta, String severity, String reason,
+                                  String evidence, Instant createdAt) {}
+
     private final IntelligentTransferGateway gateway;
     private final FraudCaseRepository fraudCases;
+    private final FraudSignalRepository fraudSignals;
     private final AccessControlService access;
 
     public FraudCaseController(IntelligentTransferGateway gateway, FraudCaseRepository fraudCases,
-                              AccessControlService access) {
+                              FraudSignalRepository fraudSignals, AccessControlService access) {
         this.gateway = gateway;
         this.fraudCases = fraudCases;
+        this.fraudSignals = fraudSignals;
         this.access = access;
     }
 
@@ -40,6 +48,17 @@ public class FraudCaseController {
     public FraudCaseView get(@PathVariable UUID caseId) {
         access.require(Permission.FRAUD_CASE_VIEW);
         return view(requireCase(caseId));
+    }
+
+    /** The signals that fired on this case's transfer — first-class rows, highest score-delta first. */
+    @GetMapping("/{caseId}/signals")
+    public List<FraudSignalView> signals(@PathVariable UUID caseId) {
+        access.require(Permission.FRAUD_CASE_VIEW);
+        FraudCaseEntity c = requireCase(caseId); // tenant-scopes: 404 if unknown, 403 if another tenant's
+        return fraudSignals.findByTransactionIdOrderByScoreDeltaDesc(c.getTransactionId()).stream()
+            .map(s -> new FraudSignalView(s.getSignalType(), s.getScoreDelta(), s.getSeverity(),
+                s.getReason(), s.getEvidence(), s.getCreatedAt()))
+            .toList();
     }
 
     private static FraudCaseView view(FraudCaseEntity c) {
