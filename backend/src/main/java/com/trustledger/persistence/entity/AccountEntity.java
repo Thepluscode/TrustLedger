@@ -21,6 +21,10 @@ public class AccountEntity {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    /** Organisation unit this account belongs to (null = tenant-level, not org-scoped). */
+    @Column(name = "org_unit_id")
+    private UUID orgUnitId;
+
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3)
     private String currency;
@@ -66,6 +70,8 @@ public class AccountEntity {
     public UUID getId() { return id; }
     public UUID getTenantId() { return tenantId; }
     public UUID getUserId() { return userId; }
+    public UUID getOrgUnitId() { return orgUnitId; }
+    public void setOrgUnitId(UUID orgUnitId) { this.orgUnitId = orgUnitId; }
     public String getCurrency() { return currency; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
