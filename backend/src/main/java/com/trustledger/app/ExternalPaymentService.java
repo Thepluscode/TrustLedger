@@ -43,6 +43,7 @@ public class ExternalPaymentService {
     private final OutboxEventRepository outbox;
     private final AuditLogRepository auditLogs;
     private final FraudCaseRepository fraudCases;
+    private final FraudSignalRepository fraudSignals;
     private final FraudEngine fraudEngine;
     private final TenantPaymentRouteService routes;
     private final ProviderRecipientResolver recipientResolver;
@@ -54,7 +55,8 @@ public class ExternalPaymentService {
                                   ExternalPaymentAttemptRepository attempts, IdempotencyKeyRepository idempotencyKeys,
                                   LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
                                   OutboxEventRepository outbox, AuditLogRepository auditLogs,
-                                  FraudCaseRepository fraudCases, FraudEngine fraudEngine,
+                                  FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
+                                  FraudEngine fraudEngine,
                                   TenantPaymentRouteService routes, ProviderRecipientResolver recipientResolver,
                                   ExternalRailSubmissionService submissions, ObjectMapper json,
                                   PlatformTransactionManager transactionManager) {
@@ -67,6 +69,7 @@ public class ExternalPaymentService {
         this.outbox = outbox;
         this.auditLogs = auditLogs;
         this.fraudCases = fraudCases;
+        this.fraudSignals = fraudSignals;
         this.fraudEngine = fraudEngine;
         this.routes = routes;
         this.recipientResolver = recipientResolver;
@@ -408,6 +411,12 @@ public class ExternalPaymentService {
         fraudCases.save(new FraudCaseEntity(UUID.randomUUID(), req.tenantId(), transferId, req.userId(), "OPEN",
             severityFor(decision.riskScore()), decision.riskScore(), "Auto-opened for held external payout",
             writeJson(evidence)));
+        // Persist each signal as a first-class, queryable row — the same fraud control graph the
+        // in-house held-transfer path records, so external-rail holds are equally explainable in SQL.
+        for (var sig : decision.signals()) {
+            fraudSignals.save(new FraudSignalEntity(sig.id(), req.tenantId(), transferId, req.userId(),
+                sig.signalType(), sig.scoreDelta(), sig.severity().name(), sig.reason(), writeJson(sig.evidence())));
+        }
         audit(req.tenantId(), "EXTERNAL_PAYMENT_HELD_FOR_REVIEW", "TRANSFER", transferId,
             Map.of("amount", req.amount().toPlainString(), "provider", route.provider(),
                 "providerEnvironment", route.providerEnvironment()));
