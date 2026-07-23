@@ -50,6 +50,7 @@ class TransferApiIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired com.trustledger.app.PersistentTransferService transferService;
     @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
+    @Autowired com.trustledger.persistence.repo.FraudSignalRepository fraudSignals;
     @Autowired DeviceFingerprintRepository devices;
     @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
     @Autowired com.trustledger.app.TenantFraudPolicyService policyService;
@@ -389,6 +390,36 @@ class TransferApiIntegrationTest {
         AccountEntity dst = account(s.tenantId(), "0.0000");
         HttpResponse<String> res = postTransfer(null, src, dst, "10.00", "api-noauth");
         assertEquals(401, res.statusCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aHeldTransfersSignalsArePersistedAsRowsAndServedTenantScoped() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+        UUID caseId = createHeldCase(s.tenantId(), src, dst, "idem-signals-hold");
+        UUID txnId = fraudCases.findById(caseId).orElseThrow().getTransactionId();
+
+        // The held case's signals are persisted as first-class, queryable rows (not only case JSON).
+        var rows = fraudSignals.findByTransactionIdOrderByScoreDeltaDesc(txnId);
+        assertFalse(rows.isEmpty(), "a held case must persist its fraud signals as rows");
+        assertTrue(rows.stream().allMatch(r -> s.tenantId().equals(r.getTenantId())));
+
+        // Served over HTTP, highest score-delta first.
+        HttpResponse<String> res = http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/signals"))
+            .header("Authorization", "Bearer " + s.token()).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, res.statusCode(), res.body());
+        List<Map<String, Object>> served = json.readValue(res.body(), List.class);
+        assertEquals(rows.size(), served.size());
+        assertTrue(((Number) served.get(0).get("scoreDelta")).intValue()
+                >= ((Number) served.get(served.size() - 1).get("scoreDelta")).intValue(), "ordered by score-delta desc");
+
+        // Another tenant cannot read this case's signals.
+        Session other = register();
+        assertEquals(403, http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/signals"))
+            .header("Authorization", "Bearer " + other.token()).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     @Test

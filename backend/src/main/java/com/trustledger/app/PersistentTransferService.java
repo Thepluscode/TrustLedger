@@ -40,6 +40,7 @@ public class PersistentTransferService {
     private final TransferRepository transfers;
     private final FundReservationRepository reservations;
     private final FraudCaseRepository fraudCases;
+    private final FraudSignalRepository fraudSignals;
     private final FraudEngine fraudEngine;
     private final FraudCaseLinkingService caseLinking;
     private final ObjectMapper json;
@@ -48,7 +49,8 @@ public class PersistentTransferService {
                                      LedgerEntryRepository ledgerEntries, IdempotencyKeyRepository idempotencyKeys,
                                      OutboxEventRepository outbox, AuditLogRepository auditLogs,
                                      TransferRepository transfers, FundReservationRepository reservations,
-                                     FraudCaseRepository fraudCases, FraudEngine fraudEngine,
+                                     FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
+                                     FraudEngine fraudEngine,
                                      FraudCaseLinkingService caseLinking, ObjectMapper json) {
         this.accounts = accounts;
         this.ledgerTransactions = ledgerTransactions;
@@ -59,6 +61,7 @@ public class PersistentTransferService {
         this.transfers = transfers;
         this.reservations = reservations;
         this.fraudCases = fraudCases;
+        this.fraudSignals = fraudSignals;
         this.fraudEngine = fraudEngine;
         this.caseLinking = caseLinking;
         this.json = json;
@@ -153,6 +156,12 @@ public class PersistentTransferService {
                 "OPEN", severityFor(decision.riskScore()), decision.riskScore(),
                 "Auto-opened for held transfer", writeJson(Map.of("signals", decision.signals(),
                     "riskScore", decision.riskScore(), "decision", decision.decision().name()))));
+            // Persist each signal as a first-class, queryable row (the fraud control graph), alongside
+            // the case's evidence JSON — so "why was this scored" and per-type analytics are SQL, not JSON.
+            for (var s : decision.signals()) {
+                fraudSignals.save(new FraudSignalEntity(s.id(), req.tenantId(), transferId, req.userId(),
+                    s.signalType(), s.scoreDelta(), s.severity().name(), s.reason(), writeJson(s.evidence())));
+            }
             caseLinking.linkNewCase(caseId); // link to other cases hitting the same recipient
             audit(req.tenantId(), "SYSTEM", null, "TRANSFER_HELD_FOR_REVIEW", "TRANSFER", transferId,
                 Map.of("amount", amount.toString()));
