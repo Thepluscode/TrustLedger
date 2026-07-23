@@ -1,6 +1,7 @@
 package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.*;
+import com.trustledger.app.OrgScopeService;
 import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
@@ -17,10 +18,12 @@ public class AccountController {
 
     private final AccountRepository accounts;
     private final LedgerEntryRepository ledgerEntries;
+    private final OrgScopeService orgScope;
 
-    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries) {
+    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries, OrgScopeService orgScope) {
         this.accounts = accounts;
         this.ledgerEntries = ledgerEntries;
+        this.orgScope = orgScope;
     }
 
     @PostMapping
@@ -35,7 +38,13 @@ public class AccountController {
 
     @GetMapping
     public List<AccountView> list() {
-        return accounts.findByTenantId(CurrentUser.tenantId()).stream().map(AccountController::view).toList();
+        UUID tenant = CurrentUser.tenantId();
+        // Org-scoped visibility: a user restricted to an org-unit subtree sees only accounts in those units;
+        // a tenant-wide user (no org-unit assignment) sees all — unchanged behaviour.
+        List<AccountEntity> visible = orgScope.accessibleUnitIds(tenant, CurrentUser.userId())
+            .map(units -> accounts.findByTenantIdAndOrgUnitIdIn(tenant, units))
+            .orElseGet(() -> accounts.findByTenantId(tenant));
+        return visible.stream().map(AccountController::view).toList();
     }
 
     @GetMapping("/{id}")

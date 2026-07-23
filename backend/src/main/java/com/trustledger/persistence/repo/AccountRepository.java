@@ -2,6 +2,7 @@ package com.trustledger.persistence.repo;
 
 import com.trustledger.persistence.entity.AccountEntity;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,5 +20,7 @@ public interface AccountRepository extends JpaRepository<AccountEntity, UUID> {
 
     List<AccountEntity> findByTenantId(UUID tenantId);
     List<AccountEntity> findByTenantIdAndUserId(UUID tenantId, UUID userId);
+    /** Accounts within a given set of organisation units — for org-scoped visibility. */
+    List<AccountEntity> findByTenantIdAndOrgUnitIdIn(UUID tenantId, Collection<UUID> orgUnitIds);
     Optional<AccountEntity> findByIdAndTenantId(UUID id, UUID tenantId);
 }
