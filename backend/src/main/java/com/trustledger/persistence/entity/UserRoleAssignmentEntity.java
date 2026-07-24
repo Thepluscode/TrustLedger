@@ -48,6 +48,7 @@ public class UserRoleAssignmentEntity {
     public UUID getUserId() { return userId; }
     public UUID getTenantId() { return tenantId; }
     public UUID getOrganisationUnitId() { return organisationUnitId; }
+    public void setOrganisationUnitId(UUID organisationUnitId) { this.organisationUnitId = organisationUnitId; }
     public String getRole() { return role; }
     public Instant getCreatedAt() { return createdAt; }
 }

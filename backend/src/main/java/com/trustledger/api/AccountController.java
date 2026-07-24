@@ -3,8 +3,10 @@ package com.trustledger.api;
 import com.trustledger.api.ApiViews.*;
 import com.trustledger.app.OrgScopeService;
 import com.trustledger.persistence.entity.AccountEntity;
+import com.trustledger.persistence.entity.OrganisationUnitEntity;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
+import com.trustledger.persistence.repo.OrganisationUnitRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import java.math.BigDecimal;
@@ -19,11 +21,14 @@ public class AccountController {
     private final AccountRepository accounts;
     private final LedgerEntryRepository ledgerEntries;
     private final OrgScopeService orgScope;
+    private final OrganisationUnitRepository orgUnits;
 
-    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries, OrgScopeService orgScope) {
+    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries,
+                            OrgScopeService orgScope, OrganisationUnitRepository orgUnits) {
         this.accounts = accounts;
         this.ledgerEntries = ledgerEntries;
         this.orgScope = orgScope;
+        this.orgUnits = orgUnits;
     }
 
     @PostMapping
@@ -31,8 +36,18 @@ public class AccountController {
         if (req.currency() == null || !req.currency().matches("[A-Z]{3}")) throw new IllegalArgumentException("currency must be a 3-letter code");
         BigDecimal opening = req.openingBalance() == null ? BigDecimal.ZERO : req.openingBalance();
         if (opening.signum() < 0) throw new IllegalArgumentException("openingBalance cannot be negative");
-        AccountEntity a = accounts.save(new AccountEntity(UUID.randomUUID(), CurrentUser.tenantId(),
-            CurrentUser.userId(), req.currency(), opening));
+        UUID orgUnitId = req.orgUnitId();
+        if (orgUnitId != null) {
+            OrganisationUnitEntity unit = orgUnits.findById(orgUnitId)
+                .orElseThrow(() -> new IllegalArgumentException("org unit not found: " + orgUnitId));
+            if (!CurrentUser.tenantId().equals(unit.getTenantId())) {
+                throw new ForbiddenException("org unit belongs to another tenant");
+            }
+        }
+        AccountEntity a = new AccountEntity(UUID.randomUUID(), CurrentUser.tenantId(),
+            CurrentUser.userId(), req.currency(), opening);
+        a.setOrgUnitId(orgUnitId);
+        a = accounts.save(a);
         return view(a);
     }
 
