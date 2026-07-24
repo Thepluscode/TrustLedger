@@ -40,7 +40,7 @@ const NAV: { label: string; links: [string, string][] }[] = [
     ],
   },
   { label: "Developer", links: [["API Keys", "/developer/api-keys"], ["Monitoring", "/monitoring"]] },
-  { label: "Organisation", links: [["Tenant Admin", "/admin"], ["Users & Roles", "/users"]] },
+  { label: "Organisation", links: [["Tenant Admin", "/admin"], ["Users & Roles", "/users"], ["Org Units", "/org-units"]] },
 ];
 
 /** Environment badge (§6.2). Sandbox unless the deployment says otherwise. */

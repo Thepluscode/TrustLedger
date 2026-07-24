@@ -26,6 +26,7 @@ const COMMANDS: Command[] = [
   { label: "Evidence", hint: "Exports", href: "/evidence", keywords: "export pack checksum" },
   { label: "Audit logs", hint: "Activity", href: "/audit-logs", keywords: "audit history actions" },
   { label: "Tenant admin", hint: "Plan, quotas, fraud policy", href: "/admin", keywords: "settings policy plan quota org" },
+  { label: "Org units", hint: "Hierarchy & member scope", href: "/org-units", keywords: "organisation department team scope hierarchy assign" },
 ];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

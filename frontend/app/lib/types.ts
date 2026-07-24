@@ -252,6 +252,13 @@ export interface TeamMember {
   createdAt: string;
 }
 
+export interface OrgUnit {
+  id: string;
+  parentUnitId: string | null;
+  name: string;
+  type: string;
+}
+
 export interface InvitedUser {
   id: string;
   email: string;
