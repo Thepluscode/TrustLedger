@@ -57,7 +57,7 @@ class EvidenceExportIntegrationTest {
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
 
-    private record Session(String token, UUID tenantId) {}
+    private record Session(String token, UUID tenantId, UUID userId) {}
 
     private Session register() throws Exception {
         String body = json.writeValueAsString(Map.of("tenantName", "T-" + UUID.randomUUID(),
@@ -66,7 +66,7 @@ class EvidenceExportIntegrationTest {
             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
             HttpResponse.BodyHandlers.ofString());
         AuthResponse a = json.readValue(r.body(), AuthResponse.class);
-        return new Session(a.token(), a.tenantId());
+        return new Session(a.token(), a.tenantId(), a.userId());
     }
 
     private AccountEntity account(UUID tenant, String opening) {
@@ -123,7 +123,7 @@ class EvidenceExportIntegrationTest {
         assertTrue(dl.body().contains("\"signals\""), dl.body());
 
         // Checksum is verifiable against the downloaded bytes.
-        byte[] bytes = evidence.download(s.tenantId(), exportId);
+        byte[] bytes = evidence.download(s.tenantId(), s.userId(), exportId);
         assertEquals(checksum, Checksums.sha256(bytes));
         assertEquals(checksum, dl.headers().firstValue("X-Evidence-Checksum").orElse(""));
 
@@ -142,7 +142,7 @@ class EvidenceExportIntegrationTest {
         assertEquals(200, r.statusCode(), r.body());
         UUID exportId = UUID.fromString(json.readValue(r.body(), Map.class).get("id").toString());
 
-        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), exportId), Map.class);
+        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), s.userId(), exportId), Map.class);
         assertEquals(Boolean.TRUE, bundle.get("balanced"));
         assertEquals(bundle.get("totalDebits"), bundle.get("totalCredits"));
     }

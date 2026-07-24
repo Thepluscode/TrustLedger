@@ -124,13 +124,9 @@ public class FraudCaseController {
         if (!c.getTenantId().equals(CurrentUser.tenantId())) {
             throw new ForbiddenException("Fraud case belongs to another tenant");
         }
-        // Org scope: gate by the case's transfer source-account unit (same rule as the transfer read side).
-        UUID unit = transfers.findById(c.getTransactionId())
-            .map(TransferEntity::getSourceAccountId)
-            .flatMap(accounts::findById)
-            .map(AccountEntity::getOrgUnitId)
-            .orElse(null);
-        if (!orgScope.canAccessAccountUnit(CurrentUser.tenantId(), CurrentUser.userId(), unit)) {
+        // Org scope: gate by the case's transfer source-account unit (shared predicate — same rule as the
+        // transfer read side and the evidence export).
+        if (!orgScope.canAccessTransaction(CurrentUser.tenantId(), CurrentUser.userId(), c.getTransactionId())) {
             throw new ForbiddenException("Fraud case is outside your organisation-unit scope");
         }
         return c;
