@@ -84,6 +84,11 @@ public class AccountController {
     private AccountEntity require(UUID id) {
         AccountEntity a = accounts.findById(id).orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
         if (!a.getTenantId().equals(CurrentUser.tenantId())) throw new ForbiddenException("Account belongs to another tenant");
+        // Org scope: a unit-scoped user may only read accounts within their subtree (list already filters;
+        // this closes the by-id read paths — get / balance / ledger). Tenant-wide users are unaffected.
+        if (!orgScope.canAccessAccountUnit(CurrentUser.tenantId(), CurrentUser.userId(), a.getOrgUnitId())) {
+            throw new ForbiddenException("Account is outside your organisation-unit scope");
+        }
         return a;
     }
 

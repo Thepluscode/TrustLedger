@@ -1,7 +1,10 @@
 package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.*;
+import com.trustledger.app.OrgScopeService;
+import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.TransferEntity;
+import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.FraudCaseRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
@@ -10,7 +13,9 @@ import com.trustledger.persistence.repo.TransferRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -26,21 +31,35 @@ public class TransferQueryController {
     private final LedgerTransactionRepository ledgerTransactions;
     private final LedgerEntryRepository ledgerEntries;
     private final AuditLogRepository auditLogs;
+    private final AccountRepository accounts;
+    private final OrgScopeService orgScope;
 
     public TransferQueryController(TransferRepository transfers, FraudCaseRepository fraudCases,
                                   LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
-                                  AuditLogRepository auditLogs) {
+                                  AuditLogRepository auditLogs, AccountRepository accounts, OrgScopeService orgScope) {
         this.transfers = transfers;
         this.fraudCases = fraudCases;
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
         this.auditLogs = auditLogs;
+        this.accounts = accounts;
+        this.orgScope = orgScope;
     }
 
     @GetMapping
     public List<TransferView> list() {
-        return transfers.findTop200ByTenantIdOrderByCreatedAtDesc(CurrentUser.tenantId()).stream()
-            .map(TransferQueryController::view).toList();
+        UUID tenantId = CurrentUser.tenantId();
+        // Org scope: a unit-scoped user sees only transfers originating from accounts in their subtree;
+        // a tenant-wide user (no org-unit assignment) sees all — unchanged behaviour.
+        List<TransferEntity> rows = orgScope.accessibleUnitIds(tenantId, CurrentUser.userId())
+            .map(units -> {
+                Set<UUID> accountIds = accounts.findByTenantIdAndOrgUnitIdIn(tenantId, units).stream()
+                    .map(AccountEntity::getId).collect(Collectors.toSet());
+                return accountIds.isEmpty() ? List.<TransferEntity>of()
+                    : transfers.findTop200ByTenantIdAndSourceAccountIdInOrderByCreatedAtDesc(tenantId, accountIds);
+            })
+            .orElseGet(() -> transfers.findTop200ByTenantIdOrderByCreatedAtDesc(tenantId));
+        return rows.stream().map(TransferQueryController::view).toList();
     }
 
     @GetMapping("/{id}")
@@ -49,6 +68,11 @@ public class TransferQueryController {
         TransferEntity t = transfers.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Transfer not found: " + id));
         if (!t.getTenantId().equals(tenantId)) throw new ForbiddenException("Transfer belongs to another tenant");
+        // Org scope: gate detail (fraud case + ledger + audit trail) by the transfer's source-account unit.
+        UUID sourceUnit = accounts.findById(t.getSourceAccountId()).map(AccountEntity::getOrgUnitId).orElse(null);
+        if (!orgScope.canAccessAccountUnit(tenantId, CurrentUser.userId(), sourceUnit)) {
+            throw new ForbiddenException("Transfer is outside your organisation-unit scope");
+        }
 
         FraudCaseView fraudCase = fraudCases.findByTransactionId(id)
             .map(c -> new FraudCaseView(c.getId(), c.getTransactionId(), c.getStatus(), c.getSeverity(), c.getRiskScore()))

@@ -71,4 +71,18 @@ public class OrgScopeService {
         }
         return Optional.of(accessible);
     }
+
+    /**
+     * Whether a user may access an account carrying the given org-unit tag. Tenant-wide users
+     * (no org-unit assignment) may access any account in their tenant; a scoped user may access only
+     * accounts within their unit subtree. An untagged account ({@code accountOrgUnitId == null}) is NOT
+     * visible to a scoped user — matching org-scoped list visibility (increment 2). This is the single
+     * predicate the read paths use to gate by-id reads of accounts and their transfers/ledger.
+     */
+    @Transactional(readOnly = true)
+    public boolean canAccessAccountUnit(UUID tenantId, UUID userId, UUID accountOrgUnitId) {
+        Optional<Set<UUID>> scope = accessibleUnitIds(tenantId, userId);
+        if (scope.isEmpty()) return true; // tenant-wide
+        return accountOrgUnitId != null && scope.get().contains(accountOrgUnitId);
+    }
 }
