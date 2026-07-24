@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** §17.3 team management: list/invite/change-role, USER_MANAGE gating, and the OWNER guards. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class UserManagementIntegrationTest {
 
     @Container

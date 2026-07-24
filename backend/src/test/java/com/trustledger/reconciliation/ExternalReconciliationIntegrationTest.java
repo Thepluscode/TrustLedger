@@ -27,7 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** Settlement reconciliation: resolve PENDING_UNKNOWN via its provider; flag provider/local mismatch. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ExternalReconciliationIntegrationTest {
 
     @Container

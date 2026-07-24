@@ -32,7 +32,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.8: shadow ML cannot move money; scores stored + isolated; registry promote/rollback; feedback; alerts. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MlFraudIntegrationTest {
 
     @Container
