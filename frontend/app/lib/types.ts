@@ -259,6 +259,12 @@ export interface OrgUnit {
   type: string;
 }
 
+/** The signed-in user's own org-unit scope. `scoped: false` (empty units) = tenant-wide. */
+export interface MyScope {
+  scoped: boolean;
+  units: OrgUnit[];
+}
+
 export interface InvitedUser {
   id: string;
   email: string;

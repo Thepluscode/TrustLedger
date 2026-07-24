@@ -33,6 +33,7 @@ import type {
   WebhookEvent,
   LedgerEntryView,
   LedgerTransactionView,
+  MyScope,
   OrgUnit,
   TransferDetail,
   TransferListItem,
@@ -138,6 +139,7 @@ export const api = {
     request<TeamMember>(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
 
   listOrgUnits: () => request<OrgUnit[]>("/api/v1/org-units"),
+  myScope: () => request<MyScope>("/api/v1/org-units/my-scope"),
   createOrgUnit: (name: string, type: string, parentUnitId: string | null) =>
     request<OrgUnit>("/api/v1/org-units", {
       method: "POST",

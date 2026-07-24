@@ -17,6 +17,8 @@ public class OrganisationUnitController {
     public record CreateUnitRequest(String name, String type, UUID parentUnitId) {}
     public record MemberRequest(UUID userId) {}
     public record OrgUnitView(UUID id, UUID parentUnitId, String name, String type) {}
+    /** The caller's own org-unit scope. {@code scoped == false} (empty units) means tenant-wide. */
+    public record MyScopeView(boolean scoped, List<OrgUnitView> units) {}
 
     private final OrgUnitService orgUnits;
     private final AccessControlService access;
@@ -37,6 +39,14 @@ public class OrganisationUnitController {
     public List<OrgUnitView> list() {
         access.require(Permission.TENANT_ADMIN);
         return orgUnits.list(CurrentUser.tenantId()).stream().map(OrganisationUnitController::view).toList();
+    }
+
+    /** The caller's own scope — any authenticated user, no admin gate. Powers the console "Scope: X" chip. */
+    @GetMapping("/my-scope")
+    public MyScopeView myScope() {
+        List<OrgUnitView> units = orgUnits.assignedUnits(CurrentUser.tenantId(), CurrentUser.userId())
+            .stream().map(OrganisationUnitController::view).toList();
+        return new MyScopeView(!units.isEmpty(), units);
     }
 
     /** Assign a user to this org unit (using the user's current role) — grants them its subtree scope. */
