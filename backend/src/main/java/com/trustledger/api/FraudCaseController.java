@@ -3,20 +3,29 @@ package com.trustledger.api;
 import com.trustledger.api.ApiViews.FraudCaseView;
 import com.trustledger.app.AccessControlService;
 import com.trustledger.app.IntelligentTransferGateway;
+import com.trustledger.app.OrgScopeService;
 import com.trustledger.app.PersistentTransferResponse;
+import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.FraudCaseEntity;
+import com.trustledger.persistence.entity.TransferEntity;
+import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.FraudCaseRepository;
 import com.trustledger.persistence.repo.FraudSignalRepository;
+import com.trustledger.persistence.repo.TransferRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Analyst actions on held-transfer fraud cases. (RBAC/auth is a later slice.) */
+/** Analyst actions on held-transfer fraud cases. Org-scoped: a unit-scoped user (e.g. a regional
+ *  FRAUD_ANALYST) sees and acts on only the cases whose transfer originates in their unit subtree. */
 @RestController
 @RequestMapping("/api/v1/fraud/cases")
 public class FraudCaseController {
@@ -29,19 +38,44 @@ public class FraudCaseController {
     private final FraudCaseRepository fraudCases;
     private final FraudSignalRepository fraudSignals;
     private final AccessControlService access;
+    private final TransferRepository transfers;
+    private final AccountRepository accounts;
+    private final OrgScopeService orgScope;
 
     public FraudCaseController(IntelligentTransferGateway gateway, FraudCaseRepository fraudCases,
-                              FraudSignalRepository fraudSignals, AccessControlService access) {
+                              FraudSignalRepository fraudSignals, AccessControlService access,
+                              TransferRepository transfers, AccountRepository accounts, OrgScopeService orgScope) {
         this.gateway = gateway;
         this.fraudCases = fraudCases;
         this.fraudSignals = fraudSignals;
         this.access = access;
+        this.transfers = transfers;
+        this.accounts = accounts;
+        this.orgScope = orgScope;
     }
 
     @GetMapping
     public List<FraudCaseView> list() {
         access.require(Permission.FRAUD_CASE_VIEW);
-        return fraudCases.findByTenantId(CurrentUser.tenantId()).stream().map(FraudCaseController::view).toList();
+        UUID tenant = CurrentUser.tenantId();
+        List<FraudCaseEntity> cases = fraudCases.findByTenantId(tenant);
+        // Org scope: a tenant-wide user (no org-unit assignment) sees all cases — unchanged; a scoped user
+        // sees only cases whose transfer originates from an account in their subtree.
+        Optional<Set<UUID>> scope = orgScope.accessibleUnitIds(tenant, CurrentUser.userId());
+        if (scope.isEmpty()) {
+            return cases.stream().map(FraudCaseController::view).toList();
+        }
+        Set<UUID> accountIds = accounts.findByTenantIdAndOrgUnitIdIn(tenant, scope.get()).stream()
+            .map(AccountEntity::getId).collect(Collectors.toSet());
+        // Batch the case -> transfer -> source-account mapping: one findAllById over the cases' transaction
+        // ids (O(1) queries regardless of case volume — findByTenantId is unbounded), then filter in memory.
+        Set<UUID> txIds = cases.stream().map(FraudCaseEntity::getTransactionId).collect(Collectors.toSet());
+        Set<UUID> inScopeTxIds = transfers.findAllById(txIds).stream()
+            .filter(t -> accountIds.contains(t.getSourceAccountId()))
+            .map(TransferEntity::getId).collect(Collectors.toSet());
+        return cases.stream()
+            .filter(c -> inScopeTxIds.contains(c.getTransactionId()))
+            .map(FraudCaseController::view).toList();
     }
 
     @GetMapping("/{caseId}")
@@ -54,7 +88,7 @@ public class FraudCaseController {
     @GetMapping("/{caseId}/signals")
     public List<FraudSignalView> signals(@PathVariable UUID caseId) {
         access.require(Permission.FRAUD_CASE_VIEW);
-        FraudCaseEntity c = requireCase(caseId); // tenant-scopes: 404 if unknown, 403 if another tenant's
+        FraudCaseEntity c = requireCase(caseId); // tenant + org-scope: 404 if unknown, 403 out of tenant/scope
         return fraudSignals.findByTransactionIdOrderByScoreDeltaDesc(c.getTransactionId()).stream()
             .map(s -> new FraudSignalView(s.getSignalType(), s.getScoreDelta(), s.getSeverity(),
                 s.getReason(), s.getEvidence(), s.getCreatedAt()))
@@ -89,6 +123,15 @@ public class FraudCaseController {
             .orElseThrow(() -> new IllegalArgumentException("Fraud case not found: " + caseId));
         if (!c.getTenantId().equals(CurrentUser.tenantId())) {
             throw new ForbiddenException("Fraud case belongs to another tenant");
+        }
+        // Org scope: gate by the case's transfer source-account unit (same rule as the transfer read side).
+        UUID unit = transfers.findById(c.getTransactionId())
+            .map(TransferEntity::getSourceAccountId)
+            .flatMap(accounts::findById)
+            .map(AccountEntity::getOrgUnitId)
+            .orElse(null);
+        if (!orgScope.canAccessAccountUnit(CurrentUser.tenantId(), CurrentUser.userId(), unit)) {
+            throw new ForbiddenException("Fraud case is outside your organisation-unit scope");
         }
         return c;
     }
