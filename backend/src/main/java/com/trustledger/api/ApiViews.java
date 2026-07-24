@@ -9,7 +9,7 @@ import java.util.UUID;
 public final class ApiViews {
     private ApiViews() {}
 
-    public record CreateAccountRequest(String currency, BigDecimal openingBalance) {}
+    public record CreateAccountRequest(String currency, BigDecimal openingBalance, UUID orgUnitId) {}
     public record AccountView(UUID id, String currency, String status,
                               BigDecimal availableBalance, BigDecimal pendingBalance, BigDecimal postedBalance) {}
     public record BalanceView(UUID accountId, String currency,
