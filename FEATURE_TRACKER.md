@@ -55,6 +55,7 @@ Last updated: 2026-07-20
 | External transfer: reserve → submit → settle/fail | **VERIFIED** | `ExternalPaymentService`; V6 `external_payment_attempts`; settle posts Debit source / Credit clearing |
 | Timeout → PENDING_UNKNOWN (funds held, not failed) | **VERIFIED** | `ExternalPaymentIntegrationTest` |
 | Webhook: signature + dedupe + apply once | **VERIFIED** | `PaymentWebhookService`; V6 `payment_webhook_events` UNIQUE(provider,event_id); **duplicate webhook does not double-post** |
+| Dispute/chargeback capture (`charge.dispute.*` → CHARGEBACK reversal) | IN PROGRESS | Adapter maps `charge.dispute.create/reminder` → CHARGEBACK (ref from `data.transaction.reference`); `ExternalPaymentReversalService.chargeback()` posts a balanced CHARGEBACK mirroring the proven `reverse()` — makes the previously **dead** `LedgerTransactionType.CHARGEBACK` live. `PaystackPaymentRailAdapterTest` (+3) + `PaymentWebhookServiceTest` **RUN GREEN**; `ExternalPaymentChargebackIntegrationTest` added but the Testcontainers double-entry check needs CI. **PR #61 — do NOT merge without CI** (fintech ledger; compiles ≠ verified). |
 | Late success / late failure after timeout | **VERIFIED** | settles once / releases once |
 | Bad webhook signature rejected (401, no state change) | **VERIFIED** | `ExternalPaymentIntegrationTest` |
 | Settlement reconciliation (PENDING_UNKNOWN → provider truth) | **VERIFIED** | `ExternalReconciliationIntegrationTest` |
