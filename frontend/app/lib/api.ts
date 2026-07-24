@@ -33,6 +33,7 @@ import type {
   WebhookEvent,
   LedgerEntryView,
   LedgerTransactionView,
+  OrgUnit,
   TransferDetail,
   TransferListItem,
   TransferResponse,
@@ -135,6 +136,18 @@ export const api = {
     request<InvitedUser>("/api/v1/users/invite", { method: "POST", body: JSON.stringify({ email, role }) }),
   changeUserRole: (id: string, role: string) =>
     request<TeamMember>(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+
+  listOrgUnits: () => request<OrgUnit[]>("/api/v1/org-units"),
+  createOrgUnit: (name: string, type: string, parentUnitId: string | null) =>
+    request<OrgUnit>("/api/v1/org-units", {
+      method: "POST",
+      body: JSON.stringify({ name, type, parentUnitId }),
+    }),
+  assignOrgUnitMember: (unitId: string, userId: string) =>
+    request<void>(`/api/v1/org-units/${unitId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
 
   listApiKeys: () => request<ApiKey[]>("/api/v1/developer/api-keys"),
   createApiKey: (name: string, scope: string) =>
