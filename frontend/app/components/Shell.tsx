@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { getSession, getToken, setSession, setToken } from "../lib/api";
+import { api, getSession, getToken, setSession, setToken } from "../lib/api";
+import type { OrgUnit } from "../lib/types";
 import CommandPalette from "./CommandPalette";
 import PlatformProductionGate from "./PlatformProductionGate";
 
@@ -51,6 +52,7 @@ export default function Shell({ children, active }: { children: ReactNode; activ
   const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [session, setSess] = useState<{ email: string; role: string; tenantId: string } | null>(null);
+  const [scopeUnits, setScopeUnits] = useState<OrgUnit[]>([]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -59,6 +61,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
     }
     setSess(getSession());
     setReady(true);
+    // Surface the caller's org-unit scope so a scoped operator knows they're seeing a filtered view.
+    api.myScope().then((s) => setScopeUnits(s.scoped ? s.units : [])).catch(() => {});
   }, [router]);
 
   if (!ready) return null;
@@ -137,6 +141,14 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           >
             Search <kbd>⌘K</kbd>
           </button>
+          {scopeUnits.length > 0 && (
+            <span
+              className="tenantchip"
+              title="You see only accounts, transfers, ledger and fraud cases within these organisation units"
+            >
+              Scope <b>{scopeUnits.map((u) => u.name).join(", ")}</b>
+            </span>
+          )}
           {session && (
             <span className="tenantchip" title={session.tenantId}>
               Tenant <b className="mono">{session.tenantId.slice(0, 8)}…</b>

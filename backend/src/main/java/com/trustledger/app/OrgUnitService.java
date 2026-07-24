@@ -11,7 +11,10 @@ import com.trustledger.persistence.repo.UserRoleAssignmentRepository;
 import com.trustledger.security.ForbiddenException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -55,6 +58,18 @@ public class OrgUnitService {
     @Transactional(readOnly = true)
     public List<OrganisationUnitEntity> list(UUID tenantId) {
         return orgUnits.findByTenantId(tenantId);
+    }
+
+    /** The units a user is directly assigned to (empty = tenant-wide). Powers the "you are scoped to X"
+     *  console affordance — shows the assigned units themselves, not the expanded subtree. */
+    @Transactional(readOnly = true)
+    public List<OrganisationUnitEntity> assignedUnits(UUID tenantId, UUID userId) {
+        Set<UUID> ids = assignments.findByTenantIdAndUserId(tenantId, userId).stream()
+            .map(UserRoleAssignmentEntity::getOrganisationUnitId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+        if (ids.isEmpty()) return List.of();
+        return orgUnits.findByTenantId(tenantId).stream().filter(u -> ids.contains(u.getId())).toList();
     }
 
     /** Assign a user to an org unit (upsert on the user's current role). Both must belong to the tenant. */
