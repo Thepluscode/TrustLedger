@@ -34,11 +34,13 @@ public class EvidenceService {
     private final UsageMeteringService usage;
     private final ObjectMapper json;
 
+    private final OrgScopeService orgScope;
+
     public EvidenceService(FraudCaseRepository fraudCases, FraudCaseLinkRepository caseLinks,
                            TransferRepository transfers, LedgerTransactionRepository ledgerTransactions,
                            LedgerEntryRepository ledgerEntries, AuditLogRepository auditLogs,
                            EvidenceExportRepository exports, EvidenceStorage storage,
-                           UsageMeteringService usage, ObjectMapper json) {
+                           UsageMeteringService usage, ObjectMapper json, OrgScopeService orgScope) {
         this.fraudCases = fraudCases;
         this.caseLinks = caseLinks;
         this.transfers = transfers;
@@ -49,12 +51,18 @@ public class EvidenceService {
         this.storage = storage;
         this.usage = usage;
         this.json = json;
+        this.orgScope = orgScope;
     }
 
     @Transactional
     public EvidenceExportEntity exportFraudCase(UUID tenantId, UUID caseId, UUID generatedBy) {
         FraudCaseEntity c = fraudCases.findById(caseId).orElseThrow(() -> new IllegalArgumentException("Case not found: " + caseId));
         if (!c.getTenantId().equals(tenantId)) throw new ForbiddenException("Fraud case belongs to another tenant");
+        // Org scope: exporting a case's evidence reveals the same case data as viewing it — gate identically,
+        // so a unit-scoped user can't produce a downloadable pack for a case outside their subtree.
+        if (!orgScope.canAccessTransaction(tenantId, generatedBy, c.getTransactionId())) {
+            throw new ForbiddenException("Fraud case is outside your organisation-unit scope");
+        }
 
         Map<String, Object> bundle = new LinkedHashMap<>();
         bundle.put("kind", "FRAUD_CASE_EVIDENCE");
@@ -78,6 +86,10 @@ public class EvidenceService {
         LedgerTransactionEntity tx = ledgerTransactions.findById(ledgerTxId)
             .orElseThrow(() -> new IllegalArgumentException("Ledger transaction not found: " + ledgerTxId));
         if (!tx.getTenantId().equals(tenantId)) throw new ForbiddenException("Ledger transaction belongs to another tenant");
+        // Org scope: same all-legs-in-scope rule as viewing the ledger transaction.
+        if (!orgScope.canAccessLedgerTransaction(tenantId, generatedBy, ledgerTxId)) {
+            throw new ForbiddenException("Ledger transaction is outside your organisation-unit scope");
+        }
 
         List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(ledgerTxId);
         BigDecimal debits = BigDecimal.ZERO, credits = BigDecimal.ZERO;
@@ -119,10 +131,33 @@ public class EvidenceService {
     }
 
     @Transactional(readOnly = true)
-    public byte[] download(UUID tenantId, UUID exportId) {
-        EvidenceExportEntity e = exports.findById(exportId).orElseThrow(() -> new IllegalArgumentException("Export not found: " + exportId));
+    public byte[] download(UUID tenantId, UUID userId, UUID exportId) {
+        return storage.retrieve(requireExportInScope(tenantId, userId, exportId).getObjectStorageKey());
+    }
+
+    /**
+     * Tenant- and org-scope-gate an evidence export by the org unit of its underlying resource, then return
+     * it. A downloadable pack reveals the same data as viewing the resource, so a unit-scoped user may only
+     * touch exports for a FRAUD_CASE / LEDGER_TRANSACTION within their subtree; tenant-wide users pass, and
+     * resource types without an org anchor (e.g. CERTIFICATION) stay tenant-wide. Used by download / legal-hold
+     * / delete so the whole evidence lifecycle is scoped, not just creation.
+     */
+    @Transactional(readOnly = true)
+    public EvidenceExportEntity requireExportInScope(UUID tenantId, UUID userId, UUID exportId) {
+        EvidenceExportEntity e = exports.findById(exportId)
+            .orElseThrow(() -> new IllegalArgumentException("Export not found: " + exportId));
         if (!e.getTenantId().equals(tenantId)) throw new ForbiddenException("Evidence belongs to another tenant");
-        return storage.retrieve(e.getObjectStorageKey());
+        boolean ok = switch (e.getResourceType()) {
+            case "FRAUD_CASE" -> orgScope.canAccessTransaction(tenantId, userId,
+                fraudCases.findById(e.getResourceId()).map(FraudCaseEntity::getTransactionId).orElse(null));
+            case "LEDGER_TRANSACTION" -> orgScope.canAccessLedgerTransaction(tenantId, userId, e.getResourceId());
+            case "CERTIFICATION" -> true; // certification runs aren't org-unit-scoped resources — tenant-wide
+            // Fail closed for any future evidence type: tenant-wide users pass, but a scoped user is denied
+            // until the new type is explicitly given an org anchor above (opt-in, not silent tenant-wide).
+            default -> orgScope.accessibleUnitIds(tenantId, userId).isEmpty();
+        };
+        if (!ok) throw new ForbiddenException("Evidence export is outside your organisation-unit scope");
+        return e;
     }
 
     private EvidenceExportEntity persist(UUID tenantId, String resourceType, UUID resourceId, UUID generatedBy, Map<String, Object> bundle) {

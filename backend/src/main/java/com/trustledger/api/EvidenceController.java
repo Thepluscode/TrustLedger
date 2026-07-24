@@ -50,12 +50,16 @@ public class EvidenceController {
 
     @GetMapping("/exports")
     public List<EvidenceExportView> list() {
+        access.require(Permission.EVIDENCE_EXPORT);
         return exports.findByTenantId(CurrentUser.tenantId()).stream().map(EvidenceController::view).toList();
     }
 
     @GetMapping("/exports/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable UUID id) {
-        byte[] content = evidence.download(CurrentUser.tenantId(), id);
+        access.require(Permission.EVIDENCE_EXPORT);
+        // download() returns the full persisted bundle — org-scope it (inside the service) so a scoped user
+        // can't read a sibling-unit case's evidence someone else exported.
+        byte[] content = evidence.download(CurrentUser.tenantId(), CurrentUser.userId(), id);
         String checksum = exports.findById(id).map(EvidenceExportEntity::getChecksum).orElse("");
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_JSON)
@@ -65,18 +69,23 @@ public class EvidenceController {
 
     @PostMapping("/exports/{id}/legal-hold")
     public ResponseEntity<Void> legalHold(@PathVariable UUID id, @RequestParam(defaultValue = "true") boolean on) {
+        access.require(Permission.EVIDENCE_EXPORT);
+        evidence.requireExportInScope(CurrentUser.tenantId(), CurrentUser.userId(), id); // no cross-unit mutation
         retention.setLegalHold(CurrentUser.tenantId(), id, on);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/exports/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        access.require(Permission.EVIDENCE_EXPORT);
+        evidence.requireExportInScope(CurrentUser.tenantId(), CurrentUser.userId(), id); // no cross-unit delete
         retention.deleteExport(CurrentUser.tenantId(), id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/retention-policies")
     public ResponseEntity<Void> upsertPolicy(@RequestBody RetentionPolicyRequest body) {
+        access.require(Permission.RETENTION_POLICY_MANAGE); // tenant-wide retention/deletion policy — manage-gated
         retention.upsertPolicy(CurrentUser.tenantId(), body.resourceType(), body.retentionDays(),
             body.archiveEnabled(), body.deletionMode(), body.legalHoldEnabled());
         return ResponseEntity.noContent().build();

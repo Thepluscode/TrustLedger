@@ -2,10 +2,8 @@ package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.*;
 import com.trustledger.app.OrgScopeService;
-import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.LedgerEntryEntity;
 import com.trustledger.persistence.entity.LedgerTransactionEntity;
-import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
 import com.trustledger.persistence.repo.LedgerTransactionRepository;
 import com.trustledger.security.CurrentUser;
@@ -20,14 +18,12 @@ public class LedgerController {
 
     private final LedgerTransactionRepository ledgerTransactions;
     private final LedgerEntryRepository ledgerEntries;
-    private final AccountRepository accounts;
     private final OrgScopeService orgScope;
 
     public LedgerController(LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
-                           AccountRepository accounts, OrgScopeService orgScope) {
+                           OrgScopeService orgScope) {
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
-        this.accounts = accounts;
         this.orgScope = orgScope;
     }
 
@@ -37,17 +33,12 @@ public class LedgerController {
         LedgerTransactionEntity tx = ledgerTransactions.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Ledger transaction not found: " + id));
         if (!tx.getTenantId().equals(tenantId)) throw new ForbiddenException("Ledger transaction belongs to another tenant");
-        List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(id);
-        // Org scope: viewing a transaction reveals every leg, so a unit-scoped user may see it only when
-        // ALL referenced accounts are within their subtree — otherwise a counterparty leg would leak a
-        // sibling-unit account. Tenant-wide users (no org-unit assignment) are unaffected.
-        UUID userId = CurrentUser.userId();
-        for (LedgerEntryEntity e : entries) {
-            UUID unit = accounts.findById(e.getAccountId()).map(AccountEntity::getOrgUnitId).orElse(null);
-            if (!orgScope.canAccessAccountUnit(tenantId, userId, unit)) {
-                throw new ForbiddenException("Ledger transaction is outside your organisation-unit scope");
-            }
+        // Org scope: viewing a transaction reveals every leg, so a unit-scoped user may see it only when ALL
+        // referenced accounts are within their subtree (shared predicate). Tenant-wide users are unaffected.
+        if (!orgScope.canAccessLedgerTransaction(tenantId, CurrentUser.userId(), id)) {
+            throw new ForbiddenException("Ledger transaction is outside your organisation-unit scope");
         }
+        List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(id);
         List<LedgerEntryView> views = entries.stream().map(e -> new LedgerEntryView(
             e.getId(), e.getLedgerTransactionId(), e.getAccountId(), e.getDirection(),
             e.getAmount(), e.getCurrency(), e.getEntryType())).toList();
