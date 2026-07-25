@@ -54,7 +54,9 @@ public class ApprovalController {
     @GetMapping
     public List<ApprovalView> listPending() {
         access.require(Permission.TRANSFER_APPROVE);
+        // Org scope: a unit-scoped approver sees only pending approvals for resources within their subtree.
         return requests.findByTenantIdAndStatus(CurrentUser.tenantId(), "PENDING").stream()
+            .filter(r -> approvals.canAccess(CurrentUser.tenantId(), CurrentUser.userId(), r))
             .map(ApprovalController::view).toList();
     }
 
