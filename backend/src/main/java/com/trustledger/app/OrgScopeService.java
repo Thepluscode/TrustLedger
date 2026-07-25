@@ -100,6 +100,18 @@ public class OrgScopeService {
     }
 
     /**
+     * Whether the caller may act on an account by id — e.g. initiate a transfer FROM it — scoped by the
+     * account's org unit. An unknown account passes so the downstream operation raises its proper not-found
+     * error rather than a scope 403; tenant-wide users always pass.
+     */
+    @Transactional(readOnly = true)
+    public boolean canAccessAccount(UUID tenantId, UUID userId, UUID accountId) {
+        return accounts.findById(accountId)
+            .map(a -> canAccessAccountUnit(tenantId, userId, a.getOrgUnitId()))
+            .orElse(true);
+    }
+
+    /**
      * Whether the caller may access the transfer — and anything derived from it (its fraud case, its
      * evidence pack) — identified by its business transaction id, scoped by the transfer's source-account
      * unit. Fail-closed for scoped users when the transfer/account can't be resolved; tenant-wide users are
