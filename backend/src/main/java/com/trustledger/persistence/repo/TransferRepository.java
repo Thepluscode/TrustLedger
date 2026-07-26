@@ -18,6 +18,10 @@ public interface TransferRepository extends JpaRepository<TransferEntity, UUID> 
     List<TransferEntity> findTop200ByTenantIdAndSourceAccountIdInOrderByCreatedAtDesc(
         UUID tenantId, Collection<UUID> sourceAccountIds);
 
+    /** Org-scoped transfer count by status: only transfers originating from the given accessible accounts. */
+    long countByTenantIdAndSourceAccountIdInAndStatus(
+        UUID tenantId, Collection<UUID> sourceAccountIds, String status);
+
     /** Risk scores of a tenant's transfers since a point in time — for the fraud-policy impact preview. */
     @Query("select t.riskScore from TransferEntity t where t.tenantId = :tenantId and t.createdAt >= :since")
     List<Integer> findRiskScoresByTenantSince(@Param("tenantId") UUID tenantId, @Param("since") Instant since);
