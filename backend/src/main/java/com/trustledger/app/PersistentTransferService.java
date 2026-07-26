@@ -333,8 +333,10 @@ public class PersistentTransferService {
     }
 
     private static String canonicalPayload(PersistentTransferRequest r) {
+        // beneficiaryId is nullable (an internal account-to-account transfer has no payee) — keep it out of
+        // the request hash by canonicalising null to a stable token rather than NPEing on .toString().
         return String.join(":", r.tenantId().toString(), r.userId().toString(), r.sourceAccountId().toString(),
-            r.destinationAccountId().toString(), r.beneficiaryId().toString(), r.amount().toPlainString(), r.currency());
+            r.destinationAccountId().toString(), String.valueOf(r.beneficiaryId()), r.amount().toPlainString(), r.currency());
     }
 
     private String writeResponse(PersistentTransferResponse r) {
