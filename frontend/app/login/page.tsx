@@ -37,16 +37,16 @@ export default function LoginPage() {
       <div className="auth-layout">
         <section className="auth-story" aria-label="TrustLedger product introduction">
           <div className="auth-brand-lockup">
-            <span className="brand-mark" aria-hidden>
+            <span className="brand-mark" aria-hidden style={{ display: "grid", color: "#07140f", fontSize: "inherit" }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 4h12v16H6z" />
                 <path d="M9 8h6M9 12h6M9 16h3" />
                 <path d="m14.5 15.5 1.5 1.5 3-3" />
               </svg>
             </span>
-            <span className="auth-brand-copy">
-              <strong>TrustLedger</strong>
-              <span>Financial control plane</span>
+            <span className="auth-brand-copy" style={{ display: "grid", gap: 1, color: "inherit", fontSize: "inherit" }}>
+              <strong style={{ color: "var(--text)", fontSize: 18 }}>TrustLedger</strong>
+              <span style={{ color: "var(--muted)", fontSize: 11 }}>Financial control plane</span>
             </span>
           </div>
 
