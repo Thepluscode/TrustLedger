@@ -3,11 +3,14 @@ package com.trustledger.persistence.entity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** Maps {@code ledger_transactions}. UNIQUE(tenant_id, idempotency_key) enforces single-posting. */
+/** Maps {@code ledger_transactions}. UNIQUE(tenant_id, idempotency_key) enforces single-posting. Immutable —
+ *  a DB trigger also rejects UPDATE/DELETE; {@code @Immutable} keeps Hibernate from issuing a spurious UPDATE. */
 @Entity
+@Immutable
 @Table(name = "ledger_transactions")
 public class LedgerTransactionEntity {
 
