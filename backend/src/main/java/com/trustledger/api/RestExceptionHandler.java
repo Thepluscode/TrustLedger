@@ -5,6 +5,8 @@ import com.trustledger.security.ConflictException;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.UnauthorizedException;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -13,6 +15,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Maps domain/application exceptions to safe HTTP responses (no stack traces to clients). */
 @RestControllerAdvice
 public class RestExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(RestExceptionHandler.class);
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<Map<String, Object>> unauthorized(UnauthorizedException e) {
@@ -53,6 +57,18 @@ public class RestExceptionHandler {
     public ResponseEntity<Map<String, Object>> unprocessable(IllegalStateException e) {
         // e.g. insufficient funds, inactive account
         return body(HttpStatus.UNPROCESSABLE_ENTITY, "TRANSFER_REJECTED", e.getMessage());
+    }
+
+    /**
+     * Safety net: any exception not mapped above (a NullPointerException from an unguarded dereference, an
+     * unexpected data-access failure, …) becomes a clear 500 — logged server-side with the stack trace,
+     * never leaked to the client. This stops an unhandled exception from forwarding to /error and being
+     * silently reinterpreted as an opaque 401 by the security chain.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> unexpected(Exception e) {
+        log.error("Unhandled exception in request processing", e);
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred");
     }
 
     private ResponseEntity<Map<String, Object>> body(HttpStatus status, String code, String message) {

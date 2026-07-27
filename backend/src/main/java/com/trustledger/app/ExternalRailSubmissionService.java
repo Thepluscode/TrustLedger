@@ -151,6 +151,8 @@ public class ExternalRailSubmissionService {
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Provider action returned no authoritative outcome", claim.providerObjectId());
         } catch (RuntimeException failure) {
+            log.error("Provider action failed for attempt {} (transfer {}) — parked at PENDING_UNKNOWN",
+                claim.attemptId(), claim.transactionId(), failure);
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Provider action requires recovery: " + failure.getClass().getSimpleName(), claim.providerObjectId());
         }
@@ -173,6 +175,8 @@ public class ExternalRailSubmissionService {
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Provider did not return an authoritative outcome", claim.providerObjectId());
         } catch (RuntimeException failure) {
+            log.error("Payout submission failed for attempt {} (transfer {}) — parked at PENDING_UNKNOWN",
+                claim.attemptId(), claim.transactionId(), failure);
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Submission requires recovery: " + failure.getClass().getSimpleName(), claim.providerObjectId());
         }
@@ -199,6 +203,8 @@ public class ExternalRailSubmissionService {
             }
             return executeInitiation(claim);
         } catch (RuntimeException failure) {
+            log.error("Payout recovery failed for attempt {} (transfer {}) — remains PENDING_UNKNOWN",
+                claim.attemptId(), claim.transactionId(), failure);
             return result(claim, ExternalPaymentStatus.PENDING_UNKNOWN, Map.of(),
                 "Recovery status remains unknown: " + failure.getClass().getSimpleName(), claim.providerObjectId());
         }

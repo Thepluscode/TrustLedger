@@ -106,6 +106,7 @@ public class OrgScopeService {
      */
     @Transactional(readOnly = true)
     public boolean canAccessAccount(UUID tenantId, UUID userId, UUID accountId) {
+        if (accountId == null) return true; // let request validation raise the proper 400, not findById(null)
         return accounts.findById(accountId)
             .map(a -> canAccessAccountUnit(tenantId, userId, a.getOrgUnitId()))
             .orElse(true);
