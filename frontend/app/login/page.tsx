@@ -44,7 +44,7 @@ export default function LoginPage() {
                 <path d="m14.5 15.5 1.5 1.5 3-3" />
               </svg>
             </span>
-            <span>
+            <span className="auth-brand-copy">
               <strong>TrustLedger</strong>
               <span>Financial control plane</span>
             </span>
