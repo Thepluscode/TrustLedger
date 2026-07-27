@@ -83,6 +83,13 @@ public class ExternalPaymentService {
                                           String reference, String idempotencyKey, String deviceId,
                                           String currentCountry, String destinationCountry,
                                           String preferredProvider, String preferredEnvironment, String scenario) {
+        /** Reject missing required fields at construction (a clean 400) rather than NPEing in initiate(). */
+        public ExternalTransferRequest {
+            if (sourceAccountId == null) throw new IllegalArgumentException("sourceAccountId is required");
+            if (amount == null) throw new IllegalArgumentException("amount is required");
+            if (currency == null || currency.isBlank()) throw new IllegalArgumentException("currency is required");
+        }
+
         public ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
                                        BigDecimal amount, String currency, String reference, String idempotencyKey,
                                        String deviceId, String currentCountry, String destinationCountry,
