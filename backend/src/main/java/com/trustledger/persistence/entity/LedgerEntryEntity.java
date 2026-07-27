@@ -4,11 +4,15 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** Maps {@code ledger_entries}. amount > 0 (DB CHECK); direction in DEBIT/CREDIT. */
+/** Maps {@code ledger_entries}. amount > 0 (DB CHECK); direction in DEBIT/CREDIT. Immutable — corrections
+ *  are reversal entries (a DB trigger also rejects UPDATE/DELETE); {@code @Immutable} keeps Hibernate from
+ *  ever issuing an UPDATE the trigger would reject. */
 @Entity
+@Immutable
 @Table(name = "ledger_entries")
 public class LedgerEntryEntity {
 
