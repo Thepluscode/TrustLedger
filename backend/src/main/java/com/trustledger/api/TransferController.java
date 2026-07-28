@@ -6,7 +6,6 @@ import com.trustledger.app.OrgScopeService;
 import com.trustledger.app.PersistentTransferRequest;
 import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.UsageMeteringService;
-import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
@@ -19,15 +18,13 @@ import org.springframework.web.bind.annotation.*;
 public class TransferController {
 
     private final IntelligentTransferGateway gateway;
-    private final TransferMetrics metrics;
     private final UsageMeteringService usage;
     private final AccessControlService access;
     private final OrgScopeService orgScope;
 
-    public TransferController(IntelligentTransferGateway gateway, TransferMetrics metrics, UsageMeteringService usage,
+    public TransferController(IntelligentTransferGateway gateway, UsageMeteringService usage,
                              AccessControlService access, OrgScopeService orgScope) {
         this.gateway = gateway;
-        this.metrics = metrics;
         this.usage = usage;
         this.access = access;
         this.orgScope = orgScope;
@@ -51,7 +48,6 @@ public class TransferController {
 
         // Live intelligence gate: behaviour/device/recipient scoring decides complete / hold / reject.
         PersistentTransferResponse result = gateway.submit(request);
-        metrics.record(result.status());
         usage.record(CurrentUser.tenantId(), UsageMeteringService.TRANSFERS_CREATED, 1);
 
         HttpStatus status = switch (result.status()) {
