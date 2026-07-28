@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## v1.0 — ledger-first domain spine
 
@@ -316,7 +316,7 @@ zero-state components, AUDITOR-200 / FINANCE_OPERATOR-403); full suite **124/124
 is surfaced and live-wired. The held-case approve/reject modal is **live-testable end-to-end**: the
 intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above).
 
-## v3.1 — provider certification & production evidence (first slice)
+## v3.1 — provider certification & production evidence
 
 Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8.2, first slice only.
 
@@ -324,7 +324,7 @@ Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8
 |---------|--------|------|
 | Cert data model (V31: runs / drill_results / signoffs) | **VERIFIED** | `CertificationPersistenceIntegrationTest`; composite FK to `tenant_provider_configs(tenant_id,id,environment)` |
 | Drill contract + registry (sealed catalogue, SHA-256 catalogue stamp) | **VERIFIED** | `CertificationDrillRegistry`; catalogue version = 32-hex stamp |
-| 3 drills vs sandbox rail (signed-webhook, ambiguous-recovery, reconciliation-proof) | **VERIFIED** | 3 drill integration tests; synthetic fixtures only (`CERT_SYSTEM_USER`) |
+| 8-drill sandbox catalogue (signed webhook, ambiguous recovery, reconciliation proof, failure release, OTP finalization, reversal accounting, credential rotation, emergency stop) | **VERIFIED** | Drill integration suite, including `GovernanceCertificationDrillsIntegrationTest`; synthetic fixtures only; rotation evidence contains no credential refs or values |
 | Run orchestration + checksummed evidence pack | **VERIFIED** | `ProviderCertificationIntegrationTest` (PASS + FAIL-records-all) |
 | Dual-control sign-off (signer≠initiator, PASSED-only, once) | **VERIFIED** | 4 sign-off tests |
 | **Production-activation gate (`production_not_certified`)** | **VERIFIED** | `CertificationGateIntegrationTest`: block → allow(cert+signoff) → block(expiry) + per-config |
@@ -334,8 +334,12 @@ Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8
 Whole-branch review (java-reviewer) caught + fixed a CRITICAL: the reconciliation-proof drill
 originally ran the GLOBAL cross-tenant reconciliation sweep (live provider calls for other tenants) →
 now tenant-scoped `checkTenantLedgerBalance`. **Merged to `main` 2026-07-20 (squash `1e09f87`, PR #46)
-with all CI checks green** — hence VERIFIED. Residuals for later slices: full ~8-drill catalogue,
-real Paystack test-env drills, cert UI, fixture retention, list pagination.
+with all CI checks green** — hence VERIFIED. The catalogue was then completed to eight drills
+(credential rotation + emergency stop): `mvn -B test -Dtest='com.trustledger.core.certification.**'`
+→ **`Tests run: 16, Failures: 0`** (2026-07-28, real PG via colima). Review of that slice fixed an
+unattributable actor — `EmergencyStopDrill` audited `TENANT_PROVIDER_EMERGENCY_DISABLED` against a
+random UUID instead of `CERT_SYSTEM_USER`. Residuals for later slices: real Paystack test-env drills,
+fixture retention, list pagination.
 
 ## Session summary — 2026-06-15 (v3.0 console deferred-screens cleared)
 

@@ -20,8 +20,8 @@ payment integration — built as a **production-grade reference platform**, pilo
 bank or a regulated PISP. Regulatory boundaries are stated plainly in `docs/REGULATORY_BOUNDARIES.md`.
 
 ## Evidence of quality (verifiable today)
-- **107 backend tests**, 0 failures (unit + Testcontainers integration), green on every push.
+- **224 backend tests**, 0 failures on the latest recorded full run (unit + Testcontainers integration).
 - **4-job CI**: backend, frontend, compose/repo validation, and IaC (Helm + Terraform + manifests).
-- Schema **V1–V14** owned by Flyway; Hibernate `ddl-auto=validate` refuses to boot on drift.
+- Schema migrations are owned by Flyway; Hibernate `ddl-auto=validate` refuses to boot on drift.
 - The crown-jewel test: **50 concurrent transfers cannot overspend one account** — and a **real
   Postgres backup→restore round-trip** passed.

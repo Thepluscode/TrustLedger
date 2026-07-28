@@ -5,10 +5,16 @@ import com.trustledger.app.ExternalPaymentTransitionService;
 import com.trustledger.app.ExternalRailSubmissionService;
 import com.trustledger.app.PaymentWebhookInboxService;
 import com.trustledger.app.PaymentWebhookInboxWorker;
+import com.trustledger.app.ProviderCredentialService;
+import com.trustledger.app.TenantPaymentRouteService;
+import com.trustledger.app.TenantProviderConfigService;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.ProviderCredentialVersionRepository;
+import com.trustledger.persistence.repo.TenantProviderConfigRepository;
+import com.trustledger.secrets.ProviderCredentialResolver;
 import com.trustledger.rails.WebhookSigner;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -34,6 +40,12 @@ public class DrillContextFactory {
     private final ReconciliationIssueRepository reconciliationIssues;
     private final CertificationSyntheticFixtures fixtures;
     private final NamedParameterJdbcTemplate jdbc;
+    private final TenantProviderConfigService providerConfigControls;
+    private final TenantPaymentRouteService routes;
+    private final ProviderCredentialService credentialService;
+    private final ProviderCredentialResolver credentialResolver;
+    private final ProviderCredentialVersionRepository credentialVersions;
+    private final TenantProviderConfigRepository providerConfigs;
 
     public DrillContextFactory(PaymentWebhookInboxService inbox, PaymentWebhookInboxWorker worker,
                                ExternalPaymentTransitionService transitions,
@@ -42,7 +54,13 @@ public class DrillContextFactory {
                                WebhookSigner signer, ExternalPaymentAttemptRepository externalPaymentAttempts,
                                LedgerEntryRepository ledgerEntries, AccountRepository accounts,
                                ReconciliationIssueRepository reconciliationIssues,
-                               CertificationSyntheticFixtures fixtures, NamedParameterJdbcTemplate jdbc) {
+                               CertificationSyntheticFixtures fixtures, NamedParameterJdbcTemplate jdbc,
+                               TenantProviderConfigService providerConfigControls,
+                               TenantPaymentRouteService routes,
+                               ProviderCredentialService credentialService,
+                               ProviderCredentialResolver credentialResolver,
+                               ProviderCredentialVersionRepository credentialVersions,
+                               TenantProviderConfigRepository providerConfigs) {
         this.inbox = inbox;
         this.worker = worker;
         this.transitions = transitions;
@@ -56,11 +74,18 @@ public class DrillContextFactory {
         this.reconciliationIssues = reconciliationIssues;
         this.fixtures = fixtures;
         this.jdbc = jdbc;
+        this.providerConfigControls = providerConfigControls;
+        this.routes = routes;
+        this.credentialService = credentialService;
+        this.credentialResolver = credentialResolver;
+        this.credentialVersions = credentialVersions;
+        this.providerConfigs = providerConfigs;
     }
 
     public DrillContext build(UUID tenantId, UUID tenantProviderConfigId) {
         return new DrillContext(tenantId, tenantProviderConfigId, inbox, worker, transitions, submissions,
                 externalPayments, reconciliation, signer, externalPaymentAttempts, ledgerEntries, accounts,
-                reconciliationIssues, fixtures, jdbc);
+                reconciliationIssues, fixtures, jdbc, providerConfigControls, routes, credentialService,
+                credentialResolver, credentialVersions, providerConfigs);
     }
 }

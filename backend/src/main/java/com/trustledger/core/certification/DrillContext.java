@@ -5,10 +5,16 @@ import com.trustledger.app.ExternalPaymentTransitionService;
 import com.trustledger.app.ExternalRailSubmissionService;
 import com.trustledger.app.PaymentWebhookInboxService;
 import com.trustledger.app.PaymentWebhookInboxWorker;
+import com.trustledger.app.ProviderCredentialService;
+import com.trustledger.app.TenantPaymentRouteService;
+import com.trustledger.app.TenantProviderConfigService;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.ProviderCredentialVersionRepository;
+import com.trustledger.persistence.repo.TenantProviderConfigRepository;
+import com.trustledger.secrets.ProviderCredentialResolver;
 import com.trustledger.rails.WebhookSigner;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -38,4 +44,33 @@ public record DrillContext(
         AccountRepository accounts,
         ReconciliationIssueRepository reconciliationIssues,
         CertificationSyntheticFixtures fixtures,
-        NamedParameterJdbcTemplate jdbc) {}
+        NamedParameterJdbcTemplate jdbc,
+        TenantProviderConfigService providerConfigControls,
+        TenantPaymentRouteService routes,
+        ProviderCredentialService credentialService,
+        ProviderCredentialResolver credentialResolver,
+        ProviderCredentialVersionRepository credentialVersions,
+        TenantProviderConfigRepository providerConfigs) {
+
+    /** Compatibility constructor for focused drill tests that need only the payment-path collaborators. */
+    public DrillContext(
+            UUID tenantId,
+            UUID tenantProviderConfigId,
+            PaymentWebhookInboxService inbox,
+            PaymentWebhookInboxWorker worker,
+            ExternalPaymentTransitionService transitions,
+            ExternalRailSubmissionService submissions,
+            ExternalPaymentService externalPayments,
+            com.trustledger.reconciliation.ReconciliationService reconciliation,
+            WebhookSigner signer,
+            ExternalPaymentAttemptRepository externalPaymentAttempts,
+            LedgerEntryRepository ledgerEntries,
+            AccountRepository accounts,
+            ReconciliationIssueRepository reconciliationIssues,
+            CertificationSyntheticFixtures fixtures,
+            NamedParameterJdbcTemplate jdbc) {
+        this(tenantId, tenantProviderConfigId, inbox, worker, transitions, submissions, externalPayments,
+                reconciliation, signer, externalPaymentAttempts, ledgerEntries, accounts, reconciliationIssues,
+                fixtures, jdbc, null, null, null, null, null, null);
+    }
+}

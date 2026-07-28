@@ -3,6 +3,7 @@ package com.trustledger.api;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
+import com.trustledger.core.certification.CertificationDrillRegistry;
 import com.trustledger.persistence.entity.TenantProviderConfigEntity;
 import com.trustledger.persistence.entity.UserEntity;
 import com.trustledger.persistence.repo.TenantProviderConfigRepository;
@@ -56,6 +57,7 @@ class CertificationApiIntegrationTest {
     @Autowired JwtService jwt;
     @Autowired UserRepository users;
     @Autowired TenantProviderConfigRepository providerConfigs;
+    @Autowired CertificationDrillRegistry drillCatalogue;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
@@ -121,7 +123,8 @@ class CertificationApiIntegrationTest {
         Map<?, ?> runBody = json.readValue(run.body(), Map.class);
         assertEquals("PASSED", runBody.get("status"));
         assertEquals(false, runBody.get("signedOff"));
-        assertEquals(6, ((List<?>) runBody.get("drills")).size(), "every drill must be reported");
+        assertEquals(drillCatalogue.all().size(), ((List<?>) runBody.get("drills")).size(),
+                "every drill must be reported");
         assertNotNull(runBody.get("evidenceExportId"), "a passed run carries an evidence pack");
         String runId = runBody.get("id").toString();
 
@@ -143,7 +146,7 @@ class CertificationApiIntegrationTest {
         assertNoSecrets(detail.body());
         Map<?, ?> detailBody = json.readValue(detail.body(), Map.class);
         assertEquals(true, detailBody.get("signedOff"));
-        assertEquals(6, ((List<?>) detailBody.get("drills")).size());
+        assertEquals(drillCatalogue.all().size(), ((List<?>) detailBody.get("drills")).size());
     }
 
     @Test

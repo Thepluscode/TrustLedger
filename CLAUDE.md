@@ -5,8 +5,28 @@ CLAUDE.md when you are inside `projects/fintech/TrustLedger_v2/`.
 
 ## What this is
 
-**TrustLedger** is a ledger-first secure money-transfer and fraud-monitoring platform — an
-engineering baseline, **not** a regulated bank, card issuer, or production payment processor.
+**TrustLedger** is a ledger-first **Payment Operations Control Plane**. It sits *above* PSPs,
+banks, and mobile-money providers and helps payment-ops / finance / risk teams **govern, route,
+observe, reconcile, investigate and prove** every movement of money across multiple providers.
+It is **not** a payment gateway, a regulated bank, a card issuer, or a production processor.
+
+**Commercial wedge (build this, defer the rest):** cross-provider **reconciliation, exception
+management, and operational evidence** for organisations already live on 2+ payment providers.
+Not connectors, not dashboards, not generic routing. See `docs/GOLDEN_WORKFLOW.md` for the one
+end-to-end path that matters more than breadth.
+
+### Feature decision rule
+Before adding anything, it must do at least one of: (1) help a user understand where money is,
+(2) prevent a financial/operational mistake, (3) improve safe execution or recovery,
+(4) reduce reconciliation work, (5) produce defensible evidence, (6) strengthen identity/policy/
+audit/evidence/observability. If not → defer. Explicitly **not now**: consumer wallets, lending,
+crypto, rewards/loyalty, generic AI assistants, social features.
+
+### Status labels (use these, not "done")
+`PLANNED` → `SCAFFOLDED` (structure, no behaviour) → `IMPLEMENTED` (code, no runtime proof) →
+`VERIFIED` (tests + observed evidence) → `PILOT-READY` → `PRODUCTION-READY`.
+Never label `VERIFIED` without pasted evidence. Never invent test results, benchmarks, security
+guarantees, or customer feedback.
 
 > **The brutal rule:** the ledger is the source of financial truth; balances are derived views.
 > Build and prove the **ledger + fraud engine** first. The UI is a viewer over a correct core —
@@ -42,6 +62,14 @@ transfer request → idempotency guard → fraud score → allow / MFA / hold / 
 5. Balances never go negative unless explicitly allowed. 6. Same transfer request can't be
 processed twice. 7. Every state transition is audited. Enforce these in **code and DB constraints**.
 
+Multi-provider additions (control-plane era): 8. A duplicate **webhook** must not duplicate a state
+transition. 9. Every external transaction stays traceable to its internal record (provider ref ↔
+transfer id). 10. An **ambiguous** provider response is never treated as a confirmed failure.
+11. Reconciliation differences stay visible until explicitly resolved. 12. Tenant financial data is
+strictly isolated — every query is scoped, no exceptions.
+
+Every invariant needs an automated test. No invariant is "obvious enough" to skip.
+
 ## Commands
 
 ```bash
@@ -71,12 +99,27 @@ entities must match) · Kafka/Redpanda (outbox) · Redis · OpenSearch · MinIO 
 - **No silent failures; structured audit on every sensitive action.**
 
 ## Status & build order
-See **`FEATURE_TRACKER.md`** for live VERIFIED-vs-PLANNED status (never mark VERIFIED without test
-output / observed behavior). Current state (v2.1): VERIFIED — persistence (JPA+Flyway V1–V5),
-JWT auth + tenant isolation, full transfer lifecycle incl. concurrent no-double-spend, hold/approve/
-reject, outbox→Redpanda, reconciliation worker, the REST surface (accounts/beneficiaries/ledger/
-fraud/audit/dashboard), Docker-compose core data plane, Next.js build, and CI — 56 backend tests.
-PLANNED next (v2.2–v2.4): external payment rails, behavioural fraud profiles, evidence/compliance packs.
+**`FEATURE_TRACKER.md` is the single source of truth for status** — read it before investigating
+anything, and update it every session. Do not restate feature status or test counts here; this file
+goes stale, the tracker doesn't. Never mark VERIFIED without pasted test output / observed behavior.
+
+## Doc map (the doctrine's named docs, under their real filenames)
+| Doctrine name | Actual file |
+|---|---|
+| Product vision | `docs/PRODUCT_BLUEPRINT.md` |
+| Golden workflow | `docs/GOLDEN_WORKFLOW.md` |
+| Financial invariants | `docs/LEDGER_ENGINE.md` (§Invariants) + the list above |
+| Threat model / security | `docs/SECURITY.md`, `docs/SECURITY_CHECKLIST.md`, `docs/WEBHOOK_SECURITY.md` |
+| Test strategy | `docs/TESTING.md` |
+| Pilot readiness | `pilot/PILOT_CHECKLIST.md`, `pilot/DUE_DILIGENCE.md` |
+| Architecture | `docs/ARCHITECTURE.md`, `docs/TRUSTLEDGER_V2_DESIGN.md` |
+
+## Required failure coverage
+A provider-touching feature is not done until these are tested: duplicate request, duplicate
+webhook, delayed webhook, out-of-order event, provider timeout, provider outage, **ambiguous**
+response, failure after provider acceptance but before local commit, DB rollback, event redelivery,
+settlement mismatch, wrong fee, partial settlement, unauthorised approval, revoked approver,
+cross-tenant access, concurrent payout updates.
 
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
