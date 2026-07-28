@@ -9,6 +9,7 @@ import com.trustledger.core.model.Direction;
 import com.trustledger.core.model.LedgerTransactionType;
 import com.trustledger.core.model.Money;
 import com.trustledger.core.transfer.TransferCommand;
+import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.security.ForbiddenException;
@@ -18,6 +19,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -31,6 +34,8 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class PersistentTransferService {
 
+    private static final Logger log = LoggerFactory.getLogger(PersistentTransferService.class);
+
     private final AccountRepository accounts;
     private final LedgerTransactionRepository ledgerTransactions;
     private final LedgerEntryRepository ledgerEntries;
@@ -43,6 +48,7 @@ public class PersistentTransferService {
     private final FraudSignalRepository fraudSignals;
     private final FraudEngine fraudEngine;
     private final FraudCaseLinkingService caseLinking;
+    private final TransferMetrics metrics;
     private final ObjectMapper json;
 
     public PersistentTransferService(AccountRepository accounts, LedgerTransactionRepository ledgerTransactions,
@@ -51,7 +57,7 @@ public class PersistentTransferService {
                                      TransferRepository transfers, FundReservationRepository reservations,
                                      FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
                                      FraudEngine fraudEngine,
-                                     FraudCaseLinkingService caseLinking, ObjectMapper json) {
+                                     FraudCaseLinkingService caseLinking, TransferMetrics metrics, ObjectMapper json) {
         this.accounts = accounts;
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
@@ -64,6 +70,7 @@ public class PersistentTransferService {
         this.fraudSignals = fraudSignals;
         this.fraudEngine = fraudEngine;
         this.caseLinking = caseLinking;
+        this.metrics = metrics;
         this.json = json;
     }
 
@@ -286,6 +293,12 @@ public class PersistentTransferService {
         t.setDeviceId(req.deviceId());
         transfers.save(t);
         audit(req.tenantId(), "SYSTEM", null, action, "TRANSFER", transferId, metadata);
+        // Observability (Rule 8): the decision is counted and logged at the point it is made, so it is
+        // visible in Prometheus (rates) and in the log stream (why), not just the DB audit trail.
+        metrics.recordCreated();
+        metrics.recordOutcome(status);
+        log.info("transfer_decision tenant={} transfer={} status={} action={} riskScore={} decision={}",
+            req.tenantId(), transferId, status, action, decision.riskScore(), decision.decision().name());
     }
 
     /**
@@ -304,6 +317,11 @@ public class PersistentTransferService {
                             String action, Map<String, Object> metadata) {
         t.setStatus(toStatus);
         audit(t.getTenantId(), actorType, actorId, action, "TRANSFER", t.getId(), metadata);
+        // Observability (Rule 8): a post-review resolution reaches an outcome the create-transfer HTTP path
+        // never sees — count and log it here so approve/reject rates and reasons are observable too.
+        metrics.recordOutcome(toStatus);
+        log.info("transfer_transition tenant={} transfer={} status={} action={} actorType={} actor={}",
+            t.getTenantId(), t.getId(), toStatus, action, actorType, metadata.get("actor"));
     }
 
     private AccountEntity lock(UUID id) {
