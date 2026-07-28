@@ -77,6 +77,11 @@ public class EvidenceService {
         transfers.findById(c.getTransactionId()).ifPresent(t -> bundle.put("transfer", Map.of(
             "amount", t.getAmount().toPlainString(), "currency", t.getCurrency(), "status", t.getStatus(),
             "riskScore", t.getRiskScore(), "fraudDecision", t.getFraudDecision())));
+        // The attributable audit trail of the underlying transfer. Invariant 7 guarantees every state
+        // transition (scored → held/MFA → approved/rejected → completed) is on this trail, so the pack
+        // carries the full chronological record of what happened to the money and who caused it — the
+        // "prove every action is attributable" artifact, not just the final decision.
+        bundle.put("auditTrail", auditTrail(tenantId, c.getTransactionId()));
 
         return persist(tenantId, "FRAUD_CASE", caseId, generatedBy, bundle);
     }
@@ -110,6 +115,7 @@ public class EvidenceService {
         bundle.put("totalDebits", debits.toPlainString());
         bundle.put("totalCredits", credits.toPlainString());
         bundle.put("balanced", debits.compareTo(credits) == 0);
+        bundle.put("auditTrail", auditTrail(tenantId, ledgerTxId)); // the posting's attributable trail
 
         return persist(tenantId, "LEDGER_TRANSACTION", ledgerTxId, generatedBy, bundle);
     }
@@ -172,6 +178,27 @@ public class EvidenceService {
             resourceType, resourceId, writeJsonString(Map.of("exportId", exportId.toString(), "checksum", checksum))));
         usage.record(tenantId, UsageMeteringService.EVIDENCE_EXPORTS, 1);
         return export;
+    }
+
+    /**
+     * The attributable audit trail for a resource, rendered oldest-first so the pack reads as a timeline.
+     * Each row is the action, who did it (actor type/id), when, and the decision metadata. Invariant 7
+     * guarantees a transfer's every state transition is present, making this the evidence of attributability.
+     */
+    private List<Map<String, Object>> auditTrail(UUID tenantId, UUID resourceId) {
+        List<AuditLogEntity> rows = auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(tenantId, resourceId);
+        List<Map<String, Object>> trail = new ArrayList<>();
+        for (int i = rows.size() - 1; i >= 0; i--) { // reverse newest-first → oldest-first timeline
+            AuditLogEntity a = rows.get(i);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("action", a.getAction());
+            row.put("actorType", a.getActorType());
+            row.put("actorId", a.getActorId() == null ? null : a.getActorId().toString());
+            row.put("at", a.getCreatedAt() == null ? null : a.getCreatedAt().toString());
+            row.put("metadata", parse(a.getMetadata()));
+            trail.add(row);
+        }
+        return trail;
     }
 
     private Object parse(String jsonStr) {
