@@ -108,7 +108,8 @@ public class PersistentTransferService {
             Map.of("riskScore", decision.riskScore(), "decision", decision.decision().name()));
 
         if (decision.rejects()) {
-            saveTransfer(req, transferId, "REJECTED", decision);
+            saveTransfer(req, transferId, "REJECTED", decision, "TRANSFER_REJECTED",
+                Map.of("reason", "fraud_controls", "riskScore", decision.riskScore()));
             return finish(idem, new PersistentTransferResponse(transferId, "REJECTED",
                 decision.riskScore(), decision.decision().name(), "Transfer rejected by fraud controls"));
         }
@@ -139,14 +140,13 @@ public class PersistentTransferService {
             // MFA and manual-review both reserve funds and pause; an MFA transfer resumes on inline
             // step-up verification, a held transfer on analyst approval. Reservation TTL: 15m / 24h.
             boolean stepUp = decision.requiresMfa();
-            saveTransfer(req, transferId, stepUp ? "MFA_REQUIRED" : "HELD_FOR_REVIEW", decision);
+            saveTransfer(req, transferId, stepUp ? "MFA_REQUIRED" : "HELD_FOR_REVIEW", decision,
+                stepUp ? "TRANSFER_MFA_REQUIRED" : "TRANSFER_HELD_FOR_REVIEW", Map.of("amount", amount.toString()));
             reservations.save(new FundReservationEntity(UUID.randomUUID(), req.tenantId(), transferId,
                 source.getId(), amount.amount(), req.currency(), "ACTIVE",
                 Instant.now().plus(stepUp ? 15 : 1440, ChronoUnit.MINUTES)));
 
             if (stepUp) {
-                audit(req.tenantId(), "SYSTEM", null, "TRANSFER_MFA_REQUIRED", "TRANSFER", transferId,
-                    Map.of("amount", amount.toString()));
                 return finish(idem, new PersistentTransferResponse(transferId, "MFA_REQUIRED",
                     decision.riskScore(), decision.decision().name(), "Step-up verification required"));
             }
@@ -163,8 +163,6 @@ public class PersistentTransferService {
                     s.signalType(), s.scoreDelta(), s.severity().name(), s.reason(), writeJson(s.evidence())));
             }
             caseLinking.linkNewCase(caseId); // link to other cases hitting the same recipient
-            audit(req.tenantId(), "SYSTEM", null, "TRANSFER_HELD_FOR_REVIEW", "TRANSFER", transferId,
-                Map.of("amount", amount.toString()));
             enqueue(req.tenantId(), "FRAUD_CASE", transferId, "FRAUD_CASE_CREATED",
                 Map.of("transactionId", transferId.toString()));
             return finish(idem, new PersistentTransferResponse(transferId, "HELD_FOR_REVIEW",
@@ -172,7 +170,7 @@ public class PersistentTransferService {
         }
 
         postBalancedTransfer(req.tenantId(), transferId, source, destination, amount, req.currency(), req.idempotencyKey());
-        saveTransfer(req, transferId, "COMPLETED", decision);
+        saveTransfer(req, transferId, "COMPLETED", decision, "TRANSFER_COMPLETED", Map.of());
         return finish(idem, new PersistentTransferResponse(transferId, "COMPLETED",
             decision.riskScore(), decision.decision().name(), "Transfer completed"));
     }
@@ -201,9 +199,8 @@ public class PersistentTransferService {
             transfer.getIdempotencyKey() + ":approval", /*alreadyMovedBalances*/ true);
 
         reservation.setStatus("CONSUMED");
-        transfer.setStatus("COMPLETED");
+        transition(transfer, "COMPLETED", "ADMIN", null, "FRAUD_TRANSFER_APPROVED", Map.of("actor", actor));
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("APPROVED"));
-        audit(tenantId, "ADMIN", null, "FRAUD_TRANSFER_APPROVED", "TRANSFER", transferId, Map.of("actor", actor));
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_COMPLETED_AFTER_REVIEW", Map.of());
         return new PersistentTransferResponse(transferId, "COMPLETED", transfer.getRiskScore(),
             transfer.getFraudDecision(), "Held transfer approved and posted");
@@ -222,9 +219,8 @@ public class PersistentTransferService {
         source.setAvailableBalance(money(source.getAvailableBalance(), source.getCurrency()).plus(amount).amount());
 
         reservation.setStatus("RELEASED");
-        transfer.setStatus("REJECTED");
+        transition(transfer, "REJECTED", "ADMIN", null, "FRAUD_TRANSFER_REJECTED", Map.of("actor", actor));
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
-        audit(tenantId, "ADMIN", null, "FRAUD_TRANSFER_REJECTED", "TRANSFER", transferId, Map.of("actor", actor));
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_REJECTED_AFTER_REVIEW", Map.of());
         return new PersistentTransferResponse(transferId, "REJECTED", transfer.getRiskScore(),
             transfer.getFraudDecision(), "Held transfer rejected and reservation released");
@@ -277,12 +273,37 @@ public class PersistentTransferService {
         return t;
     }
 
-    private void saveTransfer(PersistentTransferRequest req, UUID transferId, String status, FraudDecision decision) {
+    /**
+     * The single creation choke point for a transfer. Persisting a transfer means it enters {@code status}
+     * — a state transition — so the audit row is written here (invariant 7: every transition is audited).
+     * No creation path can persist a transfer at a status without leaving an audit trail.
+     */
+    private void saveTransfer(PersistentTransferRequest req, UUID transferId, String status, FraudDecision decision,
+                              String action, Map<String, Object> metadata) {
         TransferEntity t = new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
             req.destinationAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
             decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
         t.setDeviceId(req.deviceId());
         transfers.save(t);
+        audit(req.tenantId(), "SYSTEM", null, action, "TRANSFER", transferId, metadata);
+    }
+
+    /**
+     * The single mutation choke point for an existing transfer's status. Same invariant: a status change
+     * is a state transition, so it is audited here — routing every {@code setStatus} through this makes it
+     * impossible to move a transfer between states without an audit row.
+     *
+     * <p>ponytail: the richer {@link com.trustledger.core.transfer.TransactionStateMachine} models a
+     * lifecycle (CREATED→VALIDATED→…→POSTED→COMPLETED) that the persistent path deliberately collapses
+     * — its graph forbids the direct HELD→COMPLETED this path performs on approval — so it is NOT used as
+     * a guard here. Reconciling the two status vocabularies is a separate slice; wiring it in as-is would
+     * reject legitimate money movement. This choke point enforces the audit invariant, which is the one at
+     * stake for invariant 7.
+     */
+    private void transition(TransferEntity t, String toStatus, String actorType, UUID actorId,
+                            String action, Map<String, Object> metadata) {
+        t.setStatus(toStatus);
+        audit(t.getTenantId(), actorType, actorId, action, "TRANSFER", t.getId(), metadata);
     }
 
     private AccountEntity lock(UUID id) {
