@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.trustledger.security.ForbiddenException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -537,7 +538,7 @@ public class ExternalPaymentService {
 
     private AccountEntity lock(UUID id, UUID tenantId) {
         return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+            .orElseThrow(() -> new ForbiddenException("Account not found or not accessible"));
     }
 
     private AccountEntity lockUnscoped(UUID id) {

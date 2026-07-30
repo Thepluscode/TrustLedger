@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.trustledger.security.ForbiddenException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -322,7 +323,7 @@ public class PersistentTransferService {
 
     private AccountEntity lock(UUID id, UUID tenantId) {
         return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
-            .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+            .orElseThrow(() -> new ForbiddenException("Account not found or not accessible"));
     }
 
     private AccountEntity lockUnscoped(UUID id) {

@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  *   <li>Confirm the scoped lock with {@code tenantA} returns the row.
  * </ol>
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
 class ScopedLockCrossTenantIsolationTest {
 
@@ -43,6 +43,8 @@ class ScopedLockCrossTenantIsolationTest {
         r.add("spring.datasource.password", POSTGRES::getPassword);
         r.add("trustledger.outbox.publisher.enabled", () -> "false");
         r.add("trustledger.reconciliation.enabled", () -> "false");
+        r.add("trustledger.payment-rails.submission-worker.enabled", () -> "false");
+        r.add("trustledger.payment-rails.webhook-inbox.worker-enabled", () -> "false");
     }
 
     @Autowired AccountRepository accounts;
