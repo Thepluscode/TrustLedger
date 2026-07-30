@@ -11,7 +11,8 @@ headings.
 |---|---|---|
 | [001](ADR-001-modular-monolith.md) | Modular monolith with async workers; services extracted only on measured triggers | Accepted |
 | [002](ADR-002-ledger-authoritative-over-provider-records.md) | The internal ledger is authoritative; provider records are evidence | Accepted |
-| [003](ADR-003-provider-and-geography-neutral-core.md) | Core stays provider- and geography-neutral; regional/industry packs are earned, not pre-built | Accepted |
+| [003](ADR-003-provider-and-geography-neutral-core.md) | Core stays provider- and geography-neutral; regional/industry packs are earned, not pre-built | Accepted (amended 2026-07-29) |
+| [004](ADR-004-currency-minor-units-at-the-boundary.md) | Scale-4 internally, currency minor units at the provider boundary | Accepted |
 
 ## Not yet recorded
 

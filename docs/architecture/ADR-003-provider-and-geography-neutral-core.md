@@ -55,6 +55,38 @@ If several jurisdictions arrive at once, per-customer policy handling could spra
 generalises it. Watch for the third jurisdiction — that is when the abstraction becomes evidence-
 backed rather than speculative.
 
+## Amendment 2026-07-29 — owner direction: build for global markets
+
+The owner directed that every implementation be updated to catch global markets, after this ADR's
+original recommendation to defer. That decision stands and this ADR records it rather than re-arguing
+it.
+
+What the direction changed in practice, once the code was audited rather than assumed:
+
+- **Nothing in the schema or the domain needed changing.** `currency CHAR(3)` /
+  `country VARCHAR(2)` regex CHECKs, `Money`'s `java.util.Currency`, and the `PaymentRailAdapter`
+  port were already jurisdiction-neutral.
+- **What was missing was proof, and one real defect.** Multi-currency support was asserted by
+  constraints and exercised by no test; and `Money` accepted sub-minor-unit amounts for every
+  currency, so `Money.of("100.50","JPY")` was valid. See ADR-004 and `MultiCurrencyMoneyTest`.
+- **Presentation was single-locale.** `frontend/app/lib/format.ts` hardcoded `en-GB` (duplicated in
+  `risk-profiles/page.tsx`) and rendered timestamps without a year. Locale is now operator-derived;
+  currency still comes from the data, never inferred from locale.
+
+**Still deliberately not built, and why:** regional policy packs, industry packs, multi-region and
+i18n message catalogues. Not because global is wrong, but because each needs a real jurisdiction's
+requirements to be right, and building four imagined ones produces four rewrites. The reversal
+condition below is the trigger.
+
+Also deliberately not built: `CARD` and `WALLET` payout-instrument types. No adapter can execute
+either, so adding them to the enum and the DB CHECK would create dead values with no consumer.
+
+**Real global blocker found and not yet fixed:** `PayoutInstrumentService` requires `bankCode` for
+every `BANK_ACCOUNT`. An IBAN self-describes its bank and SEPA payouts frequently omit BIC, so a
+legitimate EU payout instrument is currently rejected. Tracked in `FEATURE_TRACKER.md` — it needs a
+jurisdiction rule, which is precisely the kind of thing to get from the first EU customer rather
+than from a guess about SEPA.
+
 ## Reversal conditions
 
 Build the policy-pack abstraction when **two paying customers** in different jurisdictions need

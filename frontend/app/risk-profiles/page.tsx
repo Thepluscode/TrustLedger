@@ -4,13 +4,8 @@ import { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { EmptyState, RiskBadge, SkeletonRows, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
-import { dateTime, shortId } from "../lib/format";
+import { dateTime, decimal, shortId } from "../lib/format";
 import type { BeneficiaryProfile, DeviceProfile, UserProfile } from "../lib/types";
-
-const num = (x: string | number) => {
-  const n = typeof x === "string" ? parseFloat(x) : x;
-  return Number.isNaN(n) ? String(x) : n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
 
 export default function RiskProfilesPage() {
   const [devices, setDevices] = useState<DeviceProfile[] | null>(null);
@@ -74,7 +69,7 @@ export default function RiskProfilesPage() {
                 <td className="mono">{shortId(b.beneficiaryAccountId)}</td>
                 <td className="num">{b.totalTransfers}</td>
                 <td className="num">{b.distinctSenders}</td>
-                <td className="num amount">{num(b.totalAmountReceived)}</td>
+                <td className="num amount">{decimal(b.totalAmountReceived)}</td>
                 <td><RiskBadge score={b.riskScore} /></td>
                 <td>
                   <div className="row" style={{ gap: 6 }}>
@@ -104,8 +99,8 @@ export default function RiskProfilesPage() {
             {users?.map((u) => (
               <tr key={u.userId}>
                 <td className="mono">{shortId(u.userId)}</td>
-                <td className="num amount">{num(u.medianTransferAmount)}</td>
-                <td className="num amount">{num(u.maxNormalTransferAmount)}</td>
+                <td className="num amount">{decimal(u.medianTransferAmount)}</td>
+                <td className="num amount">{decimal(u.maxNormalTransferAmount)}</td>
                 <td className="num">{u.transferCount}</td>
                 <td><span className="badge">{u.riskLevel?.toLowerCase() ?? "—"}</span></td>
               </tr>
