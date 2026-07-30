@@ -12,7 +12,6 @@ import com.trustledger.core.transfer.TransferCommand;
 import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
-import com.trustledger.security.ForbiddenException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -123,15 +122,12 @@ public class PersistentTransferService {
         boolean sourceFirst = req.sourceAccountId().compareTo(req.destinationAccountId()) < 0;
         UUID firstId = sourceFirst ? req.sourceAccountId() : req.destinationAccountId();
         UUID secondId = sourceFirst ? req.destinationAccountId() : req.sourceAccountId();
-        AccountEntity first = lock(firstId);
-        AccountEntity second = lock(secondId);
+        // Tenant predicate is in the lock query — prevents BOLA on user-supplied account ids while
+        // also serialising concurrent money-movement on both accounts atomically.
+        AccountEntity first = lock(firstId, req.tenantId());
+        AccountEntity second = lock(secondId, req.tenantId());
         AccountEntity source = sourceFirst ? first : second;
         AccountEntity destination = sourceFirst ? second : first;
-
-        // Authorization before any money touches: both accounts must belong to the caller's tenant.
-        // Without this, a caller can debit another tenant's account by supplying its id (BOLA).
-        requireOwnedBy(source, req.tenantId());
-        requireOwnedBy(destination, req.tenantId());
 
         requireActive(source);
         requireActive(destination);
@@ -191,8 +187,8 @@ public class PersistentTransferService {
         Money amount = money(transfer.getAmount(), transfer.getCurrency());
 
         boolean sourceFirst = transfer.getSourceAccountId().compareTo(transfer.getDestinationAccountId()) < 0;
-        AccountEntity first = lock(sourceFirst ? transfer.getSourceAccountId() : transfer.getDestinationAccountId());
-        AccountEntity second = lock(sourceFirst ? transfer.getDestinationAccountId() : transfer.getSourceAccountId());
+        AccountEntity first = lock(sourceFirst ? transfer.getSourceAccountId() : transfer.getDestinationAccountId(), tenantId);
+        AccountEntity second = lock(sourceFirst ? transfer.getDestinationAccountId() : transfer.getSourceAccountId(), tenantId);
         AccountEntity source = sourceFirst ? first : second;
         AccountEntity destination = sourceFirst ? second : first;
 
@@ -221,7 +217,7 @@ public class PersistentTransferService {
             .orElseThrow(() -> new IllegalStateException("No active reservation for transfer " + transferId));
         Money amount = money(transfer.getAmount(), transfer.getCurrency());
 
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), tenantId);
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
         source.setAvailableBalance(money(source.getAvailableBalance(), source.getCurrency()).plus(amount).amount());
 
@@ -324,14 +320,14 @@ public class PersistentTransferService {
             t.getTenantId(), t.getId(), toStatus, action, actorType, metadata.get("actor"));
     }
 
-    private AccountEntity lock(UUID id) {
-        return accounts.findByIdForUpdate(id).orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+    private AccountEntity lock(UUID id, UUID tenantId) {
+        return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
+            .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
     }
 
-    private static void requireOwnedBy(AccountEntity account, UUID tenantId) {
-        if (!account.getTenantId().equals(tenantId)) {
-            throw new ForbiddenException("Account does not belong to the caller's tenant");
-        }
+    private AccountEntity lockUnscoped(UUID id) {
+        return accounts.findByIdForUpdateUnscoped(id)
+            .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
     }
 
     private PersistentTransferResponse finish(IdempotencyKeyEntity idem, PersistentTransferResponse response) {

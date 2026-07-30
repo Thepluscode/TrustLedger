@@ -35,9 +35,20 @@ public interface ProviderCredentialVersionRepository
         + "where v.tenantProviderConfigId = :configId and v.purpose = :purpose")
     int maxVersion(@Param("configId") UUID configId, @Param("purpose") String purpose);
 
+    /**
+     * Tenant+config scoped row lock — mirrors {@link #findByIdAndTenantIdAndTenantProviderConfigId}
+     * but with a write lock for the credential rotation critical section.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from ProviderCredentialVersionEntity v where v.id = :id "
+        + "and v.tenantId = :tenantId and v.tenantProviderConfigId = :configId")
+    Optional<ProviderCredentialVersionEntity> findByIdAndTenantIdAndTenantProviderConfigIdForUpdate(
+        @Param("id") UUID id, @Param("tenantId") UUID tenantId, @Param("configId") UUID configId);
+
+    /** Unscoped row lock — for internal paths where the id is derived from tenant-scoped data. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from ProviderCredentialVersionEntity v where v.id = :id")
-    Optional<ProviderCredentialVersionEntity> findByIdForUpdate(@Param("id") UUID id);
+    Optional<ProviderCredentialVersionEntity> findByIdForUpdateUnscoped(@Param("id") UUID id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from ProviderCredentialVersionEntity v where v.tenantProviderConfigId = :configId "

@@ -46,7 +46,7 @@ class PaystackOtpServiceTest {
 
         ExternalPaymentAttemptRepository attempts = mock(ExternalPaymentAttemptRepository.class);
         when(attempts.findByTransactionId(transaction)).thenReturn(Optional.of(attempt));
-        when(attempts.findByIdForUpdate(attemptId)).thenReturn(Optional.of(attempt));
+        when(attempts.findByIdAndTenantIdForUpdate(attemptId, tenant)).thenReturn(Optional.of(attempt));
         TenantProviderConfigEntity config = new TenantProviderConfigEntity(configId, tenant,
             PaystackPaymentRailAdapter.RAIL, "SANDBOX", true, "APPROVED", null, null,
             "env://PAYSTACK_TEST_KEY", "env://PAYSTACK_WEBHOOK_KEY", "NGN", "NG",

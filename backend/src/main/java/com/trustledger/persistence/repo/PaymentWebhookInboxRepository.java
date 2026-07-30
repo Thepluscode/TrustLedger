@@ -17,9 +17,16 @@ public interface PaymentWebhookInboxRepository extends JpaRepository<PaymentWebh
     Optional<PaymentWebhookInboxEntity> findByProviderAndPayloadHashAndSignatureHash(
         String provider, String payloadHash, String signatureHash);
 
+    /** Tenant-scoped row lock — use when tenantId is in scope (e.g., operator-triggered replays). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from PaymentWebhookInboxEntity i where i.id = :id and i.tenantId = :tenantId")
+    Optional<PaymentWebhookInboxEntity> findByIdAndTenantIdForUpdate(
+        @Param("id") UUID id, @Param("tenantId") UUID tenantId);
+
+    /** Unscoped row lock — for worker-internal paths where the id is derived from tenant-scoped data. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from PaymentWebhookInboxEntity i where i.id = :id")
-    Optional<PaymentWebhookInboxEntity> findByIdForUpdate(@Param("id") UUID id);
+    Optional<PaymentWebhookInboxEntity> findByIdForUpdateUnscoped(@Param("id") UUID id);
 
     @Query(value = """
         SELECT * FROM payment_webhook_inbox
