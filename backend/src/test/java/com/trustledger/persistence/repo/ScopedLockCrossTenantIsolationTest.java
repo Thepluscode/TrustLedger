@@ -51,6 +51,7 @@ class ScopedLockCrossTenantIsolationTest {
     @Autowired ExternalPaymentAttemptRepository attempts;
     @Autowired ReconciliationIssueRepository issues;
     @Autowired ProviderCredentialVersionRepository credentialVersions;
+    @Autowired TenantProviderConfigRepository configs;
     @Autowired PaymentWebhookInboxRepository inbox;
     @Autowired TransactionTemplate tx;
 
@@ -82,10 +83,15 @@ class ScopedLockCrossTenantIsolationTest {
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
 
+        UUID configId = UUID.randomUUID();
+        tx.execute(s -> configs.save(new TenantProviderConfigEntity(
+            configId, tenantA, "PAYSTACK", "PRODUCTION", true,
+            "APPROVED", null, null, null, null, null, null, null, null)));
+
         ExternalPaymentAttemptEntity saved = tx.execute(s ->
             attempts.save(new ExternalPaymentAttemptEntity(
                 UUID.randomUUID(), tenantA, UUID.randomUUID(), "PAYSTACK",
-                UUID.randomUUID(), "PRODUCTION",
+                configId, "PRODUCTION",
                 UUID.randomUUID(), UUID.randomUUID(),
                 "REF-" + UUID.randomUUID(), "READY_TO_SUBMIT",
                 new BigDecimal("1000.0000"), "NGN", "{}", null)));
@@ -136,9 +142,13 @@ class ScopedLockCrossTenantIsolationTest {
         UUID configB = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
 
+        tx.execute(s -> configs.save(new TenantProviderConfigEntity(
+            configA, tenantA, "PAYSTACK", "PRODUCTION", true,
+            "APPROVED", null, null, null, null, null, null, null, null)));
+
         ProviderCredentialVersionEntity saved = tx.execute(s ->
             credentialVersions.save(new ProviderCredentialVersionEntity(
-                UUID.randomUUID(), tenantA, configA, "LIVE", 1, "ref:123", "ACTIVE", actor)));
+                UUID.randomUUID(), tenantA, configA, "API", 1, "ref:123", "ACTIVE", actor)));
 
         tx.execute(s -> {
             // Wrong tenant, wrong config
