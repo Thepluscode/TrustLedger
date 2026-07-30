@@ -130,6 +130,10 @@ public class ExternalPaymentReversalService {
         }
 
         lockedAttempt.setStatus(ExternalPaymentStatus.REVERSED);
+        // Stamped in the same transaction as the ledger entries above: a LOST marker and its
+        // CHARGEBACK post commit together or not at all, so the two can never disagree.
+        lockedAttempt.setDisputeStatus(PaymentDisputeService.LOST);
+        lockedAttempt.setDisputeResolvedAt(Instant.now());
         attempts.save(lockedAttempt);
         transfer.setStatus(ExternalPaymentStatus.REVERSED);
         auditChargeback(lockedAttempt, transfer);

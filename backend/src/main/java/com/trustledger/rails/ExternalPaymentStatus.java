@@ -16,9 +16,19 @@ public final class ExternalPaymentStatus {
     public static final String CANCELLED = "CANCELLED";
     public static final String RETURNED = "RETURNED";
     public static final String REVERSED = "REVERSED";
-    // A dispute/chargeback opened against a settled payment. Used as a normalized
-    // webhook EVENT TYPE (the provider clawed the funds back); the compensating
-    // ledger post is a CHARGEBACK transaction and the attempt lands in REVERSED.
+    // Dispute lifecycle — normalized webhook EVENT TYPES, never persisted attempt statuses.
+    // Only CHARGEBACK moves money. Opening a dispute is not a clawback: providers debit the
+    // merchant when a dispute is LOST, so booking the reversal earlier would put the ledger
+    // ahead of the provider with no way back if the merchant wins.
+    /** A dispute was opened. Records a marker, moves no money, leaves the attempt SETTLED. */
+    public static final String DISPUTE_OPENED = "DISPUTE_OPENED";
+    /** The dispute resolved against the merchant — the funds are gone. Posts the CHARGEBACK
+     *  ledger transaction; the attempt lands in REVERSED and the marker in LOST. */
     public static final String CHARGEBACK = "CHARGEBACK";
+    /** The dispute resolved in the merchant's favour. Clears the marker, moves no money. */
+    public static final String DISPUTE_WON = "DISPUTE_WON";
+    /** A resolution we do not recognise. Marker goes to REVIEW for a human; no money moves.
+     *  Fail-closed by design — an unrecognised provider outcome is not an outcome. */
+    public static final String DISPUTE_REVIEW = "DISPUTE_REVIEW";
     public static final String PENDING_UNKNOWN = "PENDING_UNKNOWN";
 }

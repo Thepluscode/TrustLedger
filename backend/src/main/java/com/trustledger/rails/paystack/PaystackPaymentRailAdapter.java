@@ -167,7 +167,13 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
                 case "transfer.success" -> ExternalPaymentStatus.SETTLED;
                 case "transfer.failed" -> ExternalPaymentStatus.FAILED;
                 case "transfer.reversed" -> ExternalPaymentStatus.REVERSED;
-                case "charge.dispute.create", "charge.dispute.reminder" -> ExternalPaymentStatus.CHARGEBACK;
+                // Opening a dispute is not a clawback — Paystack debits the merchant on resolution.
+                case "charge.dispute.create" -> ExternalPaymentStatus.DISPUTE_OPENED;
+                // A reminder about a still-open dispute carries no new state. Recorded by the
+                // webhook inbox, dispatched nowhere. Both spellings accepted so a docs discrepancy
+                // cannot turn this into a silently dead branch.
+                case "charge.dispute.remind", "charge.dispute.reminder" -> "IGNORED";
+                case "charge.dispute.resolve" -> disputeOutcome(data);
                 default -> "IGNORED";
             };
             return new ProviderWebhookEvent(eventId(event, data, rawBody), reference, canonical,
@@ -291,6 +297,25 @@ public class PaystackPaymentRailAdapter implements PaymentRailAdapter {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * Maps a resolved dispute to an outcome. Paystack reports the outcome in {@code data.resolution};
+     * the merchant accepting the dispute means the funds are clawed back, a declined dispute means
+     * the merchant kept them.
+     *
+     * Anything else — including a missing resolution, or a vocabulary Paystack adds later — returns
+     * DISPUTE_REVIEW. Guessing here would either book a clawback that never happened or drop one that
+     * did; both are silent ledger divergence, and neither is worth the convenience of a default.
+     */
+    static String disputeOutcome(Map<String, Object> data) {
+        String resolution = data == null ? null : text(data.get("resolution"));
+        if (resolution == null) return ExternalPaymentStatus.DISPUTE_REVIEW;
+        return switch (resolution.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "merchant-accepted" -> ExternalPaymentStatus.CHARGEBACK;
+            case "declined" -> ExternalPaymentStatus.DISPUTE_WON;
+            default -> ExternalPaymentStatus.DISPUTE_REVIEW;
+        };
+    }
+
     private static Map<String, Object> map(Object value) {
         return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
     }

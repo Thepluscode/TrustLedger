@@ -34,23 +34,61 @@ class PaystackPaymentRailAdapterTest {
     }
 
     @Test
-    void parsesPaystackDisputeAsChargebackWithTransactionReference() {
+    void anOpenedDisputeIsAMarkerNotAClawback() {
         PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
         // A dispute carries the disputed txn under data.transaction.reference, not data.reference.
         String dispute = "{\"event\":\"charge.dispute.create\",\"data\":{"
             + "\"status\":\"pending\",\"transaction\":{\"reference\":\"paystack_chargeback_1234\"}}}";
         PaymentRailAdapter.ProviderWebhookEvent event = adapter.parseWebhook(dispute);
         assertNotNull(event, "dispute must not be dropped as a blank/null event");
-        assertEquals(ExternalPaymentStatus.CHARGEBACK, event.eventType());
+        // Not CHARGEBACK: the provider debits the merchant on resolution, not on creation. Booking the
+        // reversal here would put the ledger ahead of the provider, with REVERSED terminal and no way
+        // back if the merchant wins.
+        assertEquals(ExternalPaymentStatus.DISPUTE_OPENED, event.eventType());
         assertEquals("paystack_chargeback_1234", event.providerReference());
     }
 
     @Test
-    void disputeReminderAlsoMapsToChargeback() {
+    void aDisputeReminderCarriesNoNewStateAndIsIgnored() {
         PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
-        String reminder = "{\"event\":\"charge.dispute.reminder\",\"data\":{"
-            + "\"transaction\":{\"reference\":\"paystack_chargeback_9\"}}}";
-        assertEquals(ExternalPaymentStatus.CHARGEBACK, adapter.parseWebhook(reminder).eventType());
+        // Both spellings: a docs discrepancy must not turn this into a silently dead branch that
+        // falls through to a money-moving default.
+        for (String event : new String[] {"charge.dispute.remind", "charge.dispute.reminder"}) {
+            String reminder = "{\"event\":\"" + event + "\",\"data\":{"
+                + "\"transaction\":{\"reference\":\"paystack_chargeback_9\"}}}";
+            assertEquals("IGNORED", adapter.parseWebhook(reminder).eventType(), event);
+        }
+    }
+
+    @Test
+    void aResolutionAgainstTheMerchantIsTheOnlyOutcomeThatMovesMoney() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        assertEquals(ExternalPaymentStatus.CHARGEBACK, adapter.parseWebhook(resolve("merchant-accepted")).eventType());
+        assertEquals(ExternalPaymentStatus.DISPUTE_WON, adapter.parseWebhook(resolve("declined")).eventType());
+    }
+
+    @Test
+    void anUnrecognisedResolutionParksForReviewRatherThanGuessing() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        // A vocabulary Paystack adds later, or a missing field, must never be inferred into an
+        // outcome — guessing either books a clawback that never happened or drops one that did.
+        assertEquals(ExternalPaymentStatus.DISPUTE_REVIEW, adapter.parseWebhook(resolve("partially-accepted")).eventType());
+        assertEquals(ExternalPaymentStatus.DISPUTE_REVIEW, adapter.parseWebhook(
+            "{\"event\":\"charge.dispute.resolve\",\"data\":{"
+                + "\"transaction\":{\"reference\":\"paystack_chargeback_7\"}}}").eventType());
+    }
+
+    @Test
+    void resolutionMatchingIsCaseAndWhitespaceInsensitive() {
+        PaystackPaymentRailAdapter adapter = fixture(new RecordingClient(null)).adapter();
+        assertEquals(ExternalPaymentStatus.CHARGEBACK, adapter.parseWebhook(resolve(" Merchant-Accepted ")).eventType());
+        assertEquals(ExternalPaymentStatus.DISPUTE_WON, adapter.parseWebhook(resolve("DECLINED")).eventType());
+    }
+
+    private static String resolve(String resolution) {
+        return "{\"event\":\"charge.dispute.resolve\",\"data\":{"
+            + "\"resolution\":\"" + resolution + "\","
+            + "\"transaction\":{\"reference\":\"paystack_chargeback_7\"}}}";
     }
 
     @Test

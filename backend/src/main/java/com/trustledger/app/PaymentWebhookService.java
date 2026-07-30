@@ -114,7 +114,13 @@ public class PaymentWebhookService {
             case ExternalPaymentStatus.SETTLED -> transitions.settle(attempt.getId());
             case ExternalPaymentStatus.FAILED -> transitions.release(attempt.getId(), ExternalPaymentStatus.FAILED);
             case ExternalPaymentStatus.REVERSED -> transitions.reverse(attempt.getId());
+            // Dispute lifecycle. Only CHARGEBACK moves money — the other three are markers, so a
+            // dispute that is opened, reminded about, or won never touches a balance.
+            case ExternalPaymentStatus.DISPUTE_OPENED -> transitions.disputeOpened(attempt.getId());
             case ExternalPaymentStatus.CHARGEBACK -> transitions.chargeback(attempt.getId());
+            case ExternalPaymentStatus.DISPUTE_WON -> transitions.disputeWon(attempt.getId(), normalized.eventId());
+            case ExternalPaymentStatus.DISPUTE_REVIEW ->
+                transitions.disputeNeedsReview(attempt.getId(), normalized.eventId());
             case "IGNORED" -> {
                 event.setProcessed(true);
                 webhookEvents.save(event);
