@@ -33,6 +33,40 @@ public final class Money implements Comparable<Money> {
     public boolean isPositive() { return amount.signum() > 0; }
     public boolean isZero() { return amount.signum() == 0; }
 
+    /**
+     * ISO-4217 minor-unit scale for this currency — JPY/KRW 0, most currencies 2, KWD/BHD/JOD 3.
+     * Internal arithmetic stays at scale 4 (fees, FX, rates need the headroom); this is the scale
+     * that matters the moment an amount leaves for a provider or a customer's screen.
+     * Pseudo-currencies (XAU, XDR) report -1 from the JDK and are treated as 2.
+     */
+    public int minorUnitScale() {
+        int digits = currency.getDefaultFractionDigits();
+        return digits < 0 ? 2 : digits;
+    }
+
+    /** True when this amount is expressible in the currency's smallest real unit. */
+    public boolean isPayable() {
+        return amount.stripTrailingZeros().scale() <= minorUnitScale();
+    }
+
+    /** Rounds to the currency's minor unit. Use at a provider boundary, never mid-calculation. */
+    public Money roundedToMinorUnit() {
+        return new Money(amount.setScale(minorUnitScale(), RoundingMode.HALF_EVEN), currency);
+    }
+
+    /**
+     * Integer minor units, the form every global PSP submits in — ¥100 → 100, £1.05 → 105.
+     * Throws rather than silently rounding: a payment instruction that needs rounding is a
+     * calculation bug upstream, and a provider that rounds it for us is a reconciliation break.
+     */
+    public long toMinorUnits() {
+        if (!isPayable()) {
+            throw new IllegalArgumentException("Amount " + this + " has more precision than "
+                + currencyCode() + " permits (" + minorUnitScale() + " dp); round explicitly before submission");
+        }
+        return amount.movePointRight(minorUnitScale()).longValueExact();
+    }
+
     public void assertSameCurrency(Money other) {
         if (!currency.equals(other.currency)) {
             throw new IllegalArgumentException("Currency mismatch: " + currency + " vs " + other.currency);

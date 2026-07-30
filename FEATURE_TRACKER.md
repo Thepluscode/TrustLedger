@@ -508,3 +508,61 @@ table, never previously written to) served per case; #75 same coverage on the ex
 
 **Deferred / follow-ups (honest):** fraud-workspace UI over `/fraud/signals/summary`; org-unit *scoping* of
 permissions (tables modelled, enforcement still role-only); wiring the provider router into live payouts.
+
+## Measurement gap (2026-07-29) — the honest hole
+
+Two externally-supplied architecture documents (2026-07-28/29) asked for a quality-attributes table:
+availability, p95 latencies, throughput, RTO/RPO, scale targets. Checking the repo:
+
+- **No benchmark, load test, JMH harness or k6 script exists anywhere.**
+- Therefore **not one** of those numbers has ever been measured on this system.
+
+Status: **PLANNED**. Nothing here may be written as a target-that-reads-like-a-result — Rule 3, "it
+should be fast enough" is not evidence. The table gets created when the first row can be filled from
+a real run.
+
+| Attribute | Target | Measured | How |
+|---|---|---|---|
+| Core API availability | — | **never measured** | synthetic monitoring (not set up) |
+| Transfer creation p95 | — | **never measured** | load test (not written) |
+| Throughput (TPS) | — | **never measured** | load test (not written) |
+| RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
+| Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
+| Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
+
+The last two rows are the only ones with evidence, and they are correctness properties rather than
+performance ones. Smallest honest next step: one load test that fills a single row.
+
+## Architecture decision records (2026-07-29)
+
+`docs/architecture/` created — previously the repo had **no ADR of any kind**, so every architectural
+decision was undocumented opinion. ADR-001 (modular monolith + extraction triggers), ADR-002 (ledger
+authoritative, provider records are evidence), ADR-003 (provider/geography-neutral core; regional and
+industry packs are earned, not pre-built — recorded after a `grep` confirmed zero Africa/Nigeria
+coupling in `backend/src/main/java`). Four further decisions are listed as not-yet-recorded in
+`docs/architecture/README.md`.
+
+## Global-market readiness (2026-07-29)
+
+Owner direction: every implementation updated to catch global markets. Audit result — the backend was
+already jurisdiction-neutral (`currency CHAR(3)` / `country VARCHAR(2)` regex CHECKs, `Money` over
+`java.util.Currency`, domain behind `PaymentRailAdapter`, zero `NGN` outside cert fixtures and the
+Paystack adapter). What was missing was proof, plus two real defects.
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Multi-currency ledger proof — 10 currencies, 3 minor-unit families | **VERIFIED** | `MultiCurrencyMoneyTest` (30 tests); `Tests run: 45, Failures: 0` with Money/Ledger suites |
+| `Money` minor-unit awareness (`minorUnitScale`/`isPayable`/`roundedToMinorUnit`/`toMinorUnits`) | **VERIFIED** | same suite — ¥100→100, £1.05→105, KWD 3dp; sub-minor-unit amounts throw |
+| Cross-currency transfer refused (FX must be an explicit posting) | **VERIFIED** | `aTransferAcrossMismatchedCurrencyAccountsIsRefused` |
+| Operator-derived locale; currency always from data | **IMPLEMENTED** | `frontend/app/lib/format.ts`; `npm run build` passes. No UI test asserts locale switching yet. |
+| Timestamps render the year | **IMPLEMENTED** | `dateTime()` — previously "02 Aug, 14:33" could not distinguish 2025 from 2026 |
+| ADR-003 amended + ADR-004 written | **VERIFIED** | `docs/architecture/` |
+
+**Open follow-ups (honest):**
+- `toMinorUnits()` is **not yet enforced at the rail-submission boundary** — adapters can still send a
+  scale-4 `BigDecimal`. The correct call exists; the call site is unchanged.
+- **SEPA blocker:** `PayoutInstrumentService` requires `bankCode` for every `BANK_ACCOUNT`. An IBAN
+  self-describes its bank and SEPA payouts often omit BIC, so a legitimate EU instrument is rejected
+  today. Needs a jurisdiction rule — take it from the first EU customer, not from a guess.
+- **Not built, deliberately:** regional policy packs, industry packs, multi-region, i18n catalogues,
+  and `CARD`/`WALLET` instrument types (no adapter can execute either — dead enum values).

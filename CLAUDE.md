@@ -113,6 +113,7 @@ goes stale, the tracker doesn't. Never mark VERIFIED without pasted test output 
 | Test strategy | `docs/TESTING.md` |
 | Pilot readiness | `pilot/PILOT_CHECKLIST.md`, `pilot/DUE_DILIGENCE.md` |
 | Architecture | `docs/ARCHITECTURE.md`, `docs/TRUSTLEDGER_V2_DESIGN.md` |
+| Architecture decisions | `docs/architecture/` (ADRs — every one carries a reversal condition) |
 
 ## Required failure coverage
 A provider-touching feature is not done until these are tested: duplicate request, duplicate
