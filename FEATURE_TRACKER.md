@@ -9,8 +9,8 @@ Last updated: 2026-07-31
 
 | Feature | Status | Evidence |
 |---------|--------|----------|
-| `audit_logs` append-only (UPDATE/DELETE rejected at the DB) | **IN PROGRESS** | `V37__audit_log_immutability.sql`; `AuditLogImmutabilityIntegrationTest` passes against real Postgres, and was verified to FAIL when V37 is not applied. On `feat/audit-log-immutability`, not merged or deployed. |
-| ADR-005 recorded | **IN PROGRESS** | `docs/architecture/ADR-005-audit-log-immutability.md` |
+| `audit_logs` append-only (UPDATE/DELETE rejected at the DB) | **VERIFIED (CI)** | `V37__audit_log_immutability.sql`. `AuditLogImmutabilityIntegrationTest` green against real Postgres in CI on the merge commit `d1ce2c1` (all 7 checks pass), and verified to FAIL when V37 is not applied — an unprotected UPDATE succeeds. Merged via #105. **Not yet observed in a deployed environment** — that is the remaining step before this is VERIFIED in the production sense. |
+| ADR-005 recorded | **DEPLOYED** | `docs/architecture/ADR-005-audit-log-immutability.md`, on `main` |
 
 **Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
 still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
