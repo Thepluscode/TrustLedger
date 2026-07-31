@@ -37,6 +37,12 @@ public class ExternalPaymentAttemptEntity {
     @Column(name = "submitted_at") private Instant submittedAt;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "settled_at") private Instant settledAt;
+    /** Dispute lifecycle marker — OPEN / LOST / WON / REVIEW. Null when never disputed. Money moves
+     *  only on LOST, and that stamp happens in the same transaction as the CHARGEBACK ledger post. */
+    @Column(name = "dispute_status", length = 16) private String disputeStatus;
+    @Column(name = "dispute_resolution", length = 64) private String disputeResolution;
+    @Column(name = "dispute_opened_at") private Instant disputeOpenedAt;
+    @Column(name = "dispute_resolved_at") private Instant disputeResolvedAt;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -98,4 +104,12 @@ public class ExternalPaymentAttemptEntity {
     public void setSettledAt(Instant settledAt) { this.settledAt = settledAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public String getDisputeStatus() { return disputeStatus; }
+    public void setDisputeStatus(String disputeStatus) { this.disputeStatus = disputeStatus; }
+    public String getDisputeResolution() { return disputeResolution; }
+    public void setDisputeResolution(String disputeResolution) { this.disputeResolution = disputeResolution; }
+    public Instant getDisputeOpenedAt() { return disputeOpenedAt; }
+    public void setDisputeOpenedAt(Instant disputeOpenedAt) { this.disputeOpenedAt = disputeOpenedAt; }
+    public Instant getDisputeResolvedAt() { return disputeResolvedAt; }
+    public void setDisputeResolvedAt(Instant disputeResolvedAt) { this.disputeResolvedAt = disputeResolvedAt; }
 }
