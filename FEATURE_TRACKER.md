@@ -3,7 +3,26 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-07-21
+Last updated: 2026-07-31
+
+## v3.2 — audit evidence integrity
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| `audit_logs` append-only (UPDATE/DELETE rejected at the DB) | **IN PROGRESS** | `V37__audit_log_immutability.sql`; `AuditLogImmutabilityIntegrationTest` passes against real Postgres, and was verified to FAIL when V37 is not applied. On `feat/audit-log-immutability`, not merged or deployed. |
+| ADR-005 recorded | **IN PROGRESS** | `docs/architecture/ADR-005-audit-log-immutability.md` |
+
+**Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
+still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
+needs a hash chain — deferred, with the trigger to revisit written into ADR-005.
+
+**Still missing from the audit trail** (required by the playbook pattern, all absent): result,
+before/after references, correlation ID, policy decision. Each needs an `AuditLogEntity` constructor
+change across 30 call sites, so it is separate work. The correlation ID is the one that will hurt
+first — the trail cannot currently be joined to a request trace during an incident.
+
+**Merge order:** resolved — PR #61 (V36) merged first, this branch rebased on top, so V36 → V37 is
+in order.
 
 ## v1.0 — ledger-first domain spine
 
