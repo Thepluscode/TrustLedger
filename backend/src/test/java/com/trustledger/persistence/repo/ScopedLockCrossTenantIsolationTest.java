@@ -92,7 +92,7 @@ class ScopedLockCrossTenantIsolationTest {
             attempts.save(new ExternalPaymentAttemptEntity(
                 UUID.randomUUID(), tenantA, UUID.randomUUID(), "PAYSTACK",
                 configId, "PRODUCTION",
-                UUID.randomUUID(), UUID.randomUUID(),
+                null, null,
                 "REF-" + UUID.randomUUID(), "READY_TO_SUBMIT",
                 new BigDecimal("1000.0000"), "NGN", "{}", null)));
 
