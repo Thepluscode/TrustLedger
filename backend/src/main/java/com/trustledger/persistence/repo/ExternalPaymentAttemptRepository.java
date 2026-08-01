@@ -20,9 +20,16 @@ public interface ExternalPaymentAttemptRepository extends JpaRepository<External
     List<ExternalPaymentAttemptEntity> findByStatus(String status);
     List<ExternalPaymentAttemptEntity> findByTenantIdAndProviderAndStatus(UUID tenantId, String provider, String status);
 
+    /** Tenant-scoped row lock — use when tenantId is in scope (inbound user/webhook requests). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from ExternalPaymentAttemptEntity a where a.id = :id and a.tenantId = :tenantId")
+    Optional<ExternalPaymentAttemptEntity> findByIdAndTenantIdForUpdate(
+        @Param("id") UUID id, @Param("tenantId") UUID tenantId);
+
+    /** Unscoped row lock — for worker-internal paths where the id is derived from tenant-scoped data. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ExternalPaymentAttemptEntity a where a.id = :id")
-    Optional<ExternalPaymentAttemptEntity> findByIdForUpdate(@Param("id") UUID id);
+    Optional<ExternalPaymentAttemptEntity> findByIdForUpdateUnscoped(@Param("id") UUID id);
 
     List<ExternalPaymentAttemptEntity> findTop100ByStatusOrderByCreatedAtAsc(String status);
 

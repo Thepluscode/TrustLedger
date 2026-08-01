@@ -16,10 +16,19 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
     boolean existsByTypeAndEntityId(String type, UUID entityId);
     boolean existsByTypeAndEntityIdAndStatus(String type, UUID entityId, String status);
 
-    /** Row-level write lock so a resolution's OPEN→RESOLVED check-then-act is atomic under concurrency. */
+    /**
+     * Tenant-scoped row-level write lock — ensures a resolution's OPEN→RESOLVED transition is atomic
+     * under concurrency AND that the caller cannot touch another tenant's issue by guessing its id.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from ReconciliationIssueEntity i where i.id = :id and i.tenantId = :tenantId")
+    Optional<ReconciliationIssueEntity> findByIdAndTenantIdForUpdate(
+        @Param("id") UUID id, @Param("tenantId") UUID tenantId);
+
+    /** Unscoped row lock — for internal paths where the id is derived from tenant-scoped data. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from ReconciliationIssueEntity i where i.id = :id")
-    Optional<ReconciliationIssueEntity> findByIdForUpdate(@Param("id") UUID id);
+    Optional<ReconciliationIssueEntity> findByIdForUpdateUnscoped(@Param("id") UUID id);
     long countByStatus(String status);
     long countByTenantId(UUID tenantId);
     long countByTenantIdAndStatus(UUID tenantId, String status);

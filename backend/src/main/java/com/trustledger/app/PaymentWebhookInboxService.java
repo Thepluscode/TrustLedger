@@ -108,9 +108,8 @@ public class PaymentWebhookInboxService {
 
     @Transactional
     public InboxView replay(UUID tenantId, UUID actorId, UUID inboxId) {
-        PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdate(inboxId)
+        PaymentWebhookInboxEntity delivery = inbox.findByIdAndTenantIdForUpdate(inboxId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Webhook inbox delivery not found"));
-        if (!tenantId.equals(delivery.getTenantId())) throw new IllegalArgumentException("Tenant mismatch");
         delivery.replay(Instant.now());
         inbox.save(delivery);
         auditReplay(tenantId, actorId, delivery);

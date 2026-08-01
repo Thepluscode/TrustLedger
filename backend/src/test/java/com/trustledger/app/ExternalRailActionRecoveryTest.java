@@ -45,7 +45,7 @@ class ExternalRailActionRecoveryTest {
         when(attempt.getCurrency()).thenReturn("NGN");
         when(attempt.getRequestPayload()).thenReturn("{\"scenario\":\"success\"}");
         ExternalPaymentAttemptRepository attempts = mock(ExternalPaymentAttemptRepository.class);
-        when(attempts.findByIdForUpdate(attemptId)).thenReturn(java.util.Optional.of(attempt));
+        when(attempts.findByIdForUpdateUnscoped(attemptId)).thenReturn(java.util.Optional.of(attempt));
         ActionAdapter adapter = new ActionAdapter();
         PaymentRailRegistry registry = new PaymentRailRegistry(List.of(adapter));
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);

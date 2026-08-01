@@ -112,7 +112,7 @@ public class PaymentWebhookInboxWorker {
 
     private void finalizeOutcome(UUID inboxId, ProcessingOutcome outcome) {
         transactions.executeWithoutResult(status -> {
-            PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdate(inboxId).orElse(null);
+            PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdateUnscoped(inboxId).orElse(null);
             if (delivery == null || !"PROCESSING".equals(delivery.getStatus())) return;
             Instant now = Instant.now();
             switch (outcome.result()) {
@@ -129,7 +129,7 @@ public class PaymentWebhookInboxWorker {
 
     private void scheduleFailure(UUID inboxId, String errorCode) {
         transactions.executeWithoutResult(status -> {
-            PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdate(inboxId).orElse(null);
+            PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdateUnscoped(inboxId).orElse(null);
             if (delivery == null || !"PROCESSING".equals(delivery.getStatus())) return;
             Instant now = Instant.now();
             retryOrDeadLetter(delivery, delivery.getTenantId(), errorCode, now);

@@ -232,7 +232,7 @@ public class ProductionCanaryService {
         ProductionCanaryReservationEntity reservation = reservations.findByTransferIdForUpdate(transferId)
             .orElse(null);
         if (reservation == null) return;
-        ProductionCanaryPlanEntity plan = plans.findByIdForUpdate(reservation.getPlanId()).orElseThrow();
+        ProductionCanaryPlanEntity plan = plans.findByIdAndTenantIdForUpdate(reservation.getPlanId(), reservation.getTenantId()).orElseThrow();
         String current = reservation.getLastStatus();
         if (outcome.equals(current)) return;
         if (isTerminal(current) && !(ExternalPaymentStatus.SETTLED.equals(current)

@@ -61,7 +61,7 @@ class ProductionCanaryCircuitBreakerTest {
         reservation.setLastStatus(ExternalPaymentStatus.SETTLED);
 
         ProductionCanaryPlanRepository plans = mock(ProductionCanaryPlanRepository.class);
-        when(plans.findByIdForUpdate(predecessorId)).thenReturn(Optional.of(predecessor));
+        when(plans.findByIdAndTenantIdForUpdate(predecessorId, tenant)).thenReturn(Optional.of(predecessor));
         when(plans.findActiveForUpdate(tenant, configId, "PRODUCTION")).thenReturn(Optional.of(current));
         ProductionCanaryReservationRepository reservations = mock(ProductionCanaryReservationRepository.class);
         when(reservations.findByTransferIdForUpdate(transferId)).thenReturn(Optional.of(reservation));
@@ -88,7 +88,7 @@ class ProductionCanaryCircuitBreakerTest {
             tenant, planId, configId, "PRODUCTION", transferId, new BigDecimal("100.00"), "NGN");
 
         ProductionCanaryPlanRepository plans = mock(ProductionCanaryPlanRepository.class);
-        when(plans.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
+        when(plans.findByIdAndTenantIdForUpdate(planId, tenant)).thenReturn(Optional.of(plan));
         ProductionCanaryReservationRepository reservations = mock(ProductionCanaryReservationRepository.class);
         when(reservations.findByTransferIdForUpdate(transferId)).thenReturn(Optional.of(reservation));
         AuditLogRepository audit = mock(AuditLogRepository.class);

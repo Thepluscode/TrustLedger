@@ -10,7 +10,6 @@ import com.trustledger.core.model.LedgerTransactionType;
 import com.trustledger.core.model.Money;
 import com.trustledger.core.transfer.TransferCommand;
 import com.trustledger.persistence.entity.*;
-import com.trustledger.security.ForbiddenException;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
 import com.trustledger.rails.PaymentRailAdapter;
@@ -22,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.trustledger.security.ForbiddenException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -179,7 +179,7 @@ public class ExternalPaymentService {
 
     private UUID prepareHeldApproval(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
-        lock(transfer.getSourceAccountId());
+        lock(transfer.getSourceAccountId(), tenantId);
         TenantPaymentRouteDecision route = routes.revalidate(tenantId, transfer.getTenantProviderConfigId(),
             transfer.getSelectedProvider(), transfer.getAmount(), transfer.getCurrency(),
             transfer.getDestinationCountry());
@@ -199,7 +199,7 @@ public class ExternalPaymentService {
     @Transactional
     public PersistentTransferResponse rejectHeldExternal(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), tenantId);
         releaseToAvailable(source, money(transfer.getAmount(), transfer.getCurrency()));
         transfer.setStatus("REJECTED");
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
@@ -218,7 +218,7 @@ public class ExternalPaymentService {
 
     private ExternalPaymentResponse completePreparedSubmissionInTransaction(
             ExternalRailSubmissionService.SubmissionResult result) {
-        ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(result.attemptId())
+        ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdateUnscoped(result.attemptId())
             .orElseThrow(() -> new IllegalStateException("Prepared payout attempt no longer exists"));
         TransferEntity transfer = transfers.findById(attempt.getTransactionId())
             .orElseThrow(() -> new IllegalStateException("Prepared payout transfer no longer exists"));
@@ -264,8 +264,8 @@ public class ExternalPaymentService {
             throw new IllegalStateException("Cannot settle attempt in status " + attempt.getStatus());
         }
         Money amount = money(attempt.getAmount(), attempt.getCurrency());
-        AccountEntity source = lock(transfer.getSourceAccountId());
-        AccountEntity clearing = lock(clearingAccountId(attempt.getTenantId(), attempt.getCurrency()));
+        AccountEntity source = lock(transfer.getSourceAccountId(), attempt.getTenantId());
+        AccountEntity clearing = lock(clearingAccountId(attempt.getTenantId(), attempt.getCurrency()), attempt.getTenantId());
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
         source.setPostedBalance(money(source.getPostedBalance(), source.getCurrency()).minus(amount).amount());
         clearing.setAvailableBalance(money(clearing.getAvailableBalance(), clearing.getCurrency()).plus(amount).amount());
@@ -309,7 +309,7 @@ public class ExternalPaymentService {
             throw new IllegalStateException("Cannot release attempt in status " + attempt.getStatus());
         }
         TransferEntity transfer = transfers.findById(attempt.getTransactionId()).orElseThrow();
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), attempt.getTenantId());
         releaseToAvailable(source, money(attempt.getAmount(), attempt.getCurrency()));
         attempt.setStatus(terminalStatus);
         attempts.save(attempt);
@@ -339,12 +339,8 @@ public class ExternalPaymentService {
     }
 
     private AccountEntity reserve(UUID tenantId, UUID sourceAccountId, String currency, Money amount) {
-        AccountEntity source = lock(sourceAccountId);
-        // Authorization before money moves: the source account must belong to the caller's tenant.
-        // Without this a caller can reserve/drain another tenant's account by supplying its id (BOLA).
-        if (!source.getTenantId().equals(tenantId)) {
-            throw new ForbiddenException("Source account does not belong to the caller's tenant");
-        }
+        // Tenant predicate is in the lock query — prevents BOLA on user-supplied sourceAccountId.
+        AccountEntity source = lock(sourceAccountId, tenantId);
         requireActive(source);
         requireCurrency(source, currency);
         Money available = money(source.getAvailableBalance(), source.getCurrency());
@@ -540,8 +536,13 @@ public class ExternalPaymentService {
             value(req.preferredProvider()), value(req.preferredEnvironment()), value(req.scenario()), "EXTERNAL"));
     }
 
-    private AccountEntity lock(UUID id) {
-        return accounts.findByIdForUpdate(id)
+    private AccountEntity lock(UUID id, UUID tenantId) {
+        return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
+            .orElseThrow(() -> new ForbiddenException("Account not found or not accessible"));
+    }
+
+    private AccountEntity lockUnscoped(UUID id) {
+        return accounts.findByIdForUpdateUnscoped(id)
             .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
     }
 

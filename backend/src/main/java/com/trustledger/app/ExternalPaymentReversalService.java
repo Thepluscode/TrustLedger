@@ -48,7 +48,7 @@ public class ExternalPaymentReversalService {
 
     @Transactional
     public void reverse(ExternalPaymentAttemptEntity attempt) {
-        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdate(attempt.getId())
+        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdAndTenantIdForUpdate(attempt.getId(), attempt.getTenantId())
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found"));
         if (ExternalPaymentStatus.REVERSED.equals(lockedAttempt.getStatus())) return;
 
@@ -112,7 +112,7 @@ public class ExternalPaymentReversalService {
      *  already-reversed attempt; the webhook inbox dedupes replays upstream. */
     @Transactional
     public void chargeback(ExternalPaymentAttemptEntity attempt) {
-        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdate(attempt.getId())
+        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdateUnscoped(attempt.getId())
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found"));
         if (ExternalPaymentStatus.REVERSED.equals(lockedAttempt.getStatus())) return;
 
@@ -200,7 +200,7 @@ public class ExternalPaymentReversalService {
     }
 
     private AccountEntity lock(UUID accountId) {
-        return accounts.findByIdForUpdate(accountId)
+        return accounts.findByIdForUpdateUnscoped(accountId)
             .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
     }
 

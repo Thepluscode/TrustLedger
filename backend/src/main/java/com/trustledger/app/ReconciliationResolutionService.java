@@ -5,7 +5,6 @@ import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.ConflictException;
-import com.trustledger.security.ForbiddenException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -49,11 +48,10 @@ public class ReconciliationResolutionService {
         }
         // Row lock: serialises concurrent resolves of the same issue so only the first OPEN→RESOLVED
         // transition wins; a racing second caller blocks, then reads RESOLVED and is rejected (409).
-        ReconciliationIssueEntity issue = issues.findByIdForUpdate(issueId)
+        // The tenant predicate is in the query — a mismatched id is a 404, not a 403, so callers
+        // cannot infer whether a foreign-tenant issue exists.
+        ReconciliationIssueEntity issue = issues.findByIdAndTenantIdForUpdate(issueId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Reconciliation issue not found: " + issueId));
-        if (!tenantId.equals(issue.getTenantId())) {
-            throw new ForbiddenException("Reconciliation issue belongs to another tenant");
-        }
         if (!"OPEN".equals(issue.getStatus())) {
             throw new ConflictException("issue is not OPEN (current status: " + issue.getStatus() + ")");
         }

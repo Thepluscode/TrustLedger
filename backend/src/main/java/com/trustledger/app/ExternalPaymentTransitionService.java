@@ -150,7 +150,7 @@ public class ExternalPaymentTransitionService {
     }
 
     private ExternalPaymentAttemptEntity lock(UUID attemptId) {
-        return attempts.findByIdForUpdate(attemptId)
+        return attempts.findByIdForUpdateUnscoped(attemptId)
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found: " + attemptId));
     }
 

@@ -212,7 +212,7 @@ public class ExternalRailSubmissionService {
 
     private SubmissionClaim claim(UUID attemptId, boolean recovery) {
         return transactions.execute(status -> {
-            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(attemptId).orElse(null);
+            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdateUnscoped(attemptId).orElse(null);
             if (attempt == null) return null;
             boolean fresh = ExternalPaymentStatus.READY_TO_SUBMIT.equals(attempt.getStatus());
             boolean unknown = ExternalPaymentStatus.PENDING_UNKNOWN.equals(attempt.getStatus());
@@ -226,7 +226,7 @@ public class ExternalRailSubmissionService {
 
     private SubmissionClaim claimAction(UUID attemptId, String action) {
         return transactions.execute(status -> {
-            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(attemptId).orElse(null);
+            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdateUnscoped(attemptId).orElse(null);
             if (attempt == null || !ExternalPaymentStatus.ACTION_REQUIRED.equals(attempt.getStatus())) return null;
             attempt.setSubmissionOperation(action);
             return claim(attempt, action, false);
@@ -249,7 +249,7 @@ public class ExternalRailSubmissionService {
     private void rememberProviderObjectId(UUID attemptId, String providerObjectId) {
         if (providerObjectId == null || providerObjectId.isBlank()) return;
         transactions.executeWithoutResult(status -> {
-            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(attemptId)
+            ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdateUnscoped(attemptId)
                 .orElseThrow(() -> new IllegalStateException("Prepared payout attempt no longer exists"));
             if (attempt.getProviderObjectId() != null
                     && !attempt.getProviderObjectId().equals(providerObjectId)) {
