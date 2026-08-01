@@ -26,7 +26,8 @@ public final class ApiViews {
     public record FraudCaseView(UUID id, UUID transactionId, String status, String severity, int riskScore) {}
 
     public record AuditLogView(UUID id, String actorType, UUID actorId, String action,
-                               String resourceType, UUID resourceId, Instant createdAt) {}
+                               String resourceType, UUID resourceId, String correlationId,
+                               Instant createdAt) {}
 
     public record DashboardSummary(long accounts, long transfersCompleted, long transfersHeld,
                                    long transfersRejected, long fraudCasesOpen, long reconciliationIssuesOpen) {}

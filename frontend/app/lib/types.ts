@@ -111,6 +111,8 @@ export interface AuditLogView {
   action: string;
   resourceType: string;
   resourceId: string | null;
+  /** Null for rows written off-request (workers, sweeps) — those have no request to correlate to. */
+  correlationId: string | null;
   createdAt: string;
 }
 

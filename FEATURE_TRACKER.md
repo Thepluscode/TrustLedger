@@ -11,15 +11,22 @@ Last updated: 2026-07-31
 |---------|--------|----------|
 | `audit_logs` append-only (UPDATE/DELETE rejected at the DB) | **VERIFIED (CI)** | `V37__audit_log_immutability.sql`. `AuditLogImmutabilityIntegrationTest` green against real Postgres in CI on the merge commit `d1ce2c1` (all 7 checks pass), and verified to FAIL when V37 is not applied — an unprotected UPDATE succeeds. Merged via #105. **Not yet observed in a deployed environment** — that is the remaining step before this is VERIFIED in the production sense. |
 | ADR-005 recorded | **DEPLOYED** | `docs/architecture/ADR-005-audit-log-immutability.md`, on `main` |
+| Correlation ID on audit rows + every log line + `X-Request-Id` response header | **IN PROGRESS** | `V38__audit_correlation_id.sql`, `CorrelationId` + `CorrelationIdFilter`. `CorrelationIdTest` (11) + `CorrelationIdIntegrationTest` (3, real Postgres + real HTTP) green locally; `mvn compile`/`test-compile` and `npm run build` clean. Not merged. |
 
 **Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
 still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
 needs a hash chain — deferred, with the trigger to revisit written into ADR-005.
 
-**Still missing from the audit trail** (required by the playbook pattern, all absent): result,
-before/after references, correlation ID, policy decision. Each needs an `AuditLogEntity` constructor
-change across 30 call sites, so it is separate work. The correlation ID is the one that will hurt
-first — the trail cannot currently be joined to a request trace during an incident.
+**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~ (done —
+see the row above), **result**, **before/after references**, **policy decision**. Unlike the
+correlation ID — which is ambient per-request and so was captured centrally without touching a single
+write site — these three are genuinely per-call-site information and need an `AuditLogEntity`
+constructor change across 30 services. Separate work.
+
+**Not correlated, by design:** rows written off-request (outbox publisher, reconciliation sweep,
+webhook inbox worker) carry a NULL correlation id — they have no request to correlate to. Rows
+written before V38 are NULL too; correlation cannot be retrofitted onto history that never captured
+it.
 
 **Merge order:** resolved — PR #61 (V36) merged first, this branch rebased on top, so V36 → V37 is
 in order.

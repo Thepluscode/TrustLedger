@@ -88,7 +88,7 @@ public class TransferQueryController {
 
         List<AuditLogView> auditTrail = auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(tenantId, id).stream()
             .map(a -> new AuditLogView(a.getId(), a.getActorType(), a.getActorId(), a.getAction(),
-                a.getResourceType(), a.getResourceId(), a.getCreatedAt()))
+                a.getResourceType(), a.getResourceId(), a.getCorrelationId(), a.getCreatedAt()))
             .toList();
 
         return new TransferDetailView(view(t), fraudCase, ledger, auditTrail);

@@ -20,6 +20,6 @@ public class AuditController {
     public List<AuditLogView> list() {
         return auditLogs.findTop200ByTenantIdOrderByCreatedAtDesc(CurrentUser.tenantId()).stream()
             .map(a -> new AuditLogView(a.getId(), a.getActorType(), a.getActorId(), a.getAction(),
-                a.getResourceType(), a.getResourceId(), a.getCreatedAt())).toList();
+                a.getResourceType(), a.getResourceId(), a.getCorrelationId(), a.getCreatedAt())).toList();
     }
 }
