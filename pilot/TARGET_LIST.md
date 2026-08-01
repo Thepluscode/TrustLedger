@@ -42,6 +42,32 @@ month-end gaps" is the named operational problem.
 | # | Company | Qualifying signal | Source | Bars to test |
 |---|---|---|---|---|
 | 1 | **PalmPay** | Pan-African across **7 countries** (Nigeria, Ghana, Kenya, Uganda, Egypt, Côte d'Ivoire, Tanzania) — multi-country implies multi-provider. Actively hiring a **Senior Reconciliation Analyst** in Lagos: reconciling transactions, managing disputes, liaising with banks, daily account reconciliation. | MyJobMag / Glassdoor listing, retrieved 2026-07-31 | Pain: strongly indicated by the role existing. Data + Money: untested. |
+| 2 | **Paysafe** | Hiring **Junior Financial Operations Analyst** (Sofia). Multi-brand payments group settling across acquiring partners and alternative payment methods in many markets — multi-provider by architecture. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. ICP fit strong. Data + Money: untested. |
+| 3 | **Freetrade** | Hiring **Payments Operations Associate** (Budapest). Retail broker settling across payment providers and banking partners in GBP/EUR. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Data + Money: untested. |
+| 4 | **Alpaca** | Hiring **Settlements Associate** (London). Brokerage infrastructure — settlement across custody and banking counterparties. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Adjacent segment (securities, not payouts) — confirm at Q2 whether ≥2 *payment* rails apply. |
+| 5 | **Blockchain.com** | Hiring **Treasury Operations Analyst** (London). Fiat + crypto rails across multiple banking partners — reconciliation across incompatible settlement clocks is structural. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Strong multi-rail fit. Data bar likely hard (custody/regulatory). |
+| 6 | **Trade Republic** | Hiring **Process Operations Associate — Security Services** (Berlin). Multi-market European broker. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Adjacent (securities settlement). Lower priority than payments-native rows. |
+| 7 | **Equiti Group** | Hiring **Operations Manager** (Dubai). Multi-entity brokerage across regulated jurisdictions — multi-currency, multi-banking-partner. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: inferred from multi-entity structure, weaker than a named reconciliation role. Qualify before contacting. |
+
+**Promoted 2026-08-01 by running the sourcing method above**, not by guessing names. Each row's
+signal is a *live payment-operations or settlement role posting* — the promotion rule's first
+listed signal. What that proves: a finance/ops function exists, the exception work is manual enough
+to need a person, and someone has budget. What it does **not** prove: pain magnitude, willingness to
+grant data access, or willingness to pay. Those are the interview.
+
+**Deliberately excluded despite appearing on the same board**, with the reason, so the filter stays
+honest rather than becoming a name-collection exercise:
+
+| Excluded | Why |
+|---|---|
+| Royal Bank of Canada · Brown Brothers Harriman · Saxo Bank | Banks and custodians. They build reconciliation in-house and buy from incumbents; the neutrality argument adds nothing. |
+| Global Payments Inc. · Broadridge | They *are* the provider / the incumbent vendor. A merchant's multi-provider pain is not their pain. |
+| Wise | Multi-corridor and painful, but at their scale this is an in-house platform team, not a purchase. Interview only for insight, never as a prospect. |
+| Endava | Consultancy delivering payments projects — not a buyer of their own reconciliation. |
+| Thunes · Paysend · BVNK | Architecturally ideal (multi-partner cross-border), but the roles posted were engineering/product, not payment-operations — so no *cited* pain signal yet. Re-run the query on their own careers pages before promoting. |
+
+**Reachability note.** These are UK/EU/UAE-weighted, which closes the gap flagged above — the list
+was Africa-only because the original filter named a region. It no longer does.
 
 **Why one row and not twenty.** A qualifying signal has to be *found*, not assumed. One company with
 a cited signal is worth more than twenty plausible names, and the sourcing method below generates
