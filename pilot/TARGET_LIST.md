@@ -28,6 +28,15 @@ month-end gaps" is the named operational problem.
 
 ---
 
+> **No region filter.** The ICP was corrected on 2026-08-01: geography is a *reachability*
+> question, never a qualification one. The qualifying properties are ≥2 payment providers, multi-
+> currency or multi-country settlement, a dedicated finance/ops function, and audit pressure. UK,
+> EU, US, LATAM, SEA and African companies qualify on identical terms.
+>
+> The evidenced and candidate rows below are currently Africa-weighted because the original filter
+> named a region. That is a **gap in the research, not a definition of the market** — non-African
+> rows are missing and should be added first, using the multi-market sourcing table below.
+
 ## EVIDENCED
 
 | # | Company | Qualifying signal | Source | Bars to test |
@@ -49,12 +58,23 @@ pain bar, from a public posting.
 
 Run these weekly and add hits to the EVIDENCED table:
 
-| Source | Query |
-|---|---|
-| MyJobMag Nigeria | `reconciliation and settlement analyst`, `reconciliation specialist fintech` |
-| MyJobMag Kenya | `accountant fintech`, `finance jobs Nairobi` + reconciliation |
-| Glassdoor Lagos | `financial operations analyst` |
-| LinkedIn | `"payment operations"` + Lagos / Nairobi / Accra, filtered to 2+ payment integrations in the JD |
+**Run these in every market.** The qualifying signal is the *role*, never the region — a company
+hiring someone to reconcile settlements manually has the pain whether it sits in London, Austin,
+São Paulo, Singapore or Lagos.
+
+| Market | Source | Query |
+|---|---|---|
+| UK / EU | LinkedIn Jobs · Otta · Welcome to the Jungle | `payment operations`, `reconciliation analyst`, `settlement operations` + fintech |
+| UK / EU | FCA / EMI / PI licence registers | cross-reference licensees against public payment-partner and PSP mentions |
+| US | LinkedIn · Built In · Greenhouse boards | `payment operations`, `settlement analyst`, `payments reconciliation` |
+| LATAM | LinkedIn · Get on Board | `conciliación de pagos`, `payment operations` — multi-PSP is the norm (PIX + cards + wallets) |
+| SEA | LinkedIn · Glints | `payment operations`, `settlement` — multi-rail by default across the region |
+| Africa | MyJobMag NG/KE · Glassdoor Lagos | `reconciliation and settlement analyst`, `reconciliation specialist fintech` |
+
+**Why this list is not ranked by region.** Any company running ≥2 providers across ≥2 currencies has
+the problem. The UK and EU additionally carry a regulatory driver Africa does not — FCA operational-
+resilience expectations and PSD2 make "prove what happened to this payment" an obligation, not a
+preference — which strengthens rather than weakens the case there.
 
 Qualify each hit before it becomes a prospect:
 1. Does the JD or the company's docs name **two or more** payment providers / rails / banks?
