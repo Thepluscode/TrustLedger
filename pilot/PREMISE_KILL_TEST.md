@@ -31,12 +31,26 @@ Number 3 is the real gate. Most reconciliation plays die there, not on pain.
 
 ## Who to talk to (the ideal-customer filter)
 
-Not "African businesses." The only segment where the pain *and* the price survive:
+**Corrected 2026-08-01 — geography is not a filter.** This section previously read "African
+marketplaces, lenders, remittance platforms, regulated fintechs." Africa was the *initial market
+assumption* from early discussions, not a property of the buyer. It was never revised, and every
+downstream artefact inherited it — the target list, the sourcing queries, the first draft. The
+qualifying properties below are what actually predict the pain; none of them is a region.
 
-- African **marketplaces, lenders, remittance platforms, regulated fintechs**
-- Processing **meaningful volume through ≥2 payment providers**
+The segment where the pain *and* the price survive — **anywhere**:
+
+- **Marketplaces, lenders, remittance and cross-border platforms, payroll and mass-payout
+  providers, regulated fintechs** — the business models that fan money out across counterparties
+- Processing **meaningful volume through ≥2 payment providers, rails or banking partners**
+- **Multi-currency or multi-country**, so settlement arrives on different clocks in different formats
 - With a **dedicated finance or ops function** already investigating exceptions manually
 - Under **compliance/audit pressure** (regulated or enterprise-facing)
+
+**Geography is a reachability question, not a qualification one.** UK, EU, US, LATAM, SEA and
+African companies all qualify on identical terms. Where you start is a matter of who answers your
+email — warm network, shared timezone, language, a regulator you can speak to credibly — not of who
+has the problem. A UK fintech settling across three PSPs and two banking partners has exactly the
+pain this product addresses.
 
 Explicitly **exclude** single-provider, low-volume, no-finance-team merchants. They can't
 pay enterprise prices and don't have the pain — including them will produce a false read.
