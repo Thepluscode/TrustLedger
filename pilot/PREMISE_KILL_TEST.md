@@ -5,7 +5,7 @@
 > STOP threshold before running the test** — so a bad result can't be rationalised into
 > a good one. No further infrastructure until this passes.
 >
-> Status: **UNVALIDATED.** The engine is built ahead of this test. This gate decides
+> Status: **UNVALIDATED.** The engine is built ahead of this test. Interviews run to date: **0 of 25**. This gate decides
 > whether the commercial thesis under it is real.
 
 ---
@@ -41,24 +41,44 @@ Not "African businesses." The only segment where the pain *and* the price surviv
 Explicitly **exclude** single-provider, low-volume, no-finance-team merchants. They can't
 pay enterprise prices and don't have the pain — including them will produce a false read.
 
-Target **N = 18 interviews** across ≥3 sub-segments. Reach via: existing network,
-fintech operator communities, PSP-partner intros, LinkedIn heads of finance/ops.
+Target **N = 25 interviews** across ≥3 sub-segments (raised from 18 on 2026-07-31 — see the
+three-bar gate below). Reach via: existing network, fintech operator communities, PSP-partner
+intros, LinkedIn heads of finance/ops. Candidate list: `pilot/TARGET_LIST.md`.
 
 ---
 
 ## Pre-committed thresholds (set BEFORE any interview)
 
-Score each interview against **both** bars:
+**Revised 2026-07-31.** The original gate was 18 interviews with ≥8 clearing two bars. It is now 25
+interviews against **three** bars, all of which must clear. The change is deliberately stricter in one
+specific way: it separates *saying yes* from *paying*, because those are different facts and only one
+of them is evidence.
+
+Score each interview against all three:
 
 - **Pain bar** — reports EITHER ≥1 finance/ops **day per week** on exceptions, OR a
   **quantifiable quarterly leakage** they cannot currently see with provider dashboards.
-- **Trust bar** — will **grant read-access** to settlement data under a pilot/NDA.
+- **Data bar** — will **grant read-access** to settlement data under a pilot/NDA.
+- **Money bar** — commits to **paid discovery or a paid pilot**. Not "we'd be interested." A number
+  and a person who signs it.
 
-| Interviews clearing BOTH bars (of 18) | Verdict |
+| Bar | Threshold (of 25) | Why this number |
+|---|---|---|
+| Same problem described unprompted | **≥ 6** | Below six, you are hearing individual company dysfunction, not a market |
+| Grants sample data or integration access | **≥ 3** | The gate most reconciliation plays actually die at |
+| Commits to paid discovery or paid pilot | **≥ 2** | The only bar that cannot be politeness |
+
+**Verdict:**
+
+| Result | Verdict |
 |---|---|
-| **≥ 8 (≈45%)** | **GO** — premise holds; proceed to a paid design-partner pilot. |
-| **4–7** | **MURKY** — the segment is too broad. Re-cut to the sharpest sub-segment and re-test; do not build. |
-| **< 4** | **STOP** — premise failed. The pain is not material or the data won't be shared. Do not add infrastructure. |
+| **All three thresholds met** | **GO** — premise holds; proceed to a paid design-partner pilot. |
+| **Pain ≥6 but data <3 or paid <2** | **MURKY** — the pain is real and the trust or the budget is not. Re-cut to the sharpest sub-segment and re-test; **do not build**. |
+| **Pain < 6** | **STOP** — premise failed. Do not add infrastructure. |
+
+**Why all three and not a weighted score.** Pain without data access is a problem you cannot see.
+Data access without budget is a science project. Budget without pain is a favour, and it does not
+renew. Any two of the three is a reason to keep talking, not a reason to build.
 
 **Hard kill signal (overrides the count):** if the dominant answer is *"our provider
 dashboard plus a spreadsheet handles this fine,"* the premise is false regardless of
