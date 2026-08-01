@@ -112,7 +112,7 @@ public class ExternalPaymentReversalService {
      *  already-reversed attempt; the webhook inbox dedupes replays upstream. */
     @Transactional
     public void chargeback(ExternalPaymentAttemptEntity attempt) {
-        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdate(attempt.getId())
+        ExternalPaymentAttemptEntity lockedAttempt = attempts.findByIdForUpdateUnscoped(attempt.getId())
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found"));
         if (ExternalPaymentStatus.REVERSED.equals(lockedAttempt.getStatus())) return;
 
