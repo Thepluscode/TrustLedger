@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 ## v3.2 — audit evidence integrity
 
@@ -11,7 +11,7 @@ Last updated: 2026-07-31
 |---------|--------|----------|
 | `audit_logs` append-only (UPDATE/DELETE rejected at the DB) | **VERIFIED (CI)** | `V37__audit_log_immutability.sql`. `AuditLogImmutabilityIntegrationTest` green against real Postgres in CI on the merge commit `d1ce2c1` (all 7 checks pass), and verified to FAIL when V37 is not applied — an unprotected UPDATE succeeds. Merged via #105. **Not yet observed in a deployed environment** — that is the remaining step before this is VERIFIED in the production sense. |
 | ADR-005 recorded | **DEPLOYED** | `docs/architecture/ADR-005-audit-log-immutability.md`, on `main` |
-| Correlation ID on audit rows + every log line + `X-Request-Id` response header | **IN PROGRESS** | `V38__audit_correlation_id.sql`, `CorrelationId` + `CorrelationIdFilter`. `CorrelationIdTest` (11) + `CorrelationIdIntegrationTest` (3, real Postgres + real HTTP) green locally; `mvn compile`/`test-compile` and `npm run build` clean. Not merged. |
+| Correlation ID on audit rows + every log line + `X-Request-Id` response header | **VERIFIED (CI)** | `V38__audit_correlation_id.sql`, `CorrelationId` + `CorrelationIdFilter`. `CorrelationIdTest` (11) + `CorrelationIdIntegrationTest` (3, real Postgres + real HTTP) green in CI on the merge commit `804f202` — all 7 checks pass. Merged via #107. Captured centrally from ambient request state, so none of the 30 audit write sites changed. **Not yet observed in a deployed environment.** |
 
 **Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
 still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
