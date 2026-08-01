@@ -1,5 +1,6 @@
 package com.trustledger.persistence.entity;
 
+import com.trustledger.observability.CorrelationId;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -20,6 +21,7 @@ public class AuditLogEntity {
     @Column(name = "resource_id") private UUID resourceId;
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false) private String metadata;
+    @Column(name = "correlation_id", length = 64) private String correlationId;
     @JdbcTypeCode(SqlTypes.TIMESTAMP_UTC)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
@@ -36,6 +38,11 @@ public class AuditLogEntity {
         this.resourceType = resourceType;
         this.resourceId = resourceId;
         this.metadata = metadata;
+        // Read from ambient request state rather than taken as a parameter. Threading it through the
+        // signature would mean editing 30 call sites and trusting each to keep passing it; taking it
+        // here means every audit row written during a request is correlated, including ones added
+        // later by code that has never heard of this field. Null off-request, by design.
+        this.correlationId = CorrelationId.current();
     }
 
     public UUID getId() { return id; }
@@ -46,5 +53,6 @@ public class AuditLogEntity {
     public String getResourceType() { return resourceType; }
     public UUID getResourceId() { return resourceId; }
     public String getMetadata() { return metadata; }
+    public String getCorrelationId() { return correlationId; }
     public Instant getCreatedAt() { return createdAt; }
 }

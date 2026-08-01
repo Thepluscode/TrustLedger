@@ -26,7 +26,8 @@ export default function AuditLogsPage() {
         l.action.toLowerCase().includes(q) ||
         l.resourceType.toLowerCase().includes(q) ||
         l.actorType.toLowerCase().includes(q) ||
-        (l.resourceId ?? "").toLowerCase().includes(q),
+        (l.resourceId ?? "").toLowerCase().includes(q) ||
+        (l.correlationId ?? "").toLowerCase().includes(q),
     );
   }, [logs, filter]);
 
@@ -44,7 +45,7 @@ export default function AuditLogsPage() {
             id="q"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="action, resource, actor…"
+            placeholder="action, resource, actor, request id…"
           />
         </div>
       </header>
@@ -59,10 +60,11 @@ export default function AuditLogsPage() {
               <th>Action</th>
               <th>Resource</th>
               <th>Resource ID</th>
+              <th>Request ID</th>
             </tr>
           </thead>
           <tbody>
-            {filtered === null && <SkeletonRows cols={5} rows={6} />}
+            {filtered === null && <SkeletonRows cols={6} rows={6} />}
             {filtered?.map((l) => (
               <tr key={l.id}>
                 <td className="muted" style={{ whiteSpace: "nowrap" }}>{dateTime(l.createdAt)}</td>
@@ -72,6 +74,11 @@ export default function AuditLogsPage() {
                 <td>{l.action.replace(/_/g, " ").toLowerCase()}</td>
                 <td className="muted">{l.resourceType.replace(/_/g, " ").toLowerCase()}</td>
                 <td className="mono">{l.resourceId ? shortId(l.resourceId) : "—"}</td>
+                {/* Quoted verbatim in a support ticket, and greppable in logs — so full value on
+                    hover, and an em dash for rows written off-request by a worker. */}
+                <td className="mono" title={l.correlationId ?? "written off-request (no correlation id)"}>
+                  {l.correlationId ? shortId(l.correlationId) : "—"}
+                </td>
               </tr>
             ))}
           </tbody>
