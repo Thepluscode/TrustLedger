@@ -122,30 +122,116 @@ response, failure after provider acceptance but before local commit, DB rollback
 settlement mismatch, wrong fee, partial settlement, unauthorised approval, revoked approver,
 cross-tenant access, concurrent payout updates.
 
-## Agent working rules (written from real mistakes, 2026-08-03)
+## Agent working rules
 
-Each line below is a mistake that actually happened in this repo, not general advice. Rules that
-never fired get deleted — a file that only grows stops being read.
+Four rules. Each has a trigger, an exception, the evidence that proves compliance, and the condition
+that retires it. A rule without those is advice, and advice accumulates until nobody reads the file.
 
-- **Never report success from a piped command.** `mvn … | tail` and `git push | tail` hide the exit
-  code, and a following `echo "ok"` runs regardless. Three false "green"/"pushed" reports came from
-  this. Read the `BUILD SUCCESS` / `BUILD FAILURE` line, or the remote's ref update — not the pipeline.
-- **Verify a push from the remote, not from the local command.** `git log origin/main`, or
-  `gh api repos/<org>/<repo>/commits/main`. One "pushed" was a rejected non-fast-forward.
-- **Check `git branch --show-current` immediately before committing.** The checkout gets switched by
-  concurrent agents. Commits landed on `main` that were meant for a branch, and edits were written to
-  the wrong branch's tree entirely.
-- **`cd` to an absolute path in every Maven/npm invocation.** Shell cwd does not persist reliably
-  between calls; `mvn` has been run from the repo root, which has no POM.
-- **A scoped `-Dtest` filter is not evidence when the change alters a global registry.** Assertions
-  about a catalogue live outside the catalogue's package. See
-  `docs/architecture/` and the drill-count incident.
-- **`rm -rf backend/target/surefire-reports` before a run you intend to quote.** Stale reports from a
-  previous run read as current results.
-- **A clean rebase is not a compiling rebase.** Renames and new callers in different files produce no
-  git conflict and a broken build. Compile after every rebase, before claiming anything.
-- **Before drafting any outreach, search Gmail drafts and sent mail for an existing thread.** A
-  verified contact already existed for a company whose draft went out to a placeholder address.
+**Review monthly.** Classify every rule KEEP / MOVE / MERGE / UPDATE / REMOVE. A rule that has not
+fired in two months is a candidate for removal — this file compounds bad assumptions exactly as
+efficiently as good ones. It already did: a region-locked ICP survived three corrections because it
+lived in memory that auto-injects.
+
+**The ladder.** Fix it (1) → document it (2) → regression test (3) → structural guardrail (4) →
+impossible by construction (5). Note the level each rule has reached; a rule stuck at 2 is a rule
+waiting for its test.
+
+---
+
+### Verify a claim from the authoritative source, at the right scope
+
+**Trigger:** Any statement that work is green, pushed, merged, deployed or complete.
+
+**Rule:** The evidence must come from the system being claimed about, at a scope that covers the
+change. Never from the command you happened to run.
+
+**Prohibited:** `cmd | tail` followed by an unconditional `echo "ok"` — the pipeline hides the exit
+code and the echo runs regardless. Use `cmd && echo ok`, or `set -euo pipefail`, or read the
+outcome line.
+
+**Evidence required:**
+- Build: the `BUILD SUCCESS` / `BUILD FAILURE` line, from a report directory cleared before the run
+- Push: `git log origin/<branch>` or `gh api repos/<org>/<repo>/commits/<branch>` — not the push command
+- Test scope: if the change alters a shared registry, enum or catalogue, the filter must include the
+  packages that assert *about* it, not only the one that defines it
+- Rebase: compile after every rebase. A conflict-free rebase is not a compiling rebase — renames plus
+  new callers in different files produce no git conflict and a broken build
+
+**Reason:** Four false claims in one session — a "COMPILE OK" on a broken build, a "pushed" on a
+rejected non-fast-forward, a green read from a run that never started, and a scoped test filter that
+missed four assertions in two other packages. All the same root cause: accepting a weaker signal than
+the claim required.
+
+**Level:** 2. A PreToolUse hook rejecting `; echo "…"` after a write command would make it 4.
+
+**Revisit when:** the harness reports exit codes for piped commands directly.
+
+---
+
+### Tenant-scoped locking
+
+**Trigger:** Any repository query that locks or mutates tenant-owned data.
+
+**Rule:** Tenant-facing paths put `tenantId` in the query itself — `findByIdAndTenantIdForUpdate`.
+A post-query tenant check is not sufficient.
+
+**Exception:** `findByIdForUpdateUnscoped` only where the identifier already came from a
+tenant-scoped record or a trusted internal queue item. Its name makes that a visible decision.
+
+**Evidence required:** a cross-tenant integration test against real PostgreSQL asserting the scoped
+query returns empty for a foreign tenant; review of every unscoped call site; full CI green.
+
+**Reason:** invariant 12. PR #49 fixed real cross-tenant money movement caused by one unscoped lock
+whose caller forgot to check.
+
+**Level:** 4 — the scoped methods exist and the unsafe variant is named (#104).
+
+**Revisit when:** PostgreSQL row-level security enforces this below the repository layer, which
+would make it level 5.
+
+---
+
+### Geography does not define the ICP
+
+**Trigger:** Any target list, outreach draft, sourcing query or ICP statement.
+
+**Rule:** Qualification is ≥2 providers/rails/banking partners · multi-currency or multi-country
+settlement · a dedicated finance or ops function · audit, regulatory or enterprise pressure ·
+economic exposure large enough that the engagement fee is small against the leakage. Geography
+affects reachability and sequencing only.
+
+**Exception:** historical references in ADRs and logs stay — they document a decision that was made.
+
+**Reason:** "African marketplaces, lenders, remittance platforms" was an early market assumption that
+became a filter, survived three explicit corrections, and silently excluded UK and EU firms — the
+market with the strongest regulatory driver, since FCA operational-resilience expectations and PSD2
+make "prove what happened to this payment" an obligation rather than a preference.
+
+**Level:** 2. Level 3 would be a check that fails when a region name appears in an ICP or sourcing
+section.
+
+**Revisit when:** a closed deal shows a region genuinely predicts fit.
+
+---
+
+### A company name is not a qualified target
+
+**Trigger:** Adding any company to `pilot/TARGET_LIST.md`.
+
+**Rule:** Homepage copy proves a company exists and markets a service. It does not prove providers in
+production, reconciliation pain, a finance function, audit pressure, volume or buying intent.
+Unproven names live in `pilot/RESEARCH_QUEUE.md`.
+
+**Evidence required to promote:** one credible source showing a qualifying operational signal —
+reconciliation/settlement/payment-ops hiring, named providers or rails, a licence plus multi-market
+operations, public documentation of reconciliation complexity, or a named finance/treasury/ops owner.
+
+**Reason:** 3 of 15 homepage-qualified candidates were sellers, not buyers — a competitor and two
+providers. Every one looked plausible.
+
+**Level:** 4 — the two files enforce the split structurally.
+
+**Revisit when:** a promoted row turns out to have been wrong, which means the promotion rule is too weak.
 
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
