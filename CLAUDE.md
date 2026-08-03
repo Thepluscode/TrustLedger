@@ -122,6 +122,31 @@ response, failure after provider acceptance but before local commit, DB rollback
 settlement mismatch, wrong fee, partial settlement, unauthorised approval, revoked approver,
 cross-tenant access, concurrent payout updates.
 
+## Agent working rules (written from real mistakes, 2026-08-03)
+
+Each line below is a mistake that actually happened in this repo, not general advice. Rules that
+never fired get deleted — a file that only grows stops being read.
+
+- **Never report success from a piped command.** `mvn … | tail` and `git push | tail` hide the exit
+  code, and a following `echo "ok"` runs regardless. Three false "green"/"pushed" reports came from
+  this. Read the `BUILD SUCCESS` / `BUILD FAILURE` line, or the remote's ref update — not the pipeline.
+- **Verify a push from the remote, not from the local command.** `git log origin/main`, or
+  `gh api repos/<org>/<repo>/commits/main`. One "pushed" was a rejected non-fast-forward.
+- **Check `git branch --show-current` immediately before committing.** The checkout gets switched by
+  concurrent agents. Commits landed on `main` that were meant for a branch, and edits were written to
+  the wrong branch's tree entirely.
+- **`cd` to an absolute path in every Maven/npm invocation.** Shell cwd does not persist reliably
+  between calls; `mvn` has been run from the repo root, which has no POM.
+- **A scoped `-Dtest` filter is not evidence when the change alters a global registry.** Assertions
+  about a catalogue live outside the catalogue's package. See
+  `docs/architecture/` and the drill-count incident.
+- **`rm -rf backend/target/surefire-reports` before a run you intend to quote.** Stale reports from a
+  previous run read as current results.
+- **A clean rebase is not a compiling rebase.** Renames and new callers in different files produce no
+  git conflict and a broken build. Compile after every rebase, before claiming anything.
+- **Before drafting any outreach, search Gmail drafts and sent mail for an existing thread.** A
+  verified contact already existed for a company whose draft went out to a placeholder address.
+
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
 in the runtime, say a layer is written-but-unverified rather than implying it passed.
