@@ -48,7 +48,8 @@ public class SettlementReconciliationController {
                                 String totalAmount, String totalFees, Instant ingestedAt) {}
 
     public record IngestResponse(StatementView statement, boolean alreadyIngested,
-                                 int matched, int unmatched, int amountMismatch, int missing, boolean totalMismatch) {}
+                                 int matched, int unmatched, int amountMismatch, int missing, boolean totalMismatch,
+                                 int feeChecked, int feeMismatch) {}
 
     public record LineView(String providerReference, String amount, String fee, String status,
                            String matchStatus, UUID matchedAttemptId) {}
@@ -79,7 +80,8 @@ public class SettlementReconciliationController {
                 new StatementInput(provider, currency, statementRef, periodStart, periodEnd, lineInputs,
                         declaredTotalAmount, declaredTotalFees));
         return new IngestResponse(view(result.statement()), result.alreadyIngested(),
-                result.matched(), result.unmatched(), result.amountMismatch(), result.missing(), result.totalMismatch());
+                result.matched(), result.unmatched(), result.amountMismatch(), result.missing(), result.totalMismatch(),
+                result.feeChecked(), result.feeMismatch());
     }
 
     /**

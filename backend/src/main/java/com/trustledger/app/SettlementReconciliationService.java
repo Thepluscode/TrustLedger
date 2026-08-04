@@ -2,12 +2,14 @@ package com.trustledger.app;
 
 import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.ExternalPaymentAttemptEntity;
+import com.trustledger.persistence.entity.ProviderFeeScheduleEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.persistence.entity.SettlementStatementEntity;
 import com.trustledger.persistence.entity.SettlementStatementLineEntity;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
+import com.trustledger.persistence.repo.ProviderFeeScheduleRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.persistence.repo.SettlementStatementLineRepository;
 import com.trustledger.persistence.repo.SettlementStatementRepository;
@@ -41,9 +43,13 @@ public class SettlementReconciliationService {
                                  Instant periodStart, Instant periodEnd, List<LineInput> lines,
                                  BigDecimal declaredTotalAmount, BigDecimal declaredTotalFees) {}
 
+    /**
+     * {@code feeChecked} is how many lines were actually compared against a fee schedule — reported so
+     * "0 fee breaks" can be distinguished from "no schedule configured, nothing was checked".
+     */
     public record IngestResult(SettlementStatementEntity statement, boolean alreadyIngested,
                                int matched, int unmatched, int amountMismatch, int missing,
-                               boolean totalMismatch) {}
+                               boolean totalMismatch, int feeChecked, int feeMismatch) {}
 
     public record StatementDetail(SettlementStatementEntity statement, List<SettlementStatementLineEntity> lines) {}
 
@@ -54,18 +60,21 @@ public class SettlementReconciliationService {
     private final ExternalPaymentAttemptRepository attempts;
     private final ReconciliationIssueRepository issues;
     private final AuditLogRepository auditLogs;
+    private final ProviderFeeScheduleRepository feeSchedules;
     private final ObjectMapper json;
 
     public SettlementReconciliationService(SettlementStatementRepository statements,
                                            SettlementStatementLineRepository lines,
                                            ExternalPaymentAttemptRepository attempts,
                                            ReconciliationIssueRepository issues, AuditLogRepository auditLogs,
+                                           ProviderFeeScheduleRepository feeSchedules,
                                            ObjectMapper json) {
         this.statements = statements;
         this.lines = lines;
         this.attempts = attempts;
         this.issues = issues;
         this.auditLogs = auditLogs;
+        this.feeSchedules = feeSchedules;
         this.json = json;
     }
 
@@ -94,11 +103,21 @@ public class SettlementReconciliationService {
         // otherwise the statement is truncated/corrupted (e.g. a partial upload) — a data-integrity break.
         boolean totalMismatch = checkDeclaredTotals(tenantId, stmtId, in, totalAmount, totalFees);
 
-        int matched = 0, unmatched = 0, mismatch = 0;
+        // The schedule in force during the statement's period — NOT today's. Ingesting a historical
+        // statement after a fee renegotiation must not manufacture breaks against current rates.
+        Optional<ProviderFeeScheduleEntity> schedule = feeSchedules
+                .findFirstByTenantIdAndProviderAndCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+                        tenantId, in.provider(), in.currency(), in.periodStart());
+
+        int matched = 0, unmatched = 0, mismatch = 0, feeChecked = 0, feeMismatch = 0;
         Set<String> statementRefs = new HashSet<>();
         for (LineInput li : in.lines()) {
             statementRefs.add(li.providerReference());
             checkFeeIntegrity(tenantId, stmtId, in, li);
+            if (schedule.isPresent() && li.fee() != null) {
+                feeChecked++;
+                if (checkFeeAgainstSchedule(tenantId, stmtId, in, li, schedule.get())) feeMismatch++;
+            }
             Optional<ExternalPaymentAttemptEntity> attempt = attempts
                     .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
             String matchStatus;
@@ -136,8 +155,40 @@ public class SettlementReconciliationService {
         }
 
         int missing = reverseSweep(tenantId, stmtId, in, statementRefs);
-        audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing);
-        return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch);
+        audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing, feeChecked, feeMismatch);
+        return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch,
+                feeChecked, feeMismatch);
+    }
+
+    /**
+     * Expected-vs-received fee check (§8.4 fee reconciliation, slice 2). Returns true when the received
+     * fee disagrees with the contracted schedule beyond its tolerance.
+     *
+     * <p>An <b>overcharge</b> is money the tenant lost and is the reason this feature exists, so it is
+     * HIGH. An <b>undercharge</b> is still a break worth investigating — usually a misconfigured
+     * schedule, occasionally a provider error that will be clawed back later — but it is not a present
+     * loss, so it is MEDIUM. Direction and delta are in the evidence either way.
+     */
+    private boolean checkFeeAgainstSchedule(UUID tenantId, UUID stmtId, StatementInput in, LineInput li,
+                                            ProviderFeeScheduleEntity schedule) {
+        if (schedule.agreesWith(li.amount(), li.fee())) return false;
+        BigDecimal expected = schedule.expectedFeeFor(li.amount());
+        BigDecimal delta = li.fee().subtract(expected);
+        boolean overcharged = delta.signum() > 0;
+        raise(tenantId, overcharged ? "HIGH" : "MEDIUM", "SETTLEMENT_FEE_MISMATCH", "SETTLEMENT_STATEMENT_LINE",
+                UUID.nameUUIDFromBytes((stmtId + ":feesched:" + li.providerReference()).getBytes()),
+                "fee " + expected.toPlainString() + " per the schedule effective "
+                        + schedule.getEffectiveFrom() + " (tolerance " + schedule.getTolerance().toPlainString() + ")",
+                "provider charged " + li.fee().toPlainString()
+                        + " (" + (overcharged ? "over" : "under") + " by " + delta.abs().toPlainString() + ")",
+                Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
+                        "amount", li.amount().toPlainString(), "expectedFee", expected.toPlainString(),
+                        "receivedFee", li.fee().toPlainString(), "delta", delta.toPlainString(),
+                        "direction", overcharged ? "OVERCHARGE" : "UNDERCHARGE",
+                        "scheduleId", schedule.getId().toString(),
+                        "scheduleEffectiveFrom", schedule.getEffectiveFrom().toString(),
+                        "statementId", stmtId.toString()));
+        return true;
     }
 
     /**
@@ -260,7 +311,7 @@ public class SettlementReconciliationService {
                 stmt.getPeriodStart(), stmt.getPeriodEnd(), statementRefs).size();
         // On idempotent replay the declared totals aren't re-supplied; the total-mismatch check already
         // ran (and raised, if applicable) on first ingest, so report false here rather than re-deriving.
-        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing, false);
+        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing, false, 0, 0);
     }
 
     private void raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
@@ -272,10 +323,11 @@ public class SettlementReconciliationService {
     }
 
     private void audit(UUID tenantId, UUID actorId, SettlementStatementEntity stmt,
-                       int matched, int unmatched, int mismatch, int missing) {
+                       int matched, int unmatched, int mismatch, int missing, int feeChecked, int feeMismatch) {
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId,
                 "SETTLEMENT_STATEMENT_INGESTED", "SETTLEMENT_STATEMENT", stmt.getId(),
                 json.writeValueAsString(Map.of("provider", stmt.getProvider(), "statementRef", stmt.getStatementRef(),
-                        "matched", matched, "unmatched", unmatched, "amountMismatch", mismatch, "missing", missing))));
+                        "matched", matched, "unmatched", unmatched, "amountMismatch", mismatch, "missing", missing,
+                        "feeChecked", feeChecked, "feeMismatch", feeMismatch))));
     }
 }
