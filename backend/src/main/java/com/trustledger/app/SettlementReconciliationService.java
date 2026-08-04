@@ -98,6 +98,7 @@ public class SettlementReconciliationService {
         Set<String> statementRefs = new HashSet<>();
         for (LineInput li : in.lines()) {
             statementRefs.add(li.providerReference());
+            checkFeeIntegrity(tenantId, stmtId, in, li);
             Optional<ExternalPaymentAttemptEntity> attempt = attempts
                     .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
             String matchStatus;
@@ -137,6 +138,28 @@ public class SettlementReconciliationService {
         int missing = reverseSweep(tenantId, stmtId, in, statementRefs);
         audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing);
         return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch);
+    }
+
+    /**
+     * Zero-config fee integrity (§8.4 fee reconciliation, slice 1): a negative fee, or a fee that
+     * equals/exceeds its own line's amount on a positive-amount line, is corrupt or misfiled data
+     * under ANY fee schedule — no tenant configuration needed to know it's wrong. Expected-vs-received
+     * fee checking against a real tenant/provider fee schedule is the next slice (needs schema + API).
+     */
+    private void checkFeeIntegrity(UUID tenantId, UUID stmtId, StatementInput in, LineInput li) {
+        BigDecimal fee = li.fee();
+        if (fee == null) return;
+        boolean negative = fee.signum() < 0;
+        boolean swallowsLine = li.amount().signum() > 0 && fee.compareTo(li.amount()) >= 0;
+        if (!negative && !swallowsLine) return;
+        raise(tenantId, "HIGH", "SETTLEMENT_FEE_IMPLAUSIBLE", "SETTLEMENT_STATEMENT_LINE",
+                UUID.nameUUIDFromBytes((stmtId + ":fee:" + li.providerReference()).getBytes()),
+                "a plausible fee: non-negative and smaller than the line amount",
+                (negative ? "negative fee " : "fee >= line amount: fee ") + fee.toPlainString()
+                        + " on amount " + li.amount().toPlainString(),
+                Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
+                        "amount", li.amount().toPlainString(), "fee", fee.toPlainString(),
+                        "statementId", stmtId.toString()));
     }
 
     /** Raises SETTLEMENT_TOTAL_MISMATCH if a declared batch total disagrees with the sum of the lines. */

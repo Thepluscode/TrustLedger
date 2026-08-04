@@ -521,6 +521,16 @@ suite + Trivy + gitleaks + SBOM). Ordered by area.
 - #68 settlement-statement detail view (lines + per-line match status).
 - #69 break → source-statement navigation (statement id stamped into evidence).
 - #70 settlement-statement CSV ingest (server-side parse, tested).
+- **Fee integrity, slice 1 (2026-08-04, VERIFIED):** every ingested line's fee is checked for
+  *schedule-independent* implausibility — a negative fee, or a fee ≥ its own line's amount on a
+  positive-amount line — raising `SETTLEMENT_FEE_IMPLAUSIBLE` (HIGH). Zero configuration: these are
+  wrong under *any* fee schedule, so no tenant setup is needed to catch corrupt or misfiled fee data.
+  A null fee (provider doesn't itemise) is never a break. Evidence: 10/10 in
+  `SettlementReconciliationIntegrationTest`, and **mutation-verified** — removing the guard turns the
+  new test red (`expected: <3> but was: <0>`) while the other 9 stay green, so the test is neither
+  decoration nor over-asserting. **Honest scope:** this is *plausibility*, not *expected-vs-received*
+  fee reconciliation — checking a fee against a real tenant/provider fee schedule needs a schedule
+  schema + API and is the next slice. Do not describe fee reconciliation as done.
 
 **Fraud control graph (VERIFIED):** #73 signals persisted as first-class rows (the V1 `fraud_signals`
 table, never previously written to) served per case; #75 same coverage on the external-rail held path;
