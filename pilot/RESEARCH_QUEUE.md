@@ -39,21 +39,46 @@ establish any of the six things that actually qualify a buyer:
 | Curnance | Africa corridors | Multi-currency wallets via regulated settlement partners | Name the settlement partners; find ops/finance lead | Unqualified |
 | Betaling | Africa / cross-border | Business payments, institutional liquidity, stablecoin settlement | Confirm fiat *and* stablecoin legs are separate counterparties | Unqualified |
 | TranzyPay | UK ↔ Africa | UK–Africa payments, FX, treasury, local collections | UK entity → check FCA register; find treasury owner | Unqualified |
-| Swifter | Africa (20+ countries) | Settlement to banks/fintechs, multiple liquidity sources | Name the liquidity sources; confirm ops function | Unqualified |
 | PAL | Africa | Collections, payouts, multi-currency, reconciliation trails | "Reconciliation trails" in their own copy — verify what it means | Unqualified |
-| Lumepay | Cross-border | Multi-currency accounts, reconciliation-reduction APIs | They claim to *reduce* reconciliation — may be a competitor, check | Unqualified |
 | Sendi | East Africa → global | Supplier-payment corridors, multiple payout methods | Confirm ≥2 payout partners; find who owns failed payouts | Unqualified |
 | Rift | Africa + chains | Local currencies, banks, fintechs, several blockchain networks | Confirm fiat rails ≥2; chain legs alone don't qualify | Unqualified |
 | Grey | Multi-market | Multi-currency accounts, payout partnerships into new markets | Name the payout partners; find payments lead | Unqualified |
 | NALA / Rafiki | Multi-region | Consumer cross-border + B2B payouts/collections API | Rafiki (B2B arm) is the likelier buyer — verify separately | Unqualified |
 | LemFi | **UK / US / CA / EU** + 30 countries | Multi-currency wallets, several funding methods | Non-African footprint — name funding partners; find finance ops | Unqualified |
-| Kora | Multi-country | Collections, payouts, settlements, balances via one integration | Confirm they *consume* ≥2 providers rather than being one | Unqualified |
 | Leatherback | Global | Global collections, payouts, multi-currency accounts, FX | Check licence registers; find ops owner | Unqualified |
 | Chipper Cash | Several markets | Cross-border payments, wallets, API collections/payouts | Large enough to have a real ops function — find its head | Unqualified |
 | Verto | Global | Global collections, payouts, expenses, cross-border infra | UK-registered — FCA/EMI check; find treasury owner | Unqualified |
 
-**Source for all 15 rows:** homepage citations gathered in an external research pass, 2026-08-01.
+**Source for all rows:** homepage citations gathered in an external research pass, 2026-08-01.
 Recorded as one source with one confidence level rather than fifteen, because that is what it was.
+**12 live, 3 disqualified** — see below.
+
+---
+
+## DISQUALIFIED — sellers, not buyers (checked 2026-08-01)
+
+Three of the fifteen were mis-scoped. Each **sells** payment infrastructure rather than consuming it,
+so its customers are the ICP and it is not. Removed from the queue above rather than left to waste a
+discovery call.
+
+| Company | Finding | Verdict |
+|---|---|---|
+| **Lumepay** | Markets enterprise APIs that "cut reconciliation time", with "automated reconciliation and reporting" across FX, liquidity, collections, disbursements and settlement inside a single licensed perimeter | **Competitor.** Sells the reconciliation value proposition directly. Do not pitch. |
+| **Kora** | Licensed payment infrastructure provider; payouts to 250+ commercial and microfinance banks; accepts cards, mobile money, transfers and virtual accounts across NG/KE/GH/ZA | **Provider.** Its merchants are the buyers. |
+| **Swifter** | "The invisible technology layer that powers cross-border payments for banks… never touch customer funds"; FX aggregation across multiple liquidity providers, smart routing, 20+ countries | **Provider, and adjacent on routing.** Its bank customers are the buyers. |
+
+**Kora and Swifter are worth keeping as channel candidates, not prospects.** A provider sees which of
+its merchants are drowning in exceptions, and an introduction from one carries more weight than a
+cold approach. That is a partnership conversation on a different timeline — do not let it displace
+direct discovery.
+
+**What this validates:** 3 of 15 — 20% of the queue — could not have bought anything. Every one of
+them looked plausible from homepage copy, which is precisely why the queue and the target list are
+separate files.
+
+**Also re-check on the same test before contacting:** Rift (blockchain networks may not be payment
+*providers* in the sense that matters — fiat rails still required) and Betaling (stablecoin leg,
+same question).
 
 ---
 

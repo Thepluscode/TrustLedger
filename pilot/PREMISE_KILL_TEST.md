@@ -5,7 +5,8 @@
 > STOP threshold before running the test** — so a bad result can't be rationalised into
 > a good one. No further infrastructure until this passes.
 >
-> Status: **UNVALIDATED.** The engine is built ahead of this test. Interviews run to date: **0 of 25**. This gate decides
+> Status: **UNVALIDATED.** The engine is built ahead of this test. Interviews run to date: **0 of 25**
+> (verify with `python3 pilot/score_kill_test.py`, never by reading this line — it goes stale). This gate decides
 > whether the commercial thesis under it is real.
 
 ---
@@ -134,6 +135,18 @@ Any two of these appearing consistently = STOP, not "iterate the pitch."
 
 ## Cost & timebox
 
-~18 conversations, **one to two weeks**, zero new code, zero infrastructure. This is the
+25 conversations, **two to three weeks**, zero new code, zero infrastructure. This is the
 cheapest falsifiable check that exists for this premise. It runs entirely in parallel with,
 and gates, any further build on the commercial thesis.
+
+*(Corrected 2026-08-01 — this section still said "~18 conversations, one to two weeks" after the
+gate was raised to 25 on 2026-07-31.)*
+
+**Running it:**
+- Book calls with `pilot/INTERVIEW_OUTREACH.md`. Log every send in `pilot/kill-test-tracker.csv`
+  the moment it goes out — the §9.6 scoreboard counts sends, not drafts.
+- Score with `python3 pilot/score_kill_test.py`. The thresholds live in that file, in code, because
+  a threshold you can renegotiate while looking at results is not a threshold. `--selftest` verifies
+  the scorer (11 cases, including that a booked-but-unheld call does not count toward N).
+- The scorer fails fast: if pain becomes unreachable even were every remaining interview to clear
+  it, it returns STOP before you finish the set.
