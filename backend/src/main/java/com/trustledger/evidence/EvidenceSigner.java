@@ -10,6 +10,9 @@ import java.security.Signature;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,11 +51,26 @@ public class EvidenceSigner {
     private final PrivateKey privateKey;
     private final String publicKeyBase64;
     private final String keyId;
+    /** keyId -> public key, covering the active key and every retired one. Verification only. */
+    private final Map<String, String> verificationKeys = new LinkedHashMap<>();
 
     public EvidenceSigner(@Value("${trustledger.evidence.signing.private-key:}") String base64PrivateKey,
-                          @Value("${trustledger.evidence.signing.public-key:}") String base64PublicKey) {
+                          @Value("${trustledger.evidence.signing.public-key:}") String base64PublicKey,
+                          @Value("${trustledger.evidence.signing.retired-public-keys:}") String retiredPublicKeys) {
         boolean hasPrivate = base64PrivateKey != null && !base64PrivateKey.isBlank();
         boolean hasPublic = base64PublicKey != null && !base64PublicKey.isBlank();
+
+        // Retired keys are registered first and unconditionally: an instance that has stopped signing
+        // (key withdrawn, read-only archive node) must still verify the evidence it produced before.
+        if (retiredPublicKeys != null && !retiredPublicKeys.isBlank()) {
+            for (String candidate : retiredPublicKeys.split(",")) {
+                String key = candidate.trim();
+                if (key.isEmpty()) continue;
+                String id = fingerprint(key);   // throws on a malformed key rather than skipping it
+                verificationKeys.put(id, key);
+                log.info("Registered retired evidence verification key {}", id);
+            }
+        }
 
         if (!hasPrivate && !hasPublic) {
             this.privateKey = null;
@@ -85,7 +103,34 @@ public class EvidenceSigner {
             throw new IllegalStateException("Evidence signing key pair does not match: the configured "
                 + "public key cannot verify a signature made with the configured private key");
         }
-        log.info("Evidence signing enabled with {} key {}", ALGORITHM, keyId);
+        verificationKeys.put(this.keyId, this.publicKeyBase64);
+        log.info("Evidence signing enabled with {} key {} ({} verification key(s) known)",
+            ALGORITHM, keyId, verificationKeys.size());
+    }
+
+    /**
+     * Verifies a pack against the key it was actually signed with, looked up by the key id recorded on
+     * the export. This is what makes key rotation safe: rotating the signing key does not invalidate
+     * evidence produced under the previous one, so long as its public half stays registered.
+     *
+     * <p>An unknown key id returns false rather than falling back to the active key. Silently
+     * verifying against a different key than the pack claims would turn "signed by a key we no longer
+     * recognise" into "verified", which is exactly the assurance a signature is supposed to withhold.
+     */
+    public boolean verifyByKeyId(String signingKeyId, byte[] content, String base64Signature) {
+        if (signingKeyId == null) return false;
+        String publicKey = verificationKeys.get(signingKeyId);
+        return publicKey != null && verifyWith(publicKey, content, base64Signature);
+    }
+
+    /** True when a pack signed by this key id can still be verified by this instance. */
+    public boolean knowsKey(String signingKeyId) {
+        return signingKeyId != null && verificationKeys.containsKey(signingKeyId);
+    }
+
+    /** Every public key this instance can verify against, active first. Safe to publish in full. */
+    public Map<String, String> verificationKeys() {
+        return Collections.unmodifiableMap(verificationKeys);
     }
 
     public boolean enabled() { return privateKey != null; }
