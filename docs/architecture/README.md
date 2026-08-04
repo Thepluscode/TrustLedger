@@ -14,6 +14,12 @@ headings.
 | [003](ADR-003-provider-and-geography-neutral-core.md) | Core stays provider- and geography-neutral; regional/industry packs are earned, not pre-built | Accepted (amended 2026-07-29) |
 | [004](ADR-004-currency-minor-units-at-the-boundary.md) | Scale-4 internally, currency minor units at the provider boundary | Accepted |
 
+## Open decisions
+
+- **[ADR-006](ADR-006-opening-balances-bypass-the-ledger.md) — opening balances bypass the ledger.**
+  Proposed, not decided. Contradicts ADR-002's "balances are derived views" corollary; found by the
+  2026-08-04 recovery drill. Needs a product decision on whether TrustLedger models external funding.
+
 ## Not yet recorded
 
 Decisions taken in code that still lack an ADR — write one before the reasoning is lost:
