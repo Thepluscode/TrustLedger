@@ -544,21 +544,30 @@ availability, p95 latencies, throughput, RTO/RPO, scale targets. Checking the re
 - **No benchmark, load test, JMH harness or k6 script exists anywhere.**
 - Therefore **not one** of those numbers has ever been measured on this system.
 
-Status: **PLANNED**. Nothing here may be written as a target-that-reads-like-a-result — Rule 3, "it
-should be fast enough" is not evidence. The table gets created when the first row can be filled from
-a real run.
+Status: **IN PROGRESS** — first two performance rows measured 2026-08-04. Nothing here may be
+written as a target-that-reads-like-a-result — Rule 3, "it should be fast enough" is not evidence.
 
 | Attribute | Target | Measured | How |
 |---|---|---|---|
 | Core API availability | — | **never measured** | synthetic monitoring (not set up) |
-| Transfer creation p95 | — | **never measured** | load test (not written) |
-| Throughput (TPS) | — | **never measured** | load test (not written) |
+| Transfer creation p95 | — | **51.3 ms** (worse of 2 runs; p50 37.4, p99 130.8) | `scripts/load_transfer_probe.py`, 2026-08-04 |
+| Throughput (TPS) | — | **250.8/s** (worse of 2 runs; second run 271.2) | same probe, same runs |
 | RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
 
-The last two rows are the only ones with evidence, and they are correctness properties rather than
-performance ones. Smallest honest next step: one load test that fills a single row.
+**Measurement conditions (read before quoting these numbers):** 1,000 transfers per run, 10
+concurrent workers, each worker its own source→destination account pair (measures the pipeline, not
+single-account lock serialisation); every measured request asserted `200 COMPLETED` — a single
+non-completed response fails the run. Full live path: JWT auth → idempotency → intelligence-gate
+fraud scoring → row-locked double-entry ledger post → audit + outbox row. Environment: single dev
+boot (`mvn spring-boot:run`) on an Apple-silicon laptop, PostgreSQL 16 in a colima VM, outbox
+*publisher* disabled (rows still written; no Kafka running), per-IP rate limiter raised (not the
+system under test), tenant step-up threshold raised to 60 so cold-start score-45 transfers complete
+in the monitor band. These are a **local baseline floor, not a production claim** — no claim about
+availability, sustained load, or multi-node behaviour follows from them.
+
+Still unmeasured: availability, RTO/RPO, sustained-load behaviour, single-account contention TPS.
 
 ## Architecture decision records (2026-07-29)
 
