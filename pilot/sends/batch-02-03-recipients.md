@@ -237,3 +237,43 @@ Registry checks run against the "verify first" items above; results recorded so 
   function remain **manual browser checks** — two minutes each at dfsa.ae/public-register.
 - **BaFin portal** — rejects non-browser fetches (malformed-header parse failure). Superseded by the
   Handelsregister result above; no manual check needed.
+
+---
+
+# Constructed email addresses (2026-08-04, round 3)
+
+**Zero personal addresses are published anywhere across all 14 companies** — consistent over three
+research rounds; that is the sector's ceiling. Every address below is a CONSTRUCTION from
+multi-aggregator pattern consensus (plus observed same-domain corroboration where noted), created as
+a Gmail draft with the label in its subject tag. Founder strips the tag and sends.
+
+| Company | Address in draft | Label | Key caveat |
+|---|---|---|---|
+| Trade Republic | andreas.torner@traderepublic.com | CONSENSUS (best) | 6 scraped examples match the pattern; Germany UWG §7 — keep research framing, one follow-up max |
+| IG Group | clifford.abrahams@ig.com | CONSENSUS (best) | 3 aggregators + observed `TR1.Notifications@ig.com` corroborates dot form on ig.com |
+| Trading 212 | george.mantilas@trading212.com | CONSENSUS | 99.1% first.last over 1,529 records; alt georgios. |
+| Equiti | sean.hong@equiti.com | CONSENSUS | role re-verified via Aug 2025 PRNewswire |
+| MultiBank | salem.kattoura@multibankfx.com | CONSENSUS | mail domain is multibankfx.com NOT multibankgroup.com (2 confirmations) |
+| Swissquote | nestor.verrier@swissquote.ch | CONSENSUS | mail domain is .ch NOT .com (observed mediarelations@swissquote.ch ×2) |
+| Bybit EU | mazurka.zeng@bybit.com | CONSENSUS | ⚠ AUSTRIA TKG §174: cold email needs prior consent — LinkedIn preferred. bybit.eu unverified as mail domain. Zeng register-confirmed on operating entity FN 636180i (legal name Yangyang Zeng) |
+| Paynovate | robert.masse@paynovate.com | CONSENSUS | cleanest pattern (2×100%); the person is the weak link, not the address |
+| iBanFirst | arnaud.delaporte@ibanfirst.com | CONSENSUS | particle folded per Le Monde du Droit slug; drop adelaporte@ (no pattern support) |
+| Alpaca Europe | karan.shanmugarajah@alpaca.markets | CONSENSUS | acquisition <4 months old — karan@wealthkernel.com is an immediate 2nd shot, not last resort |
+| Deriv | jennice@deriv.com | CONSENSUS (thin) | FIRST-NAME-ONLY house style (observed in their GitHub); 9 formats in use; retry jennice@deriv.me |
+| Lemonway | cgimbert@lemonway.com | CONSENSUS | pattern is FLast (92%) NOT first.last (3%); surname ambiguity — retry cmatta-gimbert@ |
+| Freetrade | nick.robinson@freetrade.io | WEAK | 49% vs 47% pattern tie; he joined Jun 2026 (not in any dataset); 3rd shot nick.robinson@ig.com (IG owns Freetrade) |
+| Blockchain.com | mwilcox@blockchain.com | WEAK | aggregators contradict (flast 59% vs first@ 73%); observed 2018 GitHub addresses are all first@ but era-stale; alt mike@ |
+
+**Debunk recorded:** `martin.price@ig.com` circulates as "observed via LSE/RNS" — it is NOT. The
+30 Jul 2026 RNS PDF contains names and phones only (verified by decoding its glyph-offset font),
+and the shareholder page's Cloudflare-encoded contact for Price resolves to `investors@ig.com`.
+
+**Send hygiene (from the research, applies to all):** guessed addresses bounce and bounces hurt
+sender reputation — send one per company at a time so a bounce informs the next variant; stagger
+rather than blasting; a non-bounce is not proof of delivery (catch-alls exist). Aggregator
+percentages are shares of scraped records, not delivery probabilities — they under-represent recent
+senior hires (bites hardest on Freetrade's Robinson and Blockchain.com's Wilcox).
+
+**Reusable method note:** Cloudflare-protected contact pages carry the real address in
+`data-cfemail` (XOR against first hex byte) — that is how IG's genuine role addresses were
+recovered. Works on any cf-protected page.
