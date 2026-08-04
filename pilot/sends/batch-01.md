@@ -4,9 +4,10 @@
 > `kill-test-tracker.csv` — nowhere else. The nine-week pattern this whole branch exists to break is
 > drafts accumulating while the send count stays at zero.
 >
-> **Before each one goes out you must supply one thing I cannot:** the recipient. Every message below
-> has a `[Name]` and a "who to target" line naming the role to search for. A message to
-> `info@` or `careers@` is a wasted send, not a fast one.
+> **Recipients researched 2026-08-04** — see `batch-01-recipients.md` for the named person, source,
+> confidence rating and per-company caveats behind every `[Name]` below. Eyeball the live LinkedIn
+> profile before each send (confidence ratings and two verification blockers are in that file).
+> A message to `info@` or `careers@` is a wasted send, not a fast one.
 
 **Composition:** 6 payments-fintech · 2 brokerage · 2 multi-rail crypto. Deliberate — the gate needs
 **≥3 sub-segments** cleared, so an all-Tier-A batch produces an unusable read even if every call
@@ -78,17 +79,19 @@ Manager** (Brussels). Two roles at once is a company that has already decided th
 
 ## 3. Trustly — bank-by-bank settlement clocks
 
-**Signal:** hiring **Director Finance Operations** (London). Open-banking A2A payments across many
-bank connections and markets — every bank settles on its own clock in its own format.
-**Who to target:** the incoming Director, or the CFO / VP Finance who owns the req.
+**Signal:** was hiring **Director Finance Operations** (London) — posting pulled 13 Jul 2026, seat
+likely just filled. Open-banking A2A payments across many bank connections and markets — every bank
+settles on its own clock in its own format.
+**Who to target:** Adam Miller, Group CFO (the incoming Director is not yet publicly identifiable).
 **Channel:** C
 
 > Subject: when a bank settles late, how long before you know?
 >
 > Hi [Name],
 >
-> You're hiring a Director of Finance Operations. Across as many bank connections as you run, I'd
-> guess "which of these settled, and when" is a harder question than it sounds.
+> You just brought in (or are about to) a Director of Finance Operations. Across as many bank
+> connections as you run, I'd guess "which of these settled, and when" is a harder question than it
+> sounds — and a new pair of eyes on it makes this a good moment to ask.
 >
 > I'm researching exactly that across ~25 companies running multiple providers or banking partners —
 > how a late or short settlement gets noticed, and how long after the fact. Research, not a sales
@@ -203,7 +206,11 @@ whether *regulatory* pain converts differently from *operational* pain — worth
 
 ---
 
-## 8. Zest — named reconciliation role, payments-native
+## 8. Zest — named reconciliation role, payments-native — ⚠ PARKED 2026-08-04
+
+> **Parked:** resolved to Zest Payments Ltd (Stanbic IBTC subsidiary, Lagos) — no named ops/finance
+> contact is publicly reachable, and the only named exec (CEO Kemi Okusanya) is 2 months into the
+> job. Keep the draft; promote a `RESEARCH_QUEUE.md` candidate into this slot for the send count.
 
 **Signal:** hiring **Reconciliation Analyst** (Nigeria). Payments processor with a dedicated
 reconciliation seat.
@@ -247,9 +254,12 @@ read.
 
 ## 10. Blockchain.com — two settlement systems that disagree on time
 
-**Signal:** hiring **Treasury Operations Analyst** (London). Fiat banking partners plus on-chain
-settlement — two systems that do not agree on when something happened.
-**Who to target:** Head of Treasury or Finance Director, London.
+**Signal (upgraded 2026-08-04):** hiring a **Corporate Treasurer** (posted 11 Jun 2026, London,
+reports to the CFO) to *build* the global treasury function — the seat that owns this is vacant.
+Fiat banking partners plus on-chain settlement — two systems that do not agree on when something
+happened.
+**Who to target:** Mike Wilcox, CFO (the vacant treasurer seat reports to him). NOT James Ambrose
+(relocated to US, title changed).
 **Channel:** C
 **Expect the data bar to fail here.** Custody and regulatory posture make read-access to settlement
 data a hard no more often than not. Interview anyway — a clean, well-argued "no" on the data bar is
@@ -260,9 +270,9 @@ another polite yes.
 >
 > Hi [Name],
 >
-> You're hiring a Treasury Operations Analyst. Reconciling bank settlement against on-chain movement
-> means two systems that disagree about when things happened — I'd like to understand how that's
-> handled in practice.
+> You're hiring a Corporate Treasurer to build out the global treasury function. Reconciling bank
+> settlement against on-chain movement means two systems that disagree about when things happened —
+> I'd like to understand how that's handled while the seat that will own it is still being filled.
 >
 > Research across ~25 companies running multiple settlement rails; anonymised findings shared back.
 > Not a sales call.
