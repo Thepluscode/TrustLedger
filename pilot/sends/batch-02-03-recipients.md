@@ -216,3 +216,24 @@ everywhere; **the vacancy pattern recurs** (OKX, MultiBank, IronFX, CMC, OSL, By
 creating/filling the exact roles we target — pain confirmation even where it removes the
 interviewee); **below-C-suite ops leadership is structurally invisible** to public web at brokerages
 — target COO/CFO, cite the team by its real internal name from their own job ads, let them route down.
+
+---
+
+# Verification pass (2026-08-04, same day)
+
+Registry checks run against the "verify first" items above; results recorded so nobody re-does them:
+
+- **Paynovate — recommendation changed.** Northdata's view of the Belgian KBO filings (0506.763.929)
+  names **Robert Masse (CEO/director, filings 2018–2024)** and the historical board — **Doppée,
+  Schmidt and Hazard appear nowhere** in the visible filings ("3 directors + 1 executive-board
+  member" current; names paywalled). The aggregator-only Doppée pick is now doubly unverified.
+  **Send to Robert Masse** (registry-confirmed, founder-scale company) unless Doppée is confirmed on
+  live LinkedIn first.
+- **Trade Republic — pre-send check satisfied.** Northdata's mirror of Handelsregister HRB 244347 B
+  confirms **Andreas M. Torner as a current Geschäftsführer**. The BaFin re-check the dossier asked
+  for is covered by the commercial-register publications. **Sendable.**
+- **DFSA (CMC Markets F002740, ThinkMarkets DIFC) — confirmed unreachable by automation.** Second
+  independent attempt returned a hard 403. Ahmed Soliman's SEO title and Al Lahham's licensed
+  function remain **manual browser checks** — two minutes each at dfsa.ae/public-register.
+- **BaFin portal** — rejects non-browser fetches (malformed-header parse failure). Superseded by the
+  Handelsregister result above; no manual check needed.
