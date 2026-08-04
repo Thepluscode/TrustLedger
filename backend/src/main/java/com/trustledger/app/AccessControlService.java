@@ -26,7 +26,9 @@ public class AccessControlService {
         if (!RolePermissions.has(role, permission)) {
             auditLogs.save(new AuditLogEntity(UUID.randomUUID(), CurrentUser.tenantId(), "USER", CurrentUser.userId(),
                 "ACCESS_DENIED", "PERMISSION", null,
-                "{\"permission\":\"" + permission + "\",\"role\":\"" + role + "\"}"));
+                "{\"permission\":\"" + permission + "\",\"role\":\"" + role + "\"}")
+                // A denial that does not name the rule tells you that you were stopped, not by what.
+                .outcome(AuditLogEntity.DENIED, "RBAC:" + role + " lacks " + permission));
             throw new ForbiddenException("Missing permission: " + permission);
         }
     }

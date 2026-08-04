@@ -46,11 +46,29 @@ survives). Publishing checkpoint hashes to external, append-only storage is the 
 is **not** built. Rows written after the last seal are **not yet protected**, and `verify()` reports
 that count separately so a pass can never be misread as covering the whole trail.
 
-**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~ (done —
-see the row above), **result**, **before/after references**, **policy decision**. Unlike the
-correlation ID — which is ambient per-request and so was captured centrally without touching a single
-write site — these three are genuinely per-call-site information and need an `AuditLogEntity`
-constructor change across 30 services. Separate work.
+**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~,
+~~result~~, ~~before/after references~~, ~~policy decision~~ — **all four now exist (2026-08-04)**.
+V42 adds `result` (SUCCESS/FAILURE/DENIED, CHECK-constrained), `policy_decision` and `state_change`.
+The feared "constructor change across 30 services" was avoided: the fields are **fluent and opt-in**
+(`.outcome(result, policy)`, `.stateChange(json)`), so a call site adopts them when it has something
+true to record rather than every site being edited at once to pass placeholders — a placeholder
+outcome is worse than an honest NULL.
+
+**`state_change` holds REFERENCES, not snapshots**, deliberately: audit rows must not become a second
+copy of financial state that can disagree with the ledger.
+
+**The interaction that mattered:** the V40 checkpoint digest hashes an *explicit column list*, so new
+columns are **not** covered unless added to it. Left alone, an attacker could have rewritten `result`
+from DENIED to SUCCESS — the single most attractive edit available — without breaking the chain. The
+digest now covers all three. Mutation-verified: removing them from the digest turns both new tests
+green-to-red (`expected: <TAMPERED> but was: <VERIFIED>`), which is exactly the hole.
+
+**Adoption coverage — honest count: 1 of 18 audit write sites.** `AccessControlService` (every
+permission denial) records `DENIED` plus the rule that fired, because a denial that does not name its
+rule tells you that you were stopped, not by what. The other 17 sites still write NULL and are *not*
+claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
+Evidence: `AuditChainTamperEvidenceIntegrationTest` 11 (2 new) + RBAC/immutability/correlation suites
+green.
 
 **Not correlated, by design:** rows written off-request (outbox publisher, reconciliation sweep,
 webhook inbox worker) carry a NULL correlation id — they have no request to correlate to. Rows

@@ -191,7 +191,8 @@ public class AuditChainService {
         List<String> rows = jdbc.query(
                 """
                 SELECT id, tenant_id, actor_type, actor_id, action, resource_type, resource_id,
-                       metadata::text AS metadata, correlation_id, created_at
+                       metadata::text AS metadata, correlation_id, result, policy_decision,
+                       state_change::text AS state_change, created_at
                   FROM audit_logs
                  WHERE created_at >= ? AND created_at < ?
                  ORDER BY created_at, id
@@ -207,6 +208,11 @@ public class AuditChainService {
                     field(sb, rs.getString("resource_id"));
                     field(sb, rs.getString("metadata"));
                     field(sb, rs.getString("correlation_id"));
+                    // The outcome fields are the ones an attacker would most want to rewrite —
+                    // turning a DENIED into a SUCCESS. They must be inside the digest, not beside it.
+                    field(sb, rs.getString("result"));
+                    field(sb, rs.getString("policy_decision"));
+                    field(sb, rs.getString("state_change"));
                     Timestamp ts = rs.getTimestamp("created_at");
                     Instant createdAt = ts.toInstant();
                     // Microsecond precision — what Postgres actually stores.
