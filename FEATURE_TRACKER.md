@@ -111,6 +111,7 @@ in order.
 | Fraud-case evidence pack (signals, linked cases, transfer) | **VERIFIED** | `EvidenceService.exportFraudCase`; bundle includes signals |
 | Ledger evidence report proves debits == credits | **VERIFIED** | `EvidenceExportIntegrationTest` asserts `balanced` + equal totals |
 | Checksums generated + verifiable | **VERIFIED** | `Checksums.sha256`; download bytes re-hash matches; `X-Evidence-Checksum` header |
+| **Signed evidence packs (blueprint §8.2)** | **VERIFIED** | V41 adds a detached **Ed25519** signature (JDK-native, no new dependency) over the **exact stored bytes** of every pack, plus the signing key id and algorithm. A checksum proves bytes are intact; it proves nothing about origin, because anyone who edits a pack can recompute its checksum. A signature proves both, and verifying needs only the **public** key — so an auditor can check a pack we handed them *without trusting us* and without holding anything that would let them forge one. Published at `GET /api/v1/evidence/signing-key`; re-verification at `GET /api/v1/evidence/exports/{id}/verify` reports checksum and signature **separately**. Evidence: `EvidenceSignerTest` (8 pure) + `EvidenceSignatureIntegrationTest` (4, real PG) — 19 evidence tests green across signed **and** unsigned modes. Mutation-verified: computing the signature but not attaching it reddens 3 of the 4 integration tests. |
 | Object storage abstraction (V10 evidence_exports) | **VERIFIED** | `EvidenceStorage` + in-memory default; S3/MinIO adapter is the prod target behind the same interface |
 | Export tenant-scoped + audited | **VERIFIED** | cross-tenant export 403; every export writes `EVIDENCE_EXPORTED` audit log |
 | Retention policies + legal hold (V10 retention_policies) | **VERIFIED** | `RetentionService`; **legal hold blocks deletion** then allows once released |
@@ -118,6 +119,18 @@ in order.
 | Backend suite | **VERIFIED** | 80 tests, 0 failures |
 
 Deferred (honest): PDF rendering (JSON bundles are the canonical, checksummed form — PDF is a renderer on top); audit/reconciliation CSV report exports beyond the fraud+ledger packs; the live S3/MinIO adapter (interface + in-memory verified).
+
+**Signing — honest scope (2026-08-04):** **unsigned is a supported state and says so.** With no key
+configured nothing is signed, `verify` reports `signed=false` with *"intact, but UNSIGNED: it cannot be
+proven to have originated from this system"*, and packs exported before V41 stay NULL — signing them
+now would date a signature to a key that did not exist when the evidence was produced, which is worse
+than an honest NULL. Deliberately **not** done: generating an ephemeral key at startup (it would
+produce signatures that verify today and silently stop verifying after a restart — a provenance claim
+that expires); key **rotation** and multi-key verification (one active key today, so a rotated key
+makes older packs unverifiable until this is built — the next step here); timestamping or
+counter-signature by an external authority, which is what would prove *when* a pack was signed rather
+than only by whom. A half-configured or mismatched key pair **fails startup** rather than degrading to
+unsigned, because unsigned-by-accident looks identical to unsigned-by-choice.
 
 ## v2.5 — production hardening
 
