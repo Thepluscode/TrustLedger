@@ -575,7 +575,20 @@ instance really is that much slower until warm. Contention mode (all 10 workers 
 row) halves throughput vs pipeline mode and completed 2,000/2,000 transfers with zero deadlocks —
 the deterministic lock-ordering held under sustained single-row contention.
 
-Still unmeasured: availability, RTO/RPO, sustained-load behaviour (minutes, not seconds).
+**Sustained load (5 min, measured 2026-08-04) — OPEN FINDING.** `load_transfer_probe.py sustained
+300`: 43,368 transfers, zero errors, but throughput decayed **monotonically** — per-minute TPS
+240 → 207 → 109 → 94 → 73, p50 39 ms → 118 ms. **Bisected same day:** a second 5-min run with the
+reconciliation sweep disabled decayed identically (250 → 243 → 96 → 48 → 44) — the sweep is
+exonerated. The second run's shape is a **cliff, not a slope**: flat ~250 TPS for two minutes, then
+p50 jumps 4× across the board after ~30k writes — a backend-wide slowdown, not per-request query
+growth, consistent with the untuned `postgres:16-alpine` container hitting WAL/checkpoint pressure
+(or JVM GC) inside a colima VM. Remaining confound: outbox publisher disabled, so pending rows
+accumulate unboundedly. Definitive attribution needs `pg_stat_bgwriter`/GC logs and a run against
+tuned Postgres + Kafka draining the outbox — until then **no sustained-throughput number may be
+quoted** (the burst numbers above are bursts) and this stays open rather than being called a
+product defect.
+
+Still unmeasured: availability; sustained load is measured but unexplained (see finding above).
 
 ## Architecture decision records (2026-07-29)
 
