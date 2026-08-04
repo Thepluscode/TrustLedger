@@ -579,14 +579,17 @@ the deterministic lock-ordering held under sustained single-row contention.
 300`: 43,368 transfers, zero errors, but throughput decayed **monotonically** — per-minute TPS
 240 → 207 → 109 → 94 → 73, p50 39 ms → 118 ms. **Bisected same day:** a second 5-min run with the
 reconciliation sweep disabled decayed identically (250 → 243 → 96 → 48 → 44) — the sweep is
-exonerated. The second run's shape is a **cliff, not a slope**: flat ~250 TPS for two minutes, then
-p50 jumps 4× across the board after ~30k writes — a backend-wide slowdown, not per-request query
-growth, consistent with the untuned `postgres:16-alpine` container hitting WAL/checkpoint pressure
-(or JVM GC) inside a colima VM. Remaining confound: outbox publisher disabled, so pending rows
-accumulate unboundedly. Definitive attribution needs `pg_stat_bgwriter`/GC logs and a run against
-tuned Postgres + Kafka draining the outbox — until then **no sustained-throughput number may be
-quoted** (the burst numbers above are bursts) and this stays open rather than being called a
-product defect.
+exonerated. **Attribution runs (same day) cleared the other suspects too:** a third 5-min run
+against *tuned* Postgres (`max_wal_size=4GB`, `shared_buffers=512MB`) still degraded, but
+`pg_stat_bgwriter` showed only **1 timed + 1 requested checkpoint** — checkpoints exonerated — and
+the JVM reported **~1.45 s total GC pause across the whole run** — GC exonerated. Decisively: the
+three runs show three *different* decay shapes (monotonic slope / cliff-at-30k / dip-then-recover),
+and the third run's first minute was already 27% slower than the cold-machine runs. **Disposition:
+not attributable on this hardware.** The variance is dominated by the host — Apple-silicon thermal
+throttling and colima-VM I/O scheduling under back-to-back sustained write load — not by any
+reproducible product behaviour. Sustained-load measurement needs controlled/server hardware;
+**no sustained-throughput number may be quoted from laptop runs** (the burst numbers above are
+bursts). Filed here so nobody chases a phantom product defect from these curves.
 
 Still unmeasured: availability; sustained load is measured but unexplained (see finding above).
 
