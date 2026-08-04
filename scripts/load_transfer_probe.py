@@ -9,7 +9,8 @@ Run against a locally booted backend (needs only Postgres; no Kafka):
     DATABASE_USERNAME=trustledger DATABASE_PASSWORD=trustledger \
     mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8091 \
       --trustledger.outbox.publisher.enabled=false --trustledger.ratelimit.requests-per-minute=100000000"
-  python3 scripts/load_transfer_probe.py
+  python3 scripts/load_transfer_probe.py            # pipeline mode: one account pair per worker
+  python3 scripts/load_transfer_probe.py single     # contention mode: ALL workers race ONE pair
 
 Method: register a tenant, create W (source, destination) account pairs, run a warmup
 (JVM JIT + fraud-baseline building), then measure N transfers across W concurrent
@@ -56,13 +57,18 @@ def main():
                        "autoFreezeEnabled": False, "deviceTrustAfter": None}, token)
     assert st == 200, f"policy update failed: {st} {pol}"
 
+    # "single" mode: every worker races the same source row — measures SELECT FOR UPDATE
+    # serialisation on one account, the worst case the pipeline numbers deliberately avoid.
+    single = len(sys.argv) > 1 and sys.argv[1] == "single"
     pairs = []
-    for _ in range(WORKERS):
+    for _ in range(1 if single else WORKERS):
         st, src, _ = call("POST", "/accounts", {"currency": "GBP", "openingBalance": "1000000.00"}, token)
         assert st in (200, 201), f"account create failed: {st} {src}"
         st, dst, _ = call("POST", "/accounts", {"currency": "GBP", "openingBalance": "0.00"}, token)
         assert st in (200, 201), f"account create failed: {st} {dst}"
         pairs.append((src["id"], dst["id"]))
+    if single:
+        pairs = pairs * WORKERS
 
     def transfer(src, dst, device):
         return call("POST", "/transfers",
@@ -96,7 +102,8 @@ def main():
     assert not errors, f"{len(errors)} non-COMPLETED responses, first: {errors[0]}"
     assert len(lat) == per_worker * WORKERS, f"expected {per_worker*WORKERS} results, got {len(lat)}"
     q = statistics.quantiles(lat, n=100)
-    print(f"measured={len(lat)} workers={WORKERS} wall={wall:.1f}s tps={len(lat)/wall:.1f}")
+    mode = "single-account" if single else "pipeline"
+    print(f"mode={mode} measured={len(lat)} workers={WORKERS} wall={wall:.1f}s tps={len(lat)/wall:.1f}")
     print(f"latency ms: p50={statistics.median(lat):.1f} p95={q[94]:.1f} p99={q[98]:.1f} max={max(lat):.1f}")
 
 if __name__ == "__main__":

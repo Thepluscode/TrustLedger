@@ -550,8 +550,9 @@ written as a target-that-reads-like-a-result — Rule 3, "it should be fast enou
 | Attribute | Target | Measured | How |
 |---|---|---|---|
 | Core API availability | — | **never measured** | synthetic monitoring (not set up) |
-| Transfer creation p95 | — | **51.3 ms** (worse of 2 runs; p50 37.4, p99 130.8) | `scripts/load_transfer_probe.py`, 2026-08-04 |
-| Throughput (TPS) | — | **250.8/s** (worse of 2 runs; second run 271.2) | same probe, same runs |
+| Transfer creation p95 | — | **47–71 ms typical; 204 ms worst run** (5 runs, 2 boots; p50 ~37) | `scripts/load_transfer_probe.py`, 2026-08-04 |
+| Throughput (TPS, pipeline) | — | **231–271/s typical; 105/s worst run** (5 runs, 2 boots) | same probe, same runs |
+| Throughput (TPS, single-account contention) | — | **133/s** (worse of 2 runs; p95 98.4 ms, all 1,000 COMPLETED, no deadlocks) | `load_transfer_probe.py single`, 2026-08-04 |
 | RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
@@ -567,7 +568,13 @@ system under test), tenant step-up threshold raised to 60 so cold-start score-45
 in the monitor band. These are a **local baseline floor, not a production claim** — no claim about
 availability, sustained load, or multi-node behaviour follows from them.
 
-Still unmeasured: availability, RTO/RPO, sustained-load behaviour, single-account contention TPS.
+The worst pipeline run (105 TPS, p95 204 ms) was the first pipeline-path run of a freshly booted
+JVM — JIT warm-up beyond the probe's built-in warmup. Reported, not discarded: a just-deployed
+instance really is that much slower until warm. Contention mode (all 10 workers racing ONE source
+row) halves throughput vs pipeline mode and completed 2,000/2,000 transfers with zero deadlocks —
+the deterministic lock-ordering held under sustained single-row contention.
+
+Still unmeasured: availability, RTO/RPO, sustained-load behaviour (minutes, not seconds).
 
 ## Architecture decision records (2026-07-29)
 
