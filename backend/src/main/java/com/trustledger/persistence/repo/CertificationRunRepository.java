@@ -20,5 +20,6 @@ public interface CertificationRunRepository extends JpaRepository<CertificationR
     List<CertificationRunEntity> findCurrentValid(@Param("tenantId") UUID tenantId,
         @Param("configId") UUID configId, @Param("environment") String environment, @Param("now") Instant now);
 
-    List<CertificationRunEntity> findByTenantIdOrderByStartedAtDesc(UUID tenantId);
+    /** Bounded list (invariant: no unbounded list endpoints) — newest 200, matching the transfers list cap. */
+    List<CertificationRunEntity> findTop200ByTenantIdOrderByStartedAtDesc(UUID tenantId);
 }
