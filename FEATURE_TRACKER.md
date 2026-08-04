@@ -13,9 +13,38 @@ Last updated: 2026-08-01
 | ADR-005 recorded | **DEPLOYED** | `docs/architecture/ADR-005-audit-log-immutability.md`, on `main` |
 | Correlation ID on audit rows + every log line + `X-Request-Id` response header | **VERIFIED (CI)** | `V38__audit_correlation_id.sql`, `CorrelationId` + `CorrelationIdFilter`. `CorrelationIdTest` (11) + `CorrelationIdIntegrationTest` (3, real Postgres + real HTTP) green in CI on the merge commit `804f202` — all 7 checks pass. Merged via #107. Captured centrally from ambient request state, so none of the 30 audit write sites changed. **Not yet observed in a deployed environment.** |
 
-**Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
-still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
-needs a hash chain — deferred, with the trigger to revisit written into ADR-005.
+~~**Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
+still edit audit rows and nothing would detect it.~~ **CLOSED 2026-08-04 — see the row below.**
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| **Tamper-EVIDENCE via sealed checkpoint chain** | **VERIFIED** | V40 `audit_checkpoints`: a scheduled sealer digests each window of audit rows (SHA-256 over the **raw stored column values**, length-prefixed, ordered by `(created_at, id)`) and chains it to the previous checkpoint. `AuditChainTamperEvidenceIntegrationTest` (9, real PG) **performs the actual attack** V37 could only describe — `DROP TRIGGER`, edit/delete/back-date rows, restore the trigger — and asserts detection every time. Also proves re-sealing after tampering does **not** launder it (the break is still reported at the original window), and that checkpoints are themselves append-only so an attacker cannot edit a row and re-seal to match. Mutation-verified: excluding one column from the digest lets the forged edit pass as VERIFIED. Surfaced at `GET /api/v1/audit/chain/verify` (AUDIT_VIEW — an auditor can check the chain without the power to extend it). |
+
+**Why checkpoints rather than a per-row hash chain:** a per-row chain needs a total order over writes,
+i.e. serialising every audit write behind a lock or sequence. Audit rows are written inside business
+transactions on the money path — making them contend would be paying for evidence with throughput. A
+window digest needs no ordering between concurrent writers at all.
+
+**Two real bugs found while building it, both fixed here:**
+1. **Clock-source bug (caught by the tests, would have been silent in production):** `created_at` is
+   stamped by the *database* clock, but window boundaries were computed from the *JVM* clock. With the
+   two skewed — routine between a host and a containerised DB, and measured at 60–90 ms in this very
+   environment — rows fall outside every window and are **never sealed**, or land inside an
+   already-sealed one and read as tampering. Boundaries now come from `SELECT now()`. Same clock, or no
+   proof.
+2. **`TRUNCATE` hole in V37:** its guard is a row-level `BEFORE UPDATE OR DELETE` trigger, and
+   PostgreSQL does **not** fire row-level triggers on `TRUNCATE` — so `TRUNCATE audit_logs` would have
+   erased the entire trail without tripping the append-only guard. V40 adds statement-level TRUNCATE
+   guards on both audit tables, with a test. (The chain would have *detected* the erasure, but refusing
+   it is better than detecting it.)
+
+**Honest scope of the new claim:** this is tamper-**evidence**, not tamper-*proofing* — an attacker
+with full DB access can still destroy data; what they cannot do is alter it *undetectably*. The
+checkpoints live in the same database as the rows they seal, so an attacker who deletes the chain
+wholesale removes the evidence along with it (detectable as a sequence gap only if some checkpoint
+survives). Publishing checkpoint hashes to external, append-only storage is the next hardening step and
+is **not** built. Rows written after the last seal are **not yet protected**, and `verify()` reports
+that count separately so a pass can never be misread as covering the whole trail.
 
 **Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~ (done —
 see the row above), **result**, **before/after references**, **policy decision**. Unlike the
