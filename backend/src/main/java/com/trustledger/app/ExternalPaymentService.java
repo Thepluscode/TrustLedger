@@ -88,6 +88,12 @@ public class ExternalPaymentService {
             if (sourceAccountId == null) throw new IllegalArgumentException("sourceAccountId is required");
             if (amount == null) throw new IllegalArgumentException("amount is required");
             if (currency == null || currency.isBlank()) throw new IllegalArgumentException("currency is required");
+            // The scored path re-checks positivity via TransferCommand, but initiate(req, decision)
+            // is public and skips it — a negative amount there would INCREASE the source balance.
+            if (amount.signum() <= 0) throw new IllegalArgumentException("amount must be positive");
+            // Fail before any funds are reserved: an amount the currency cannot express in minor
+            // units (e.g. 100.005 GBP, 100.5 JPY) is a calculation bug upstream, not a payout.
+            Money.of(amount.toPlainString(), currency).toMinorUnits();
         }
 
         public ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,

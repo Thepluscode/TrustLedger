@@ -586,8 +586,20 @@ Paystack adapter). What was missing was proof, plus two real defects.
 | ADR-003 amended + ADR-004 written | **VERIFIED** | `docs/architecture/` |
 
 **Open follow-ups (honest):**
-- `toMinorUnits()` is **not yet enforced at the rail-submission boundary** — adapters can still send a
-  scale-4 `BigDecimal`. The correct call exists; the call site is unchanged.
+- ~~`toMinorUnits()` not enforced at the rail-submission boundary~~ **CLOSED (2026-08-04).** Payability
+  is now enforced by construction in `PaymentSubmitRequest` (no adapter, present or future, can receive
+  an amount its currency cannot express in minor units) and in `ExternalTransferRequest` (rejected as a
+  clean 400 **before** any funds are reserved), which also closed a positivity hole: the public
+  `initiate(req, decision)` overload skipped `TransferCommand`'s check, so a negative amount there would
+  have *increased* the source balance. Evidence: `RailBoundaryAmountValidationTest` (12 tests, green);
+  full suite 377 tests with the only failure being the pre-existing
+  `ReconciliationHealthMonitoringIntegrationTest` clock-skew flake (fails identically on unmodified
+  `origin/main` — colima VM Postgres clock ~60–90 ms ahead of host makes `Duration.toSeconds()` return
+  −1 for a just-inserted row; see follow-up below). CI green on the PR is the authoritative full run.
+- **Environment-sensitive test:** `ReconciliationHealthMonitoringIntegrationTest.aHighSeverityOpenBreakWarnsButDoesNotEscalate`
+  asserts `oldestOpenAgeSeconds >= 0`, but the age is `Duration.between(dbCreatedAt, jvmNow)` — any
+  DB-clock-ahead-of-JVM skew (measured ~60–90 ms under colima) truncates to −1 and fails. Fix candidate:
+  clamp negative ages to 0 in `MonitoringService` (a negative age is always clock skew, never truth).
 - **SEPA blocker:** `PayoutInstrumentService` requires `bankCode` for every `BANK_ACCOUNT`. An IBAN
   self-describes its bank and SEPA payouts often omit BIC, so a legitimate EU instrument is rejected
   today. Needs a jurisdiction rule — take it from the first EU customer, not from a guess.
