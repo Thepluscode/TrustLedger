@@ -48,6 +48,28 @@ month-end gaps" is the named operational problem.
 | 5 | **Blockchain.com** | Hiring **Treasury Operations Analyst** (London). Fiat + crypto rails across multiple banking partners — reconciliation across incompatible settlement clocks is structural. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Strong multi-rail fit. Data bar likely hard (custody/regulatory). |
 | 6 | **Trade Republic** | Hiring **Process Operations Associate — Security Services** (Berlin). Multi-market European broker. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: role-signal verified. Adjacent (securities settlement). Lower priority than payments-native rows. |
 | 7 | **Equiti Group** | Hiring **Operations Manager** (Dubai). Multi-entity brokerage across regulated jurisdictions — multi-currency, multi-banking-partner. | jobsinforex.com settlement-reconciliation board, retrieved 2026-08-01 | Pain: inferred from multi-entity structure, weaker than a named reconciliation role. Qualify before contacting. |
+| 8 | **Lemonway** | Hiring **Head of Payment Operations** (Paris). **Marketplace payment infrastructure** across EU — collects and disburses on behalf of marketplaces, so fan-out across counterparties is the business model. Sharpest ICP fit found in this sweep. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: senior role, named function. Data + Money: untested. **Interview first.** |
+| 9 | **Trustly** | Hiring **Director Finance Operations** (London). Open-banking A2A payments across many bank connections and markets — settlement arrives on different clocks per bank. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: director-level ownership exists. Data + Money: untested. |
+| 10 | **Paynovate** | Hiring **Finance Operations Analyst** AND **Payments Control Manager** (Brussels). Two open finance/payments-control roles at once — the strongest budget signal in the sweep. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: two concurrent roles. Data + Money: untested. |
+| 11 | **VIALET** | Hiring **Head of Treasury & Finance Operations** (Vilnius). Lithuanian EMI — multi-currency across correspondent banking partners. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: role-signal verified. Data + Money: untested. |
+| 12 | **ConnectPay** | Hiring **Transactions Monitoring Specialist** (Vilnius). EMI serving online businesses across EU rails. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: monitoring ≠ reconciliation — confirm at Q1/Q5 that settlement breaks are in scope. |
+| 13 | **Satispay** | Hiring **Project Manager — Finance Transformation** (Milan). Scaling European payment network; 'finance transformation' usually means the manual process is now a project. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: indirect signal. Qualify before contacting. |
+| 14 | **iBanFirst** | Hiring **Deputy CFO** (Paris). Cross-border B2B payments across banking partners in many currencies. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: CFO-level, not an ops-role signal — weaker. Data + Money: untested. |
+| 15 | **Zest** | Hiring **Reconciliation Analyst** (Nigeria). Payments processor with a named reconciliation role. | myjobmag.com `?q=reconciliation`, retrieved 2026-08-04 | Pain: role-signal verified. Confirm ≥2 providers at Q2. |
+| 16 | **Bybit** | Hiring **Finance Operations Specialist** (Vienna). Fiat on/off-ramps across multiple banking partners plus on-chain settlement — two settlement systems that do not agree on time. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: role-signal verified. Data bar likely hard (custody/regulatory). |
+| 17 | **OKX** | Hiring **Senior Treasury Manager** (Dubai). Same multi-rail structure at scale. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: role-signal verified. Data bar likely hard. |
+| 18 | **OSL** | Hiring **Merchant Operations & Growth Manager** (Dubai). Regulated digital-asset platform with a merchant-facing payments arm. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: role is growth-weighted — weaker signal. Qualify first. |
+| 19 | **MultiBank Group** | Hiring **Treasury Analyst | Crypto** (Dubai). Multi-entity brokerage plus crypto — multi-rail and multi-jurisdiction. | jobsinforex.com `?q=reconciliation+operations+analyst`, retrieved 2026-08-04 | Pain: role-signal verified. ICP fit adjacent. |
+| 20 | **ThinkMarkets** | Hiring **Payments & Reconciliations Analyst** (Dubai). The most literal role title in the entire sweep — the job *is* the product's job. | jobsinforex.com `?q=reconciliation+operations+analyst`, retrieved 2026-08-04 | Pain: strongest single role-title match found. Worth interviewing despite adjacent segment. |
+| 21 | **Trading 212** | Hiring **Client Asset Operations (CASS) Analyst** (London). CASS = FCA client-money segregation and daily reconciliation — regulatory audit pressure is explicit. | jobsinforex.com `?q=reconciliation+operations+analyst`, retrieved 2026-08-04 | Pain: regulatory driver named. Adjacent segment (client money, not payouts). |
+| 22 | **IG Group** | Hiring **Senior Cash Control Analyst** (Krakow). Multi-market broker, client money across banking partners. | jobsinforex.com `?q=reconciliation+operations+analyst`, retrieved 2026-08-04 | Pain: role-signal verified. Adjacent. |
+| 23 | **Swissquote** | Hiring **Settlement Officer — Institutional** AND **— Retail** (Gland). Two concurrent settlement roles. | jobsinforex.com `?q=settlement`, retrieved 2026-08-04 | Pain: two concurrent roles. Adjacent (securities settlement). |
+| 24 | **XTB** | Hiring **Payments Operations Specialist** (Warsaw). Broker with a *payments*-titled ops role, not securities-titled. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: payments-specific title. Adjacent segment. |
+| 25 | **Exness** | Hiring **Finance Operations Manager — UAE** (Dubai). High-volume broker, many payment providers per region — PSP fan-out is real here. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: role-signal verified. Adjacent, but PSP fan-out is genuinely their problem. |
+| 26 | **Deriv** | Hiring **Senior Executive — Settlements** (Kuala Lumpur). Multi-country broker with regional payment methods. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: role-signal verified. Adjacent. |
+| 27 | **IronFX** | Hiring **Senior Payments Partnership Officer** (Limassol). A role dedicated to managing *payment partners* — implies several. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: implies multi-provider by the role's existence. Adjacent. |
+| 28 | **CMC Markets** | Hiring **Head of Finance** (Dubai). Multi-jurisdiction broker. | jobsinforex.com `?q=finance+operations`, retrieved 2026-08-04 | Pain: generic finance role — weakest signal here. Qualify or drop. |
+| 29 | **Nuvei** | Hiring **Senior Enterprise Architect** (Tel Aviv). Payments platform across many acquiring and alternative-payment connections. | jobsinforex.com `?q=payment+operations`, retrieved 2026-08-04 | Pain: engineering role, **not** an ops-pain signal. Lowest priority; likely builds in-house. |
 
 **Promoted 2026-08-01 by running the sourcing method above**, not by guessing names. Each row's
 signal is a *live payment-operations or settlement role posting* — the promotion rule's first
@@ -68,6 +90,66 @@ honest rather than becoming a name-collection exercise:
 
 **Reachability note.** These are UK/EU/UAE-weighted, which closes the gap flagged above — the list
 was Africa-only because the original filter named a region. It no longer does.
+
+---
+
+## Sweep 2026-08-04 — 22 rows added, and what the sweep taught
+
+Five board queries run (`payment operations`, `finance operations`, `settlement`,
+`reconciliation operations analyst`, `reconciliation`). **22 companies promoted, ~35 rejected.**
+Two findings that should change how this method runs, both worth more than the rows:
+
+### Finding 1 — "reconciliation" alone is a junk keyword
+
+`myjobmag.com?q=reconciliation` returned a hotel, a gas company, a hospital, a consumer-goods
+distributor and several outsourcing agencies. **Every business with a bank account reconciles
+something.** The word does not select for the pain; only 2 of 16 hits were payments companies.
+
+**Use instead**, in rough order of precision:
+`payments & reconciliations` · `settlement operations` · `payment operations` ·
+`treasury operations` · `finance operations` + fintech · `cash control` · `CASS analyst` (UK only —
+FCA client-money reconciliation, carries an explicit regulatory driver)
+
+### Finding 2 — the cross-border listicles surface providers, not buyers
+
+Searching for cross-border payment companies returns Wise, Airwallex, Stripe, Checkout.com, Thunes,
+Payoneer. **Those are who the ICP settles *through*.** The buyer is the marketplace or lender
+*using two of them*. A "top 20 payment companies" list is an anti-target list. It is also why
+`RESEARCH_QUEUE.md`'s rule holds: homepage and marketing copy are never sufficient.
+
+### Rejected in this sweep, with reasons
+
+| Rejected | Why |
+|---|---|
+| Nordea · Royal Bank of Canada · Brown Brothers Harriman · Van Lanschot Kempen · AZQORE · Saxo Bank · Stonehage Fleming | Banks and custodians. Build in-house, buy from incumbents; neutrality adds nothing. |
+| Broadridge · Endava · Avetium Consult · ICS Outsourcing · TeamAce · eRecruiter · Pishon and Brooks | Vendors, consultancies and recruitment agencies — not the buyer, sometimes the competitor. |
+| DP World · Multipro · May & Baker · MeCure · Coronation Insurance · Lily Hospitals · Blowfish Hotel · Alles Charis Gas · The Concept Group | Generic bank reconciliation, not cross-provider payment settlement. Finding 1 in practice. |
+| DRW · StoneX | Proprietary trading. Settlement is securities clearing, a different problem. |
+| Adyen · Global Payments | Acquirers. They are the provider whose records the ICP reconciles *against*. |
+| Wise | Multi-corridor and genuinely painful, but at their scale this is an internal platform team. Interview for insight; never as a prospect. |
+| Thunes · Paysend · BVNK | Architecturally ideal, but the roles posted were engineering/product — no cited *ops-pain* signal. Re-check their own careers pages. |
+
+### The yield ceiling, honestly
+
+The ask was 50. **22 were reachable at the evidence bar**, and this list now holds **29**. The
+constraint is source access, not effort: the board that yields is a *forex* board, which
+structurally over-samples brokers — hence Tier C being the largest tier and the sharpest
+sub-segment (remittance platforms, multi-country marketplaces) being the thinnest.
+
+**To reach 50, in yield order — none of which is reachable from a public search:**
+
+1. **LinkedIn Jobs** with the Finding-1 keywords, filtered to Financial Services + Internet
+   Marketplaces. Behind auth; ~20-30 rows in an hour of manual work.
+2. **Company careers pages** for the three architecturally-ideal names already rejected for lack of
+   an ops-role signal (Thunes, Paysend, BVNK) plus any remittance platform you know by name.
+3. **FCA / EMI / PI registers** cross-referenced against public PSP-partner mentions — slow, but it
+   is the only source that proves the ≥2-provider criterion *before* the call rather than at Q2.
+4. **Warm network.** One intro outranks thirty cold rows, and `INTERVIEW_OUTREACH.md` §A exists
+   precisely for this. 29 evidenced rows is already more than enough to start sending.
+
+**Do not wait for 50 to start.** The booking maths in `INTERVIEW_OUTREACH.md` says ~150-200 sends
+for 25 interviews; 29 names supports the first ~30 sends, and sourcing continues in parallel. The
+failure mode this list exists to prevent is a longer list and still zero interviews.
 
 **Why one row and not twenty.** A qualifying signal has to be *found*, not assumed. One company with
 a cited signal is worth more than twenty plausible names, and the sourcing method below generates
