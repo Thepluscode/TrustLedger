@@ -553,7 +553,8 @@ written as a target-that-reads-like-a-result — Rule 3, "it should be fast enou
 | Transfer creation p95 | — | **47–71 ms typical; 204 ms worst run** (5 runs, 2 boots; p50 ~37) | `scripts/load_transfer_probe.py`, 2026-08-04 |
 | Throughput (TPS, pipeline) | — | **231–271/s typical; 105/s worst run** (5 runs, 2 boots) | same probe, same runs |
 | Throughput (TPS, single-account contention) | — | **133/s** (worse of 2 runs; p95 98.4 ms, all 1,000 COMPLETED, no deadlocks) | `load_transfer_probe.py single`, 2026-08-04 |
-| RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
+| RTO (restore component) | — | **pg_restore 1.0 s + app ready ≤10 s** (1,100-transfer DB, 810 KB dump; backup 0.7 s) | timed drill 2026-08-04: backup → `DROP DATABASE … FORCE` (destruction proven: relation gone) → restore → counts match exactly (1,100/2,200/3,300). Excludes failure detection + failover; scales with data volume. |
+| RPO | — | **= backup interval, by construction** | pg_dump snapshots only; no WAL archiving configured, so worst-case loss is time-since-last-dump. Structural property, not a measurement — continuous archiving is the fix if a tighter RPO is ever required. |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
 
