@@ -168,6 +168,40 @@ the claim required.
 
 ---
 
+### Never chain a state-changing git command behind one that can silently refuse
+
+**Trigger:** Any `git switch` / `checkout` / `rebase` combined with `stash pop`, `cherry-pick`,
+`commit` or `push` in a single command line.
+
+**Rule:** Run the branch change alone, confirm it landed, then run the state-changing command. `git
+switch` **refuses** when the working tree conflicts with the target branch, and it exits non-zero —
+so anything joined to it with `;` executes on the branch you were already on.
+
+**Prohibited:** `git switch X; git stash pop` and `git switch X && git commit …` written as one line.
+`&&` is safer than `;` but still hides *which* command failed in the output you skim.
+
+**Evidence required:** `git branch --show-current` before the second command, or split the calls.
+After any `stash pop`, `git stash list` to confirm which entry moved, and `git status` before staging
+anything.
+
+**Reason:** Twice in one session. First, a `git switch` aborted and a V40 documentation edit landed on
+the wrong branch while the commit message claimed otherwise — caught only by checking which branches
+actually contained the text. Second, a `git switch` aborted and the following `git stash pop` grabbed
+an unrelated stash from a previous session, merging obsolete edits into `ExternalPaymentService`,
+`PaymentWebhookService` and `PaymentRailAdapter` — money-path files — and leaving conflict markers.
+
+**Why it is worse than it looks:** the recovery is where real work gets destroyed. This tree also held
+30 files of unrelated parallel work; a reflexive `git checkout -- .` would have deleted all of it. The
+correct recovery separates stash-derived files from everything else and touches only the former.
+
+**Level:** 2. Level 4 is a PreToolUse hook rejecting a `git switch`/`checkout` chained to another git
+subcommand on one line.
+
+**Revisit when:** a session passes with branch changes always issued alone — then this has become
+habit and can be demoted.
+
+---
+
 ### Tenant-scoped locking
 
 **Trigger:** Any repository query that locks or mutates tenant-owned data.
