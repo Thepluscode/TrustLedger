@@ -48,6 +48,11 @@ Row counts are not integrity. Each of these is a financial invariant that must s
 9. Audit checkpoint chain contiguous — the tamper-evidence span is intact
 10. Dataset non-trivial — guards against an empty restore passing every check above vacuously
 
+**The validator now self-tests.** `scripts/verify-restore-integrity.sh --selftest` builds a scratch
+database, asserts an intact one PASSES, deletes one CREDIT entry, and asserts it then FAILS — so the
+checker cannot quietly stop detecting corruption after a future edit. Both directions are asserted:
+a validator that rejected everything would pass the corruption half while being useless.
+
 **The validator was proven to fail.** A validator never observed failing is decoration. A restored
 copy was deliberately corrupted by deleting **one** CREDIT entry out of 2,200; the drill detected it
 (`ledger balanced per transaction: 1 violation`) and exited 1.
