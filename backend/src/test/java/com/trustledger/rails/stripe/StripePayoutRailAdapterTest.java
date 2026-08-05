@@ -238,4 +238,54 @@ class StripePayoutRailAdapterTest {
             "stripe_ref_0123456789", configId, "SANDBOX", null, null, "ba_1234567890",
             new BigDecimal(amount), currency, null);
     }
+
+    // ---- Webhook envelope parsing: the other half of the webhook path ------------------------
+
+    @Test
+    @DisplayName("a payout event is parsed into the payout id, event id and canonical status")
+    void parsesTheStripeEventEnvelope() {
+        Fixture f = fixture(Duration.ofMinutes(5));
+        String body = "{\"id\":\"evt_123\",\"type\":\"payout.paid\","
+            + "\"data\":{\"object\":{\"id\":\"po_456\",\"status\":\"paid\"}}}";
+        PaymentRailAdapter.ProviderWebhookEvent event = f.adapter().parseWebhook(body);
+
+        assertNotNull(event, "a well-formed payout event must not be dropped");
+        assertEquals("evt_123", event.eventId(), "the event id is the dedup key");
+        assertEquals("po_456", event.providerReference(), "the payout id is what we submitted against");
+        assertEquals(ExternalPaymentStatus.SETTLED, event.eventType());
+    }
+
+    @Test
+    @DisplayName("failure and cancellation map to their own terminal states, not to each other")
+    void parsesTerminalPayoutOutcomesDistinctly() {
+        Fixture f = fixture(Duration.ofMinutes(5));
+        assertEquals(ExternalPaymentStatus.FAILED, f.adapter().parseWebhook(event("payout.failed")).eventType());
+        assertEquals(ExternalPaymentStatus.CANCELLED, f.adapter().parseWebhook(event("payout.canceled")).eventType());
+    }
+
+    @Test
+    @DisplayName("a non-terminal event is IGNORED and recorded, never dropped to null")
+    void nonTerminalEventsAreIgnoredNotDropped() {
+        Fixture f = fixture(Duration.ofMinutes(5));
+        PaymentRailAdapter.ProviderWebhookEvent created = f.adapter().parseWebhook(event("payout.created"));
+        assertNotNull(created, "dropping it to null would make the inbox lose the delivery entirely");
+        assertEquals("IGNORED", created.eventType());
+    }
+
+    @Test
+    @DisplayName("a malformed or incomplete envelope parses to null rather than a half-built event")
+    void malformedEnvelopesAreRejected() {
+        Fixture f = fixture(Duration.ofMinutes(5));
+        assertNull(f.adapter().parseWebhook("not json"));
+        assertNull(f.adapter().parseWebhook("{}"));
+        assertNull(f.adapter().parseWebhook("{\"id\":\"evt_1\",\"type\":\"payout.paid\"}"), "no data.object");
+        assertNull(f.adapter().parseWebhook("{\"type\":\"payout.paid\",\"data\":{\"object\":{\"id\":\"po_1\"}}}"),
+            "no event id means no dedup key");
+        assertNull(f.adapter().parseWebhook(null));
+    }
+
+    private static String event(String type) {
+        return "{\"id\":\"evt_" + type.hashCode() + "\",\"type\":\"" + type + "\","
+            + "\"data\":{\"object\":{\"id\":\"po_789\"}}}";
+    }
 }

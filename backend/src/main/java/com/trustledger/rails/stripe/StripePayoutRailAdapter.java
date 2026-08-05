@@ -56,6 +56,9 @@ public class StripePayoutRailAdapter implements PaymentRailAdapter {
 
     public static final String RAIL = "STRIPE";
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper ENVELOPE_MAPPER =
+        new com.fasterxml.jackson.databind.ObjectMapper();
+
     /** Stripe's own recommended replay window. A signature older than this is refused. */
     private static final Duration DEFAULT_TOLERANCE = Duration.ofMinutes(5);
 
@@ -194,6 +197,46 @@ public class StripePayoutRailAdapter implements PaymentRailAdapter {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Parses Stripe's event envelope: {@code {"id":"evt_…","type":"payout.paid","data":{"object":{…}}}}.
+     *
+     * <p>Without this the adapter could verify a signature on an event it could not read — signature
+     * verification and envelope parsing are separate halves of the same path, and shipping one without
+     * the other is an adapter that looks finished and drops every webhook.
+     *
+     * <p>The payout's own {@code id} is the provider reference we submitted against, and Stripe's
+     * event {@code id} is the dedup key. An unrecognised event type maps to IGNORED rather than being
+     * dropped as null, so it is still recorded by the inbox instead of vanishing.
+     */
+    @Override
+    public ProviderWebhookEvent parseWebhook(String rawBody) {
+        if (rawBody == null || rawBody.isBlank()) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = ENVELOPE_MAPPER.readTree(rawBody);
+            String eventId = text(root, "id");
+            String type = text(root, "type");
+            com.fasterxml.jackson.databind.JsonNode object = root.path("data").path("object");
+            String payoutId = text(object, "id");
+            if (eventId == null || type == null || payoutId == null) return null;
+
+            String canonical = switch (type) {
+                case "payout.paid" -> ExternalPaymentStatus.SETTLED;
+                case "payout.failed" -> ExternalPaymentStatus.FAILED;
+                case "payout.canceled" -> ExternalPaymentStatus.CANCELLED;
+                // Created/updated carry no terminal meaning; recorded, dispatched nowhere.
+                default -> "IGNORED";
+            };
+            return new ProviderWebhookEvent(eventId, payoutId, canonical, payoutId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        com.fasterxml.jackson.databind.JsonNode value = node.path(field);
+        return value.isTextual() && !value.asText().isBlank() ? value.asText() : null;
     }
 
     /**
