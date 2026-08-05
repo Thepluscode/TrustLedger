@@ -45,9 +45,25 @@ data.
   on what the tenant happened to be doing, which is the definition of a test that teaches people to
   re-run it rather than read it.
 
-The cost is honest and stated: drills prove the **code paths** behave correctly against a provider's
-sandbox contract. They do **not** prove a specific real payment succeeded, and the certification pack
-must never be read as evidence about a particular customer transaction.
+The cost is honest and stated: drills prove the **code paths** behave correctly. They do **not** prove
+a specific real payment succeeded, and the certification pack must never be read as evidence about a
+particular customer transaction.
+
+> **Correction (2026-08-05).** As first written, this ADR said drills prove the code paths behave
+> "against a provider's sandbox contract". **That was wrong — it overstated the guarantee.**
+> `DrillContext` carries the provider config's *id* but never its provider *name*, no drill reads
+> `getProvider()`, and `CertificationSyntheticFixtures` hardcodes `SandboxPaymentRailAdapter.RAIL`.
+> So certifying Paystack exercises the **sandbox adapter's** webhook verification, status
+> normalisation and ambiguity handling — not Paystack's.
+>
+> A certification pass is evidence about the **orchestration** — reservation, the durable submission
+> boundary, the webhook inbox, reconciliation, ledger posting, and the governance controls — not about
+> the adapter for the provider named on the pack. That is real and worth having; it is not what
+> "certified PAYSTACK" sounds like.
+>
+> Demonstrated by `CertificationProviderCoverageTest`, whose assertions are written to fail
+> deliberately once the gap is closed. Tracked in `FEATURE_TRACKER.md`. **Do not describe
+> certification as provider-specific until it is closed.**
 
 ## Options considered
 
