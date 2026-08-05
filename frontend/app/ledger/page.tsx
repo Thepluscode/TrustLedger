@@ -87,7 +87,7 @@ export default function LedgerPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel" aria-label="Ledger entries">
+      <section className="panel ledger-entries" aria-label="Ledger entries">
         <div className="panelHeader">
           <div>
             <h2>Entries</h2>
@@ -139,7 +139,7 @@ export default function LedgerPage() {
       </section>
 
       {(txLoading || tx) && (
-        <section className="panel" style={{ marginTop: 18 }} aria-label="Ledger transaction detail">
+        <section className="panel ledger-detail" style={{ marginTop: 18 }} aria-label="Ledger transaction detail">
           <div className="panelHeader">
             <div>
               <h2>Ledger transaction {tx ? shortId(tx.id) : ""}</h2>

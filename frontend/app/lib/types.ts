@@ -390,6 +390,72 @@ export interface MonitoringSnapshot {
   certifications: CertificationHealth;
 }
 
+/** A versioned provider credential. The secret itself is never returned — only its lifecycle. */
+export interface PayoutInstrumentView {
+  id: string;
+  beneficiaryId: string;
+  instrumentType: string;
+  country: string;
+  currency: string;
+  accountName: string;
+  /** Bank identifier. Required for BANK_ACCOUNT today — see the SEPA/IBAN caveat in the tracker. */
+  bankCode: string | null;
+  /** Masked by the backend; the full identifier is never returned. */
+  maskedIdentifier: string;
+  status: string;
+  verified: boolean;
+}
+
+export interface ProviderRecipientView {
+  id: string;
+  payoutInstrumentId: string;
+  tenantProviderConfigId: string;
+  provider: string;
+  providerEnvironment: string;
+  /** Only a suffix — the full provider recipient code is not exposed. */
+  providerRecipientCodeSuffix: string;
+  status: string;
+}
+
+export interface ApprovalView {
+  id: string;
+  actionType: string;
+  resourceType: string;
+  resourceId: string;
+  requestedBy: string;
+  approvedBy: string | null;
+  status: string;
+}
+
+export interface MlModelView {
+  id: string;
+  modelName: string;
+  version: string;
+  status: string;
+  /** OFF | SHADOW | ANALYST_ASSIST — never a mode that moves money. */
+  deploymentMode: string;
+}
+
+export interface ProviderCredentialView {
+  id: string;
+  tenantProviderConfigId: string;
+  purpose: string;
+  versionNumber: number;
+  status: string;
+  activatedAt: string | null;
+  graceExpiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string | null;
+}
+
+export interface RetentionPolicyRequest {
+  resourceType: string;
+  retentionDays: number;
+  archiveEnabled: boolean;
+  deletionMode: string;
+  legalHoldEnabled: boolean;
+}
+
 export interface ProviderConfigView {
   id: string;
   provider: string;

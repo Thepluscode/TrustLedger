@@ -6,6 +6,10 @@ import type {
   AuthResponse,
   CreatedApiKey,
   MonitoringSnapshot,
+  MlModelView,
+  ApprovalView,
+  PayoutInstrumentView,
+  ProviderRecipientView,
   BeneficiaryView,
   DashboardSummary,
   EvidenceExportView,
@@ -22,6 +26,8 @@ import type {
   ProductionCanaryRequest,
   ProductionCanaryView,
   ProviderConfigView,
+  ProviderCredentialView,
+  RetentionPolicyRequest,
   ReconciliationAuditEntry,
   ReconciliationIssue,
   ReconciliationIssueList,
@@ -123,6 +129,72 @@ export const api = {
     }),
 
   listBeneficiaries: () => request<BeneficiaryView[]>("/api/v1/beneficiaries"),
+
+  createBeneficiary: (name: string, destinationAccountId: string) =>
+    request<BeneficiaryView>("/api/v1/beneficiaries", {
+      method: "POST",
+      body: JSON.stringify({ name, destinationAccountId }),
+    }),
+
+  /**
+   * Payout instruments are where an external payout actually lands. A beneficiary without one
+   * cannot be paid, which is why this is wired before the routing niceties.
+   */
+  listPayoutInstruments: (beneficiaryId: string) =>
+    request<PayoutInstrumentView[]>(`/api/v1/beneficiaries/${beneficiaryId}/payout-instruments`),
+
+  createPayoutInstrument: (
+    beneficiaryId: string,
+    body: {
+      instrumentType: string;
+      country: string;
+      currency: string;
+      accountName: string;
+      bankCode: string;
+      maskedIdentifier: string;
+      externalReference: string;
+    },
+  ) =>
+    request<PayoutInstrumentView>(`/api/v1/beneficiaries/${beneficiaryId}/payout-instruments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updatePayoutInstrumentStatus: (beneficiaryId: string, instrumentId: string, status: string) =>
+    request<PayoutInstrumentView>(
+      `/api/v1/beneficiaries/${beneficiaryId}/payout-instruments/${instrumentId}/status`,
+      { method: "PATCH", body: JSON.stringify({ status }) },
+    ),
+
+  listProviderRecipients: (beneficiaryId: string, instrumentId: string) =>
+    request<ProviderRecipientView[]>(
+      `/api/v1/beneficiaries/${beneficiaryId}/payout-instruments/${instrumentId}/provider-recipients`,
+    ),
+
+  /** Maps our instrument to the provider's own recipient token, so a payout can be addressed. */
+  registerProviderRecipient: (
+    beneficiaryId: string,
+    instrumentId: string,
+    tenantProviderConfigId: string,
+    providerRecipientCode: string,
+  ) =>
+    request<ProviderRecipientView>(
+      `/api/v1/beneficiaries/${beneficiaryId}/payout-instruments/${instrumentId}/provider-recipients`,
+      { method: "POST", body: JSON.stringify({ tenantProviderConfigId, providerRecipientCode }) },
+    ),
+
+  /** Maker-checker: the requester cannot approve their own request — enforced server-side. */
+  listApprovals: () => request<ApprovalView[]>("/api/v1/approvals"),
+
+  createApproval: (actionType: string, resourceType: string, resourceId: string, reason: string) =>
+    request<ApprovalView>("/api/v1/approvals", {
+      method: "POST",
+      body: JSON.stringify({ actionType, resourceType, resourceId, reason }),
+    }),
+
+  approveApproval: (id: string) => request<ApprovalView>(`/api/v1/approvals/${id}/approve`, { method: "POST" }),
+
+  rejectApproval: (id: string) => request<ApprovalView>(`/api/v1/approvals/${id}/reject`, { method: "POST" }),
 
   accountLedger: (accountId: string) =>
     request<LedgerEntryView[]>(`/api/v1/accounts/${accountId}/ledger`),
@@ -248,6 +320,27 @@ export const api = {
 
   listEvidence: () => request<EvidenceExportView[]>("/api/v1/evidence/exports"),
 
+  /** Export a ledger transaction as evidence — the ledger half of the fraud-case pack. */
+  exportLedgerEvidence: (ledgerTxId: string) =>
+    request<EvidenceExportView>(`/api/v1/evidence/ledger/${ledgerTxId}`, { method: "POST" }),
+
+  /**
+   * Legal hold blocks deletion until released. Sent as a query param because the backend reads it
+   * with @RequestParam, not from a body.
+   */
+  setEvidenceLegalHold: (id: string, on: boolean) =>
+    request<void>(`/api/v1/evidence/exports/${id}/legal-hold?on=${on}`, { method: "POST" }),
+
+  /** Refused by the backend while a legal hold is in force — the guard is server-side, not here. */
+  deleteEvidenceExport: (id: string) =>
+    request<void>(`/api/v1/evidence/exports/${id}`, { method: "DELETE" }),
+
+  upsertRetentionPolicy: (policy: RetentionPolicyRequest) =>
+    request<void>("/api/v1/evidence/retention-policies", {
+      method: "POST",
+      body: JSON.stringify(policy),
+    }),
+
   downloadEvidence: async (id: string): Promise<void> => {
     const res = await fetch(`${BASE}/api/v1/evidence/exports/${id}/download`, {
       headers: { Authorization: `Bearer ${getToken() ?? ""}` },
@@ -271,6 +364,45 @@ export const api = {
     request<{ productionExecutionEnabled: boolean; activeCanaryRequired: boolean; policy: string }>(
       "/api/v1/tenant/production-readiness",
     ),
+  /** Enable/disable and the emergency stop — the two controls that gate real money movement. */
+  updateProviderControls: (configId: string, enabled: boolean, emergencyDisabled: boolean) =>
+    request<ProviderConfigView>(`/api/v1/tenant/provider-configs/${configId}/controls`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled, emergencyDisabled }),
+    }),
+
+  listProviderCredentials: (configId: string) =>
+    request<ProviderCredentialView[]>(`/api/v1/tenant/provider-configs/${configId}/credentials`),
+
+  /** secretRef is a REFERENCE (vault://…), never the secret itself — the backend rejects raw values. */
+  createProviderCredential: (configId: string, purpose: string, secretRef: string) =>
+    request<ProviderCredentialView>(`/api/v1/tenant/provider-configs/${configId}/credentials`, {
+      method: "POST",
+      body: JSON.stringify({ purpose, secretRef }),
+    }),
+
+  /**
+   * expectedActiveCredentialId is a compare-and-set guard: if another operator rotated in the
+   * meantime, the backend refuses rather than silently overwriting their activation. graceSeconds
+   * keeps the previous credential valid for inbound signature verification during the cutover.
+   */
+  activateProviderCredential: (
+    configId: string,
+    credentialId: string,
+    expectedActiveCredentialId: string | null,
+    graceSeconds: number,
+  ) =>
+    request<ProviderCredentialView>(
+      `/api/v1/tenant/provider-configs/${configId}/credentials/${credentialId}/activate`,
+      { method: "POST", body: JSON.stringify({ expectedActiveCredentialId, graceSeconds }) },
+    ),
+
+  revokeProviderCredential: (configId: string, credentialId: string) =>
+    request<ProviderCredentialView>(
+      `/api/v1/tenant/provider-configs/${configId}/credentials/${credentialId}/revoke`,
+      { method: "POST" },
+    ),
+
   listProviderConfigs: () => request<ProviderConfigView[]>("/api/v1/tenant/provider-configs"),
 
   listCertifications: () => request<CertificationRun[]>("/api/v1/tenant/certifications"),
@@ -315,7 +447,41 @@ export const api = {
     request<PolicyImpact>("/api/v1/tenant/fraud-policy/impact", { method: "POST", body: JSON.stringify(body) }),
 
   listMlModels: () =>
-    request<{ id: string; modelName: string; version: string; status: string; deploymentMode: string }[]>("/api/v2/ml/models"),
+    request<MlModelView[]>("/api/v2/ml/models"),
+
+  /**
+   * Advances a model through CANDIDATE -> SHADOW -> ANALYST_ASSIST. The backend refuses to promote
+   * into a money-moving mode: ML informs decisions, it never makes them (v2.8 rule).
+   */
+  promoteMlModel: (modelId: string) =>
+    request<MlModelView>(`/api/v2/ml/models/${modelId}/promote`, { method: "POST" }),
+
+  rollbackMlModel: (modelId: string) =>
+    request<MlModelView>(`/api/v2/ml/models/${modelId}/rollback`, { method: "POST" }),
+
+  /** Returns the alerts raised by this snapshot (e.g. MODEL_LATENCY_HIGH), not a success flag. */
+  recordMlMonitoringSnapshot: (modelVersion: string, metrics: Record<string, number>) =>
+    request<{ alerts: string[] }>("/api/v2/ml/monitoring", {
+      method: "POST",
+      body: JSON.stringify({ modelVersion, metrics }),
+    }),
+
+  /** Raw metric JSON strings, newest-first, as stored by the monitoring service. */
+  mlMonitoringHistory: (modelVersion: string) =>
+    request<string[]>(`/api/v2/ml/monitoring/${encodeURIComponent(modelVersion)}`),
+
+  /**
+   * An analyst's verdict on a case, which is what the model is later retrained against. Sending it
+   * is how a human correction re-enters the loop rather than dying in a comment field.
+   */
+  submitFraudFeedback: (caseId: string, transactionId: string, label: string, confidence: string, reason: string) =>
+    request<{ id: string; fraudCaseId: string; label: string }>(`/api/v2/fraud/cases/${caseId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ transactionId, label, confidence, reason }),
+    }),
+
+  listFraudFeedback: () =>
+    request<{ id: string; fraudCaseId: string; label: string }[]>("/api/v2/fraud/feedback"),
   getMlScores: (transactionId: string) =>
     request<
       {

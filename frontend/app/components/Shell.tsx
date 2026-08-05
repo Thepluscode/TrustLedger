@@ -70,6 +70,7 @@ const NAV: { label: string; links: [string, string, IconName][] }[] = [
     links: [
       ["Accounts", "/accounts", "accounts"],
       ["Transfers", "/transfers", "transfer"],
+      ["Beneficiaries", "/beneficiaries", "users"],
       ["Ledger", "/ledger", "ledger"],
       ["Reconciliation", "/reconciliation", "reconcile"],
       ["Settlements", "/reconciliation/statements", "settlement"],
@@ -94,6 +95,7 @@ const NAV: { label: string; links: [string, string, IconName][] }[] = [
   {
     label: "Compliance",
     links: [
+      ["Approvals", "/approvals", "shield"],
       ["Evidence", "/evidence", "evidence"],
       ["Audit Logs", "/audit-logs", "audit"],
     ],
@@ -106,8 +108,10 @@ const ENVIRONMENT = (process.env.NEXT_PUBLIC_ENVIRONMENT ?? "sandbox").toLowerCa
 
 export default function Shell({ children, active }: { children: ReactNode; active: string }) {
   const router = useRouter();
+  const activeGroup = NAV.find((group) => group.links.some(([, href]) => href === active))?.label ?? "Overview";
   const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [expandedGroup, setExpandedGroup] = useState(activeGroup);
   const [session, setSess] = useState<{ email: string; role: string; tenantId: string } | null>(null);
   const [scopeUnits, setScopeUnits] = useState<OrgUnit[]>([]);
 
@@ -120,6 +124,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
     setReady(true);
     api.myScope().then((s) => setScopeUnits(s.scoped ? s.units : [])).catch(() => {});
   }, [router]);
+
+  useEffect(() => setExpandedGroup(activeGroup), [activeGroup]);
 
   if (!ready) return null;
 
@@ -136,12 +142,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
       <a href="#main" className="skip-link">Skip to content</a>
       <aside className={`sidebar${menuOpen ? " open" : ""}`} aria-label="Main navigation">
         <div className="brand">
-          <span className="brand-mark" aria-hidden>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 4h12v16H6z" />
-              <path d="M9 8h6M9 12h6M9 16h3" />
-              <path d="m14.5 15.5 1.5 1.5 3-3" />
-            </svg>
+          <span className="brand-mark brand-bars" aria-hidden>
+            <i /><i /><i />
           </span>
           <span className="brand-copy">
             <span className="brand-name">TrustLedger</span>
@@ -149,10 +151,24 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           </span>
         </div>
 
-        {NAV.map((group) => (
-          <div className="navgroup" key={group.label}>
-            <div className="navlabel">{group.label}</div>
-            <nav className="sidenav">
+        <div className="navigation-groups">
+        {NAV.map((group) => {
+          const expanded = expandedGroup === group.label;
+          const groupActive = group.label === activeGroup;
+          const groupIcon = group.links[0][2];
+          return (
+          <div className={`navgroup${groupActive ? " group-active" : ""}`} key={group.label}>
+            <button
+              type="button"
+              className="nav-section-trigger"
+              aria-expanded={expanded}
+              onClick={() => setExpandedGroup(expanded ? "" : group.label)}
+            >
+              <span className="nav-icon"><Icon name={groupIcon} /></span>
+              <span>{group.label}</span>
+              <span className="nav-caret" aria-hidden>{expanded ? "⌄" : "›"}</span>
+            </button>
+            <nav className={`sidenav${expanded ? " expanded" : ""}`} aria-label={`${group.label} navigation`}>
               {group.links.map(([label, href, icon]) => (
                 <Link
                   key={href}
@@ -167,9 +183,12 @@ export default function Shell({ children, active }: { children: ReactNode; activ
               ))}
             </nav>
           </div>
-        ))}
+          );
+        })}
+        </div>
 
         <div className="sidebar-footer">
+          <div className="sidebar-environment"><span>Environment</span><b>{ENVIRONMENT}</b></div>
           <div className="userline">
             <span className="avatar" aria-hidden>{(session?.email?.[0] ?? "?").toUpperCase()}</span>
             <span className="who">
@@ -184,6 +203,11 @@ export default function Shell({ children, active }: { children: ReactNode; activ
       <div className="content">
         <header className="topnav">
           <button className="ghost menu-btn" aria-label="Open navigation" onClick={() => setMenuOpen((v) => !v)}>☰</button>
+          <span className="mobile-brand" aria-label="TrustLedger">
+            <span className="mobile-brand-mark brand-bars" aria-hidden><i /><i /><i /></span>
+            <span>TrustLedger</span>
+          </span>
+          <span className={`envbadge ${ENVIRONMENT} topnav-environment`}>{ENVIRONMENT}</span>
           <span className="topnav-title">
             <span className="topnav-kicker">Operations workspace</span>
             <span className="crumb">{activeTitle}</span>
@@ -191,29 +215,54 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           <span className="spacer" />
           <div className="topnav-actions">
             <button className="cmdk-trigger" aria-label="Open command palette" onClick={() => window.dispatchEvent(new Event("trustledger:cmdk"))}>
-              Search <kbd>⌘K</kbd>
+              Search transfers, cases, providers, references… <kbd>⌘K</kbd>
             </button>
-            <span className={`envbadge ${ENVIRONMENT}`}>{ENVIRONMENT}</span>
             {scopeUnits.length > 0 && (
               <span className="tenantchip" title="You see only accounts, transfers, ledger and fraud cases within these organisation units">
                 Scope <b>{scopeUnits.map((u) => u.name).join(", ")}</b>
-              </span>
-            )}
-            {session && (
-              <span className="tenantchip" title={session.tenantId}>
-                Tenant <b className="mono">{session.tenantId.slice(0, 8)}…</b>
               </span>
             )}
             <Link href="/transfers/new" className="btn primary-action" style={{ textDecoration: "none" }}>
               <Icon name="plus" />
               <span className="action-label">Create transfer</span>
             </Link>
+            {session && (
+              <span className="tenantchip sessionchip" title={session.tenantId}>
+                <span className="avatar" aria-hidden>{session.email[0]?.toUpperCase()}</span>
+                <span className="session-copy"><b>{session.email}</b><small>{session.role.toLowerCase()}</small></span>
+              </span>
+            )}
           </div>
+          {session && <span className="mobile-session avatar" aria-label={`${session.email}, ${session.role}`}>{session.email[0]?.toUpperCase()}</span>}
         </header>
         <main className="page" id="main">
           {active === "/production-readiness" && <PlatformProductionGate />}
           {children}
         </main>
+        {active === "/dashboard" && (
+          <Link href="/transfers/new" className="mobile-create-fab">
+            <Icon name="plus" />
+            <span>Create transfer</span>
+          </Link>
+        )}
+        <nav className="mobile-tabbar" aria-label="Mobile navigation">
+          <Link href="/dashboard" className={active === "/dashboard" ? "active" : ""}>
+            <Icon name="overview" />
+            <span>Overview</span>
+          </Link>
+          <Link href="/transfers" className={active.startsWith("/transfer") || active === "/accounts" || active === "/ledger" || active.startsWith("/reconciliation") ? "active" : ""}>
+            <Icon name="transfer" />
+            <span>Money</span>
+          </Link>
+          <Link href="/fraud-cases" className={active === "/fraud-cases" || active === "/risk-profiles" || active === "/ml" ? "active" : ""}>
+            <Icon name="shield" />
+            <span>Fraud</span>
+          </Link>
+          <Link href="/admin" className={active === "/admin" || active === "/users" || active === "/org-units" ? "active" : ""}>
+            <span className="mobile-more" aria-hidden>•••</span>
+            <span>More</span>
+          </Link>
+        </nav>
       </div>
       <CommandPalette />
     </div>

@@ -19,7 +19,7 @@ function num(v: number | null | undefined, suffix = "") {
 
 function Card({ title, status, children }: { title: string; status: string; children: ReactNode }) {
   return (
-    <section className="panel" style={{ margin: 0 }}>
+    <section className="panel monitoring-card" style={{ margin: 0 }}>
       <div className="panelHeader">
         <div><h2 style={{ fontSize: "1rem" }}>{title}</h2></div>
         <Status value={status} />
@@ -80,7 +80,7 @@ export default function MonitoringPage() {
             {fetchedAt && <span className="muted" style={{ marginLeft: "auto" }}>as of {dateTime(fetchedAt)}</span>}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, marginTop: 18 }}>
+          <div className="monitoring-grid">
             <Card title="API / database" status={snap.database.status}>
               <Stat label="Reachable" value={snap.database.up ? "yes" : "no"} />
               <Stat label="Probe latency" value={num(snap.database.latencyMs, " ms")} />

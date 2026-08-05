@@ -83,6 +83,7 @@ export default function TransferDetailPage() {
   const [otpSubmitting, setOtpSubmitting] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpNotice, setOtpNotice] = useState<string | null>(null);
+  const [heldReviewOpen, setHeldReviewOpen] = useState(false);
 
   const reload = async () => {
     if (!id) return;
@@ -92,6 +93,10 @@ export default function TransferDetailPage() {
   useEffect(() => {
     reload().catch((e) => setError((e as Error).message));
   }, [id]);
+
+  useEffect(() => {
+    if (data?.transfer.status === "HELD_FOR_REVIEW") setHeldReviewOpen(true);
+  }, [data?.transfer.status]);
 
   const submitPaystackOtp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -127,13 +132,18 @@ export default function TransferDetailPage() {
 
       {t && (
         <>
-          <section className="panel">
+          <section className="transfer-summary" aria-label="Transfer summary">
+            <article className="card"><span>Amount</span><strong>{money(t.amount, t.currency)}</strong><small>{t.currency}</small></article>
+            <article className="card"><span>Status</span><strong className="summary-control"><StatusPill value={t.status} /></strong><small>Authoritative state</small></article>
+            <article className="card"><span>Risk</span><strong className="summary-control"><RiskBadge score={t.riskScore} /></strong><small>{t.fraudDecision.replace(/_/g, " ").toLowerCase()}</small></article>
+            <article className="card"><span>Channel</span><strong className="summary-text">{t.channel.replace(/_/g, " ").toLowerCase()}</strong><small>Payment route</small></article>
+            <article className="card"><span>Created</span><strong className="summary-text">{dateTime(t.createdAt)}</strong><small>Recorded by TrustLedger</small></article>
+            <article className="card"><span>Reference</span><strong className="summary-text mono">{t.reference || shortId(t.id)}</strong><small>Customer reference</small></article>
+          </section>
+
+          <section className="panel transfer-lifecycle">
+            <div className="panelHeader"><div><h2>Transfer lifecycle</h2><p className="sub">Every state change is controlled and auditable.</p></div></div>
             <div className="panelBody">
-              <p className="row" style={{ gap: 10, alignItems: "center" }}>
-                <StatusPill value={t.status} /> <RiskBadge score={t.riskScore} />
-                <span className="muted">decision {t.fraudDecision.replace(/_/g, " ").toLowerCase()}</span>
-                <span className="badge">{t.channel.toLowerCase()}</span>
-              </p>
               <div className="statemachine" style={{ padding: "14px 0" }}>
                 {lifecycle(t.status).map((s, i, arr) => (
                   <span key={i} style={{ display: "inline-flex", alignItems: "center" }}>
@@ -142,7 +152,7 @@ export default function TransferDetailPage() {
                   </span>
                 ))}
               </div>
-              <div style={{ maxWidth: 520 }}>
+              <div className="transfer-facts">
                 <div className="entry"><span className="muted">Amount</span><span className="amt">{money(t.amount, t.currency)}</span></div>
                 <div className="entry"><span className="muted">From</span><span className="mono">{shortId(t.sourceAccountId)}</span></div>
                 <div className="entry"><span className="muted">To</span><span className="mono">{shortId(t.destinationAccountId)}</span></div>
@@ -153,7 +163,7 @@ export default function TransferDetailPage() {
           </section>
 
           {t.status === "ACTION_REQUIRED" && (
-            <section className="panel" style={{ marginTop: 18 }}>
+            <section className="panel transfer-fraud" style={{ marginTop: 18 }}>
               <div className="panelHeader">
                 <div>
                   <h2>Paystack verification</h2>
@@ -207,7 +217,7 @@ export default function TransferDetailPage() {
             </section>
           )}
 
-          <section className="panel" style={{ marginTop: 18 }}>
+          <section className="panel transfer-ledger" style={{ marginTop: 18 }}>
             <div className="panelHeader"><div><h2>Ledger</h2><p className="sub">The posted double-entry movement(s).</p></div></div>
             {data.ledger.length === 0 ? (
               <div className="panelBody"><p className="muted">Nothing posted yet — funds are reserved or the transfer hasn&apos;t settled.</p></div>
@@ -223,7 +233,7 @@ export default function TransferDetailPage() {
             )}
           </section>
 
-          <section className="panel" style={{ marginTop: 18 }}>
+          <section className="panel transfer-audit" style={{ marginTop: 18 }}>
             <div className="panelHeader"><div><h2>Audit trail</h2><p className="sub">Every recorded action on this transfer.</p></div></div>
             <div className="panelBody">
               {data.auditTrail.length === 0 ? (
@@ -240,6 +250,28 @@ export default function TransferDetailPage() {
               )}
             </div>
           </section>
+
+          {heldReviewOpen && t.status === "HELD_FOR_REVIEW" && (
+            <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Transfer held for review">
+              <div className="modal held-review-modal">
+                <button className="ghost held-review-close" aria-label="Close held for review summary" onClick={() => setHeldReviewOpen(false)}>×</button>
+                <span className="held-review-icon" aria-hidden>!</span>
+                <h3>Transfer {shortId(t.id)} is held for review</h3>
+                <div className="held-review-facts">
+                  <div><span>Amount</span><strong>{money(t.amount, t.currency)}</strong></div>
+                  <div><span>Risk</span><RiskBadge score={t.riskScore} /></div>
+                  <div><span>Status</span><StatusPill value={t.status} /></div>
+                  <div><span>Funds status</span><strong>Reserved, not posted</strong></div>
+                  {data.fraudCase && <div><span>Fraud case</span><strong className="mono">{shortId(data.fraudCase.id)}</strong></div>}
+                </div>
+                <div className="notice held-review-safety"><b>No further money movement will occur until an authorised analyst decides.</b></div>
+                <div className="actions">
+                  <button className="secondary" onClick={() => setHeldReviewOpen(false)}>Return to transfer</button>
+                  <Link className="btn" href="/fraud-cases">Open fraud case</Link>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </Shell>
