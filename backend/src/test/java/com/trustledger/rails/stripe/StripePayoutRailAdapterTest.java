@@ -24,8 +24,8 @@ import org.junit.jupiter.api.Test;
  */
 class StripePayoutRailAdapterTest {
 
-    private static final String WEBHOOK_SECRET = "whsec_test_abcdefghijklmnop";
-    private static final String API_KEY = "sk_test_abcdefghijklmnop";
+    private static final String WEBHOOK_SECRET = "whsec_test_not-real";
+    private static final String API_KEY = "sk_test_not-real";
     private final UUID tenant = UUID.randomUUID();
     private final UUID configId = UUID.randomUUID();
 
