@@ -451,6 +451,27 @@ Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8
 | REST surface `/api/v1/tenant/certifications` (run/sign-off/list/detail) | **VERIFIED** | `CertificationApiIntegrationTest`: E2E + no-secrets assertion + cross-tenant deny |
 | **Whole backend: `mvn test`** | **VERIFIED** | `Tests run: 224, Failures: 0` (2026-07-20, real PG via colima) + all CI checks green on PR #46 (Backend Maven+Testcontainers on CI) |
 
+**OPEN GAP — certification exercises the sandbox adapter, not the certified provider (found
+2026-08-05).** Certification is described as "the evidence required before a provider can move
+production money", but `DrillContext` carries the provider config's *id* and never its provider
+*name*, no drill reads `getProvider()`, and `CertificationSyntheticFixtures` hardcodes
+`SandboxPaymentRailAdapter.RAIL`. Certifying Paystack therefore exercises the **sandbox** adapter's
+webhook verification, status normalisation and ambiguity handling — not Paystack's. What a pass *does*
+evidence is the **orchestration**: reservation, the durable submission boundary, the webhook inbox,
+reconciliation, ledger posting and the governance controls. That is real and worth having; it is just
+not what "certified PAYSTACK" sounds like.
+
+Demonstrated, not asserted, by `CertificationProviderCoverageTest` (2 tests, real PG): after
+certifying a PAYSTACK config, every attempt the drills created carries provider `SANDBOX`, and
+`DrillContext` has no provider component to branch on. Both assertions are written to **fail
+deliberately** when the gap is closed. ADR-009 has been corrected — as first written it claimed drills
+prove behaviour "against a provider's sandbox contract", which overstated the guarantee.
+
+**Do not describe certification as provider-specific until this is closed.** Closing it means putting
+the provider on the context and having fixtures use the certified adapter, which then needs that
+provider's sandbox credentials — the same trade-off ADR-009 already records, now with an accurate
+statement of what is currently proven.
+
 Whole-branch review (java-reviewer) caught + fixed a CRITICAL: the reconciliation-proof drill
 originally ran the GLOBAL cross-tenant reconciliation sweep (live provider calls for other tenants) →
 now tenant-scoped `checkTenantLedgerBalance`. **Merged to `main` 2026-07-20 (squash `1e09f87`, PR #46)
