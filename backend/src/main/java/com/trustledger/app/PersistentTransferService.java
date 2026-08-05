@@ -260,7 +260,8 @@ public class PersistentTransferService {
         ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), tenantId, ledgerTxId, destination.getId(),
             "CREDIT", amount.amount(), currency, "PRINCIPAL"));
         audit(tenantId, "SYSTEM", null, "LEDGER_POSTED", "LEDGER_TRANSACTION", ledgerTxId,
-            Map.of("transferId", transferId.toString()));
+            Map.of("transferId", transferId.toString()),
+            AuditLogEntity.SUCCESS, "double_entry:balanced_posting_committed");
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_COMPLETED", Map.of("ledgerTransactionId", ledgerTxId.toString()));
     }
 
@@ -289,7 +290,8 @@ public class PersistentTransferService {
             decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
         t.setDeviceId(req.deviceId());
         transfers.save(t);
-        audit(req.tenantId(), "SYSTEM", null, action, "TRANSFER", transferId, metadata);
+        audit(req.tenantId(), "SYSTEM", null, action, "TRANSFER", transferId, metadata,
+            outcomeOf(status), fraudPolicy(decision));
         // Observability (Rule 8): the decision is counted and logged at the point it is made, so it is
         // visible in Prometheus (rates) and in the log stream (why), not just the DB audit trail.
         metrics.recordCreated();
@@ -313,7 +315,10 @@ public class PersistentTransferService {
     private void transition(TransferEntity t, String toStatus, String actorType, UUID actorId,
                             String action, Map<String, Object> metadata) {
         t.setStatus(toStatus);
-        audit(t.getTenantId(), actorType, actorId, action, "TRANSFER", t.getId(), metadata);
+        // The action IS the rule here: an analyst approval, a rejection, or a verified step-up are
+        // different justifications for the same status change and must stay distinguishable.
+        audit(t.getTenantId(), actorType, actorId, action, "TRANSFER", t.getId(), metadata,
+            outcomeOf(toStatus), "transition:" + action);
         // Observability (Rule 8): a post-review resolution reaches an outcome the create-transfer HTTP path
         // never sees — count and log it here so approve/reject rates and reasons are observable too.
         metrics.recordOutcome(toStatus);
@@ -341,8 +346,36 @@ public class PersistentTransferService {
 
     private void audit(UUID tenant, String actorType, UUID actorId, String action, String resourceType,
                        UUID resourceId, Map<String, Object> metadata) {
+        audit(tenant, actorType, actorId, action, resourceType, resourceId, metadata, null, null);
+    }
+
+    private void audit(UUID tenant, String actorType, UUID actorId, String action, String resourceType,
+                       UUID resourceId, Map<String, Object> metadata, String result, String policyDecision) {
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenant, actorType, actorId, action,
-            resourceType, resourceId, writeJson(metadata)));
+            resourceType, resourceId, writeJson(metadata)).outcome(result, policyDecision));
+    }
+
+    /**
+     * Maps a transfer status to an outcome, and returns {@code null} where there genuinely is not one
+     * yet.
+     *
+     * <p>HELD_FOR_REVIEW and MFA_REQUIRED are neither success nor failure — the decision has not been
+     * taken. Forcing them into SUCCESS/FAILURE/DENIED to make every row look complete would put a
+     * false answer in the field an auditor trusts most, which is worse than the field being empty.
+     * The policy that produced the pause is still recorded, so the row says why it is waiting.
+     */
+    private static String outcomeOf(String status) {
+        return switch (status) {
+            case "COMPLETED" -> AuditLogEntity.SUCCESS;
+            case "REJECTED" -> AuditLogEntity.DENIED;
+            case "FAILED" -> AuditLogEntity.FAILURE;
+            default -> null;   // HELD_FOR_REVIEW, MFA_REQUIRED, PENDING_* — not yet decided
+        };
+    }
+
+    /** The rule that produced the outcome: which fraud band fired, and at what score. */
+    private static String fraudPolicy(FraudDecision decision) {
+        return "fraud:" + decision.decision().name() + "@" + decision.riskScore();
     }
 
     private void enqueue(UUID tenant, String aggregateType, UUID aggregateId, String eventType, Map<String, Object> payload) {
