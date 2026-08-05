@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { ConfirmModal, StatusPill } from "../components/ui";
 import { api } from "../lib/api";
-import type { BandCounts, FraudPolicy, PolicyImpact } from "../lib/types";
+import type {
+  BandCounts,
+  FraudPolicy,
+  PolicyImpact,
+  ProviderConfigView,
+  ProviderCredentialView,
+} from "../lib/types";
 
 const PLANS = ["FREE_SANDBOX", "PILOT", "PROFESSIONAL", "ENTERPRISE", "INTERNAL"];
 
@@ -27,7 +33,15 @@ export default function AdminPage() {
   const [transfers, setTransfers] = useState<number | null>(null);
   const [quota, setQuota] = useState<Record<string, number> | null>(null);
   const [events, setEvents] = useState<string[]>([]);
-  const [configs, setConfigs] = useState<{ provider: string; environment: string; enabled: boolean }[]>([]);
+  const [configs, setConfigs] = useState<ProviderConfigView[]>([]);
+  // Credentials are loaded per config, on demand: the list endpoint is per-config and eagerly
+  // fetching them all would issue one request per provider on every page load.
+  const [openConfigId, setOpenConfigId] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<ProviderCredentialView[] | null>(null);
+  const [credentialPurpose, setCredentialPurpose] = useState("API");
+  const [credentialSecretRef, setCredentialSecretRef] = useState("");
+  const [graceSeconds, setGraceSeconds] = useState(300);
+  const [providerBusy, setProviderBusy] = useState(false);
   const [plan, setPlan] = useState("PILOT");
   const [confirmPlan, setConfirmPlan] = useState(false);
   const [policy, setPolicy] = useState<FraudPolicy | null>(null);
@@ -44,6 +58,48 @@ export default function AdminPage() {
     api.getFraudPolicy().then(setPolicy).catch((e) => setError((e as Error).message));
   }
   useEffect(load, []);
+
+  /** Runs a provider action, surfacing failure rather than leaving the button dead. */
+  async function runProviderAction(message: string, action: () => Promise<unknown>): Promise<void> {
+    setProviderBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await action();
+      setNote(message);
+      const fresh = await api.listProviderConfigs();
+      setConfigs(fresh);
+      if (openConfigId) setCredentials(await api.listProviderCredentials(openConfigId));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setProviderBusy(false);
+    }
+  }
+
+  async function toggleCredentials(configId: string): Promise<void> {
+    if (openConfigId === configId) {
+      setOpenConfigId(null);
+      setCredentials(null);
+      return;
+    }
+    setOpenConfigId(configId);
+    setCredentials(null);
+    try {
+      setCredentials(await api.listProviderCredentials(configId));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  /**
+   * Activation is compare-and-set: the currently ACTIVE credential id is sent as the expected value,
+   * so a concurrent rotation by another operator is refused by the backend instead of being
+   * silently overwritten.
+   */
+  function activeCredentialId(): string | null {
+    return credentials?.find((c) => c.status === "ACTIVE")?.id ?? null;
+  }
 
   // The bands must be a non-decreasing ladder, each within 0–100.
   const policyValid =
@@ -114,7 +170,7 @@ export default function AdminPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="grid metrics">
+      <section className="grid metrics admin-metrics">
         <article className="card">
           <span>Transfers created (this month)</span>
           <strong>{transfers ?? "—"}</strong>
@@ -128,7 +184,7 @@ export default function AdminPage() {
           ))}
       </section>
 
-      <section className="panel">
+      <section className="panel admin-plan">
         <div className="panelHeader">
           <div>
             <h2>Plan</h2>
@@ -152,7 +208,7 @@ export default function AdminPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel fraud-policy-panel" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Fraud policy</h2>
@@ -262,7 +318,7 @@ export default function AdminPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel provider-config-list" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Payment provider configs</h2>
@@ -275,23 +331,101 @@ export default function AdminPage() {
               <th>Provider</th>
               <th>Environment</th>
               <th>Status</th>
+              <th>Compliance</th>
+              <th>Credentials</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {configs.map((c, i) => (
-              <tr key={i}>
-                <td>{c.provider}</td>
-                <td className="muted">{c.environment}</td>
-                <td><StatusPill value={c.enabled ? "ACTIVE" : "DISABLED"} /></td>
-              </tr>
+            {configs.map((c) => (
+              <FragmentRow
+                key={c.id}
+                config={c}
+                open={openConfigId === c.id}
+                busy={providerBusy}
+                credentials={openConfigId === c.id ? credentials : null}
+                onToggle={() => toggleCredentials(c.id)}
+                onSetEnabled={(enabled) =>
+                  runProviderAction(
+                    `${c.provider} ${enabled ? "enabled" : "disabled"}.`,
+                    () => api.updateProviderControls(c.id, enabled, c.emergencyDisabled),
+                  )
+                }
+                onSetEmergency={(stopped) =>
+                  runProviderAction(
+                    stopped ? `Emergency stop engaged for ${c.provider}.` : `Emergency stop cleared for ${c.provider}.`,
+                    () => api.updateProviderControls(c.id, c.enabled, stopped),
+                  )
+                }
+                onActivate={(credentialId) =>
+                  runProviderAction("Credential activated.", () =>
+                    api.activateProviderCredential(c.id, credentialId, activeCredentialId(), graceSeconds),
+                  )
+                }
+                onRevoke={(credentialId) =>
+                  runProviderAction("Credential revoked.", () => api.revokeProviderCredential(c.id, credentialId))
+                }
+              />
             ))}
             {configs.length === 0 && (
               <tr>
-                <td colSpan={3} className="muted">No provider configs yet — the sandbox rail works without one.</td>
+                <td colSpan={6} className="muted">No provider configs yet — the sandbox rail works without one.</td>
               </tr>
             )}
           </tbody>
         </table>
+
+        {openConfigId && (
+          <div className="subpanel">
+            <h3>Add a credential version</h3>
+            <p className="sub">
+              A credential is stored as a <strong>reference</strong>, never as the secret itself. This deployment
+              resolves <span className="mono">env://VARIABLE_NAME</span> — the variable must be uppercase, at least
+              three characters, and already present in the backend&apos;s environment. Any other scheme is rejected
+              with &ldquo;Unsupported secret reference scheme&rdquo;. New versions start PENDING and move no money
+              until explicitly activated.
+            </p>
+            <div className="form-row">
+              <label>
+                Purpose
+                <select value={credentialPurpose} onChange={(e) => setCredentialPurpose(e.target.value)}>
+                  <option value="API">API (outbound calls)</option>
+                  <option value="WEBHOOK">WEBHOOK (inbound signature verification)</option>
+                </select>
+              </label>
+              <label>
+                Secret reference
+                <input
+                  value={credentialSecretRef}
+                  placeholder="env://PAYSTACK_API_KEY"
+                  onChange={(e) => setCredentialSecretRef(e.target.value)}
+                />
+              </label>
+              <label>
+                Activation grace (s)
+                <input
+                  type="number"
+                  min={0}
+                  value={graceSeconds}
+                  onChange={(e) => setGraceSeconds(Number(e.target.value))}
+                  title="How long the previous credential stays valid for inbound signature verification during cutover"
+                />
+              </label>
+              <button
+                disabled={providerBusy || !/^env:\/\/[A-Z][A-Z0-9_]{2,127}$/.test(credentialSecretRef.trim())}
+                title="Reference must be env://VARIABLE_NAME (uppercase, 3+ characters)"
+                onClick={() =>
+                  runProviderAction("Credential version created (PENDING).", async () => {
+                    await api.createProviderCredential(openConfigId, credentialPurpose, credentialSecretRef.trim());
+                    setCredentialSecretRef("");
+                  })
+                }
+              >
+                Add version
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <ConfirmModal
@@ -305,5 +439,112 @@ export default function AdminPage() {
         onCancel={() => setConfirmPlan(false)}
       />
     </Shell>
+  );
+}
+
+/**
+ * One provider config row plus its expandable credential list. Split out so the main page body
+ * stays readable — the row carries six controls and a nested table.
+ */
+function FragmentRow({
+  config,
+  open,
+  busy,
+  credentials,
+  onToggle,
+  onSetEnabled,
+  onSetEmergency,
+  onActivate,
+  onRevoke,
+}: {
+  config: ProviderConfigView;
+  open: boolean;
+  busy: boolean;
+  credentials: ProviderCredentialView[] | null;
+  onToggle: () => void;
+  onSetEnabled: (enabled: boolean) => void;
+  onSetEmergency: (stopped: boolean) => void;
+  onActivate: (credentialId: string) => void;
+  onRevoke: (credentialId: string) => void;
+}) {
+  return (
+    <>
+      <tr>
+        <td>
+          {config.provider}
+          {config.emergencyDisabled && <span className="pill danger" title="Emergency stop engaged">STOPPED</span>}
+        </td>
+        <td className="muted">{config.environment}</td>
+        <td><StatusPill value={config.enabled ? "ACTIVE" : "DISABLED"} /></td>
+        <td><StatusPill value={config.complianceStatus} /></td>
+        <td className="muted">
+          {config.credentialsConfigured ? "API ✓" : "API —"} / {config.webhookSecretConfigured ? "webhook ✓" : "webhook —"}
+        </td>
+        <td className="row-actions">
+          <button className="secondary" disabled={busy} onClick={() => onSetEnabled(!config.enabled)}>
+            {config.enabled ? "Disable" : "Enable"}
+          </button>
+          {/* Emergency stop is separate from enable/disable on purpose: it is the control an operator
+              reaches for during an incident, and it must not be confused with routine configuration. */}
+          <button
+            className={config.emergencyDisabled ? "secondary" : "danger"}
+            disabled={busy}
+            onClick={() => onSetEmergency(!config.emergencyDisabled)}
+          >
+            {config.emergencyDisabled ? "Clear stop" : "Emergency stop"}
+          </button>
+          <button className="secondary" onClick={onToggle}>
+            {open ? "Hide credentials" : "Credentials"}
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={6}>
+            {credentials === null && <p className="muted">Loading credentials…</p>}
+            {credentials?.length === 0 && (
+              <p className="muted">
+                No credential versions. This provider cannot execute until an API credential is added and activated.
+              </p>
+            )}
+            {credentials && credentials.length > 0 && (
+              <table className="nested">
+                <thead>
+                  <tr>
+                    <th>Purpose</th>
+                    <th className="num">Version</th>
+                    <th>Status</th>
+                    <th>Grace until</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credentials.map((cr) => (
+                    <tr key={cr.id}>
+                      <td>{cr.purpose}</td>
+                      <td className="num">{cr.versionNumber}</td>
+                      <td><StatusPill value={cr.status} /></td>
+                      <td className="muted">{cr.graceExpiresAt ?? "—"}</td>
+                      <td className="row-actions">
+                        {cr.status !== "ACTIVE" && cr.status !== "REVOKED" && (
+                          <button className="secondary" disabled={busy} onClick={() => onActivate(cr.id)}>
+                            Activate
+                          </button>
+                        )}
+                        {cr.status !== "REVOKED" && (
+                          <button className="danger" disabled={busy} onClick={() => onRevoke(cr.id)}>
+                            Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

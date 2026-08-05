@@ -112,7 +112,7 @@ export default function OrgUnitsPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <section className="panel org-create">
         <div className="panelHeader">
           <div>
             <h2>Create a unit</h2>
@@ -145,7 +145,7 @@ export default function OrgUnitsPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel org-assign" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Assign a member</h2>
@@ -175,7 +175,7 @@ export default function OrgUnitsPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel org-tree" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr><th>Unit</th><th>Type</th></tr>

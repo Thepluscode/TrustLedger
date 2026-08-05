@@ -193,6 +193,7 @@ export default function ProductionReadinessPage() {
 
   return (
     <Shell active="/production-readiness">
+      <div className="production-readiness-page">
       <header className="topbar">
         <div>
           <p className="eyebrow">Payment operations</p>
@@ -211,7 +212,7 @@ export default function ProductionReadinessPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <section className="panel production-provider-readiness">
         <div className="panelHeader">
           <div>
             <h2>Provider readiness</h2>
@@ -254,7 +255,7 @@ export default function ProductionReadinessPage() {
       </section>
 
       {selectedConfig && (
-        <section className="panel" style={{ marginTop: 18 }}>
+        <section className="panel controlled-exposure" style={{ marginTop: 18 }}>
           <div className="panelHeader">
             <div>
               <h2>Request controlled exposure</h2>
@@ -310,7 +311,7 @@ export default function ProductionReadinessPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel rollout-history" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Rollout history</h2>
@@ -438,6 +439,7 @@ export default function ProductionReadinessPage() {
         onConfirm={confirmGovernanceAction}
         onCancel={() => setConfirmAction(null)}
       />
+      </div>
     </Shell>
   );
 }

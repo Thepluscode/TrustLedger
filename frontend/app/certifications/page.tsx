@@ -77,7 +77,7 @@ export default function CertificationsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="grid metrics">
+      <section className="grid metrics certification-metrics">
         {cards.length === 0 && !error
           ? Array.from({ length: 4 }, (_, i) => (
               <article className="card" key={i}>
@@ -93,7 +93,7 @@ export default function CertificationsPage() {
             ))}
       </section>
 
-      <section className="panel">
+      <section className="panel provider-readiness">
         <div className="panelHeader">
           <div>
             <h2>Production readiness</h2>
@@ -143,7 +143,7 @@ export default function CertificationsPage() {
         )}
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel certification-runs" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Certification runs</h2>

@@ -42,7 +42,7 @@ export default function ReconciliationPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="grid metrics">
+      <section className="grid metrics reconciliation-metrics">
         {cards.length === 0 && !error
           ? Array.from({ length: 4 }, (_, i) => (
               <article className="card" key={i}><div className="skeleton" style={{ width: "55%" }} /><div className="skeleton" style={{ width: "30%", minHeight: 26 }} /></article>
@@ -55,7 +55,7 @@ export default function ReconciliationPage() {
             ))}
       </section>
 
-      <section className="panel">
+      <section className="panel reconciliation-queue">
         <div className="panelHeader">
           <div><h2>Issues</h2></div>
           <div className="row" style={{ gap: 8 }}>

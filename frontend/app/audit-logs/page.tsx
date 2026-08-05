@@ -51,7 +51,7 @@ export default function AuditLogsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <section className="panel audit-list">
         <table>
           <thead>
             <tr>

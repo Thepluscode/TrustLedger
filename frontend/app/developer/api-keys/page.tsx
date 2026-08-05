@@ -18,6 +18,7 @@ export default function ApiKeysPage() {
   const [name, setName] = useState("");
   const [scope, setScope] = useState("DEVELOPER");
   const [secret, setSecret] = useState<{ name: string; value: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
@@ -34,6 +35,7 @@ export default function ApiKeysPage() {
     try {
       const k = await api.createApiKey(name.trim(), scope);
       setSecret({ name: k.name, value: k.secret });
+      setCopied(false);
       setName("");
       load();
     } catch (err) {
@@ -51,6 +53,7 @@ export default function ApiKeysPage() {
       if (pending.kind === "rotate") {
         const k = await api.rotateApiKey(pending.key.id);
         setSecret({ name: k.name, value: k.secret });
+        setCopied(false);
       } else {
         await api.revokeApiKey(pending.key.id);
       }
@@ -78,7 +81,7 @@ export default function ApiKeysPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <section className="panel api-key-create">
         <div className="panelHeader">
           <div>
             <h2>Create a key</h2>
@@ -99,19 +102,10 @@ export default function ApiKeysPage() {
             </div>
             <button type="submit" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create key"}</button>
           </form>
-          {secret && (
-            <div className="notice warn" style={{ marginTop: 12 }}>
-              <b>{secret.name}</b> — copy this secret now, it won&apos;t be shown again:{" "}
-              <span className="mono">{secret.value}</span>
-              <div style={{ marginTop: 8 }}>
-                <button className="secondary" onClick={() => setSecret(null)}>Dismiss</button>
-              </div>
-            </div>
-          )}
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel api-key-list" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr><th>Name</th><th>Key</th><th>Scope</th><th>Last used</th><th>Created</th><th>Status</th><th></th></tr>
@@ -158,6 +152,35 @@ export default function ApiKeysPage() {
         onConfirm={confirmPending}
         onCancel={() => setPending(null)}
       />
+      {secret && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="API key secret shown once">
+          <div className="modal api-secret-modal">
+            <span className="secret-warning-icon" aria-hidden>!</span>
+            <div className="secret-modal-head">
+              <p>Secret shown once</p>
+              <h3>Save your API key now</h3>
+              <span>This secret cannot be recovered after you close this dialog. Store it in your secrets manager, never in source control.</span>
+            </div>
+            <div className="secret-value">
+              <span>{secret.name}</span>
+              <code>{secret.value}</code>
+            </div>
+            <div className="actions">
+              <button
+                className="secondary"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(secret.value);
+                  setCopied(true);
+                }}
+              >
+                {copied ? "Copied" : "Copy secret"}
+              </button>
+              <button onClick={() => setSecret(null)}>I&apos;ve saved it</button>
+            </div>
+            <p className="secret-audit-note">Key creation and rotation are recorded in the audit log.</p>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

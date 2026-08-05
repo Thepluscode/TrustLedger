@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { EmptyState, SkeletonRows } from "../../components/ui";
 import Shell from "../../components/Shell";
 import { api } from "../../lib/api";
@@ -65,6 +65,22 @@ export default function SettlementStatementsPage() {
   }
 
   const canIngest = provider && currency && statementRef && periodStart && periodEnd && !busy;
+  const statementCount = statements?.length ?? 0;
+  const importedLines = statements?.reduce((sum, statement) => sum + statement.lineCount, 0) ?? 0;
+  const providerCount = new Set((statements ?? []).map((statement) => statement.provider)).size;
+
+  async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const content = await file.text();
+    if (file.name.toLowerCase().endsWith(".csv")) {
+      setFormat("csv");
+      setLinesCsv(content);
+    } else {
+      setFormat("json");
+      setLinesJson(content);
+    }
+  }
 
   return (
     <Shell active="/reconciliation/statements">
@@ -81,7 +97,13 @@ export default function SettlementStatementsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <section className="grid settlement-metrics" aria-label="Settlement statement summary">
+        <article className="card"><span>Ingested</span><strong>{statementCount}</strong><small>Provider statements</small></article>
+        <article className="card"><span>Imported lines</span><strong>{importedLines.toLocaleString()}</strong><small>Across all statements</small></article>
+        <article className="card"><span>Providers</span><strong>{providerCount}</strong><small>Represented in this workspace</small></article>
+      </section>
+
+      <section className="panel statement-ingest">
         <div className="panelHeader">
           <div>
             <h2>Ingest a statement</h2>
@@ -89,31 +111,38 @@ export default function SettlementStatementsPage() {
           </div>
         </div>
         <div className="panelBody">
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          <label className="statement-upload">
+            <input type="file" accept=".csv,.json,text/csv,application/json" onChange={chooseFile} />
+            <span className="statement-upload-icon" aria-hidden>↑</span>
+            <span><strong>Upload settlement statement</strong><small>CSV or JSON · contents stay in this controlled ingest flow</small></span>
+            <b>Choose file</b>
+          </label>
+          <div className="grid statement-ingest-fields">
             <label>Provider<input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="PAYSTACK" /></label>
             <label>Currency<input value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="NGN" /></label>
             <label>Statement ref<input value={statementRef} onChange={(e) => setStatementRef(e.target.value)} placeholder="STMT-2026-07" /></label>
             <label>Period start<input type="datetime-local" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></label>
             <label>Period end<input type="datetime-local" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></label>
           </div>
-          <div className="row" style={{ gap: 8, marginTop: 10, alignItems: "center" }}>
-            <span className="muted">Lines as</span>
-            <button type="button" className={format === "json" ? "" : "secondary"} onClick={() => setFormat("json")}>JSON</button>
-            <button type="button" className={format === "csv" ? "" : "secondary"} onClick={() => setFormat("csv")}>CSV</button>
-          </div>
-          {format === "json" ? (
-            <label style={{ display: "block", marginTop: 8 }}>
-              Lines (JSON)
-              <textarea value={linesJson} onChange={(e) => setLinesJson(e.target.value)} rows={6}
-                className="mono" style={{ width: "100%", fontSize: 12 }} />
-            </label>
-          ) : (
-            <label style={{ display: "block", marginTop: 8 }}>
-              Lines (CSV — a provider settlement export; columns located by header name)
-              <textarea value={linesCsv} onChange={(e) => setLinesCsv(e.target.value)} rows={6}
-                className="mono" style={{ width: "100%", fontSize: 12 }} />
-            </label>
-          )}
+          <details className="statement-source-editor">
+            <summary>Review normalized source</summary>
+            <div className="row statement-format-tabs">
+              <span className="muted">Lines as</span>
+              <button type="button" className={format === "json" ? "" : "secondary"} onClick={() => setFormat("json")}>JSON</button>
+              <button type="button" className={format === "csv" ? "" : "secondary"} onClick={() => setFormat("csv")}>CSV</button>
+            </div>
+            {format === "json" ? (
+              <label>
+                Lines (JSON)
+                <textarea value={linesJson} onChange={(e) => setLinesJson(e.target.value)} rows={6} className="mono" />
+              </label>
+            ) : (
+              <label>
+                Lines (CSV — columns located by header name)
+                <textarea value={linesCsv} onChange={(e) => setLinesCsv(e.target.value)} rows={6} className="mono" />
+              </label>
+            )}
+          </details>
           <div className="row" style={{ marginTop: 12 }}>
             <button onClick={ingest} disabled={!canIngest}>{busy ? "Ingesting…" : "Ingest statement"}</button>
           </div>
@@ -130,7 +159,7 @@ export default function SettlementStatementsPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel settlement-list" style={{ marginTop: 18 }}>
         <div className="panelHeader"><div><h2>Ingested statements</h2></div></div>
         <table>
           <thead>

@@ -65,7 +65,7 @@ export default function UsersPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <section className="panel user-invite">
         <div className="panelHeader">
           <div>
             <h2>Invite a teammate</h2>
@@ -94,7 +94,7 @@ export default function UsersPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel user-list" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr><th>Email</th><th>Role</th><th>Added</th></tr>

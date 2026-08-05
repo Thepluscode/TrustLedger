@@ -42,6 +42,33 @@ class RefreshTokenIntegrationTest {
 
     private URI uri(String path) { return URI.create("http://localhost:" + port + path); }
 
+    /** Sends with the cookie-mode header and an optional refresh cookie, as a browser client would. */
+    private HttpResponse<String> sendCookieMode(String path, String body, String cookieValue) throws Exception {
+        HttpRequest.Builder b = HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .header("X-Auth-Mode", "cookie");
+        if (cookieValue != null) b.header("Cookie", "trustledger_refresh=" + cookieValue);
+        b.method("POST", body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
+        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The raw refresh cookie value from Set-Cookie, or null when none was issued. */
+    private static String refreshCookie(HttpResponse<String> r) {
+        return r.headers().allValues("set-cookie").stream()
+                .filter(c -> c.startsWith("trustledger_refresh="))
+                .map(c -> c.substring("trustledger_refresh=".length(), c.indexOf(';')))
+                .filter(v -> !v.isBlank())
+                .findFirst().orElse(null);
+    }
+
+    private HttpResponse<String> registerCookieMode() throws Exception {
+        String body = json.writeValueAsString(Map.of(
+                "tenantName", "Tenant-" + UUID.randomUUID(),
+                "email", "user-" + UUID.randomUUID() + "@example.com",
+                "password", "Password!1"));
+        return sendCookieMode("/api/v1/auth/register", body, null);
+    }
+
     private HttpResponse<String> send(String path, String method, String bearerToken, String body) throws Exception {
         HttpRequest.Builder b = HttpRequest.newBuilder(uri(path)).header("Content-Type", "application/json");
         if (bearerToken != null) b.header("Authorization", "Bearer " + bearerToken);
@@ -57,6 +84,79 @@ class RefreshTokenIntegrationTest {
         HttpResponse<String> r = send("/api/v1/auth/register", "POST", null, body);
         assertEquals(200, r.statusCode(), r.body());
         return json.readValue(r.body(), LoginResponse.class);
+    }
+
+    /**
+     * In cookie mode the token must reach the client only as an httpOnly cookie. Echoing it in the
+     * body too would hand it straight back to JavaScript and undo the entire change.
+     */
+    @Test
+    void cookieModeWithholdsRefreshTokenFromBodyAndSetsHttpOnlyCookie() throws Exception {
+        HttpResponse<String> r = registerCookieMode();
+        assertEquals(200, r.statusCode(), r.body());
+
+        LoginResponse body = json.readValue(r.body(), LoginResponse.class);
+        assertNull(body.refreshToken(), "cookie mode must not echo the refresh token in the body");
+        assertNotNull(body.token(), "the short-lived JWT still travels in the body");
+
+        String setCookie = r.headers().allValues("set-cookie").stream()
+                .filter(c -> c.startsWith("trustledger_refresh=")).findFirst().orElse(null);
+        assertNotNull(setCookie, "a refresh cookie must be set");
+        assertTrue(setCookie.contains("HttpOnly"), "cookie must be HttpOnly: " + setCookie);
+        assertTrue(setCookie.contains("SameSite=Strict"), "cookie must be SameSite=Strict: " + setCookie);
+        assertTrue(setCookie.contains("Path=/api/v1/auth"), "cookie must be path-scoped: " + setCookie);
+    }
+
+    @Test
+    void cookieRefreshRotatesAndReturnsANewCookie() throws Exception {
+        String first = refreshCookie(registerCookieMode());
+        assertNotNull(first);
+
+        HttpResponse<String> rotated = sendCookieMode("/api/v1/auth/refresh", null, first);
+        assertEquals(200, rotated.statusCode(), rotated.body());
+
+        String second = refreshCookie(rotated);
+        assertNotNull(second, "rotation must issue a successor cookie");
+        assertNotEquals(first, second, "refresh cookie must rotate");
+        assertNull(json.readValue(rotated.body(), LoginResponse.class).refreshToken());
+    }
+
+    /**
+     * The CSRF guard. A forged cross-site request carries the cookie automatically but cannot set a
+     * custom header, so a cookie without the mode header must not authenticate a rotation — otherwise
+     * an attacker could rotate a live session and, via reuse detection, destroy it.
+     */
+    @Test
+    void cookieWithoutModeHeaderCannotRefresh() throws Exception {
+        String cookie = refreshCookie(registerCookieMode());
+        assertNotNull(cookie);
+
+        HttpRequest forged = HttpRequest.newBuilder(uri("/api/v1/auth/refresh"))
+                .header("Content-Type", "application/json")
+                .header("Cookie", "trustledger_refresh=" + cookie)
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+        assertEquals(401, http.send(forged, HttpResponse.BodyHandlers.ofString()).statusCode(),
+                "a cookie alone must not authenticate a refresh");
+
+        // Positive twin: the same cookie still works when the header is present, so the test above
+        // is proving the header requirement rather than a dead cookie.
+        assertEquals(200, sendCookieMode("/api/v1/auth/refresh", null, cookie).statusCode());
+    }
+
+    @Test
+    void cookieLogoutRevokesTheFamilyAndExpiresTheCookie() throws Exception {
+        String cookie = refreshCookie(registerCookieMode());
+        assertNotNull(cookie);
+
+        HttpResponse<String> out = sendCookieMode("/api/v1/auth/logout", null, cookie);
+        assertEquals(200, out.statusCode(), out.body());
+        assertTrue(out.headers().allValues("set-cookie").stream()
+                        .anyMatch(c -> c.startsWith("trustledger_refresh=") && c.contains("Max-Age=0")),
+                "logout must expire the cookie");
+
+        assertEquals(401, sendCookieMode("/api/v1/auth/refresh", null, cookie).statusCode(),
+                "the refresh token must be dead server-side after logout");
     }
 
     @Test
