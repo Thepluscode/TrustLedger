@@ -637,21 +637,54 @@ availability, p95 latencies, throughput, RTO/RPO, scale targets. Checking the re
 - **No benchmark, load test, JMH harness or k6 script exists anywhere.**
 - Therefore **not one** of those numbers has ever been measured on this system.
 
-Status: **PLANNED**. Nothing here may be written as a target-that-reads-like-a-result — Rule 3, "it
-should be fast enough" is not evidence. The table gets created when the first row can be filled from
-a real run.
+Status: **IN PROGRESS** — first two performance rows measured 2026-08-04. Nothing here may be
+written as a target-that-reads-like-a-result — Rule 3, "it should be fast enough" is not evidence.
 
 | Attribute | Target | Measured | How |
 |---|---|---|---|
 | Core API availability | — | **never measured** | synthetic monitoring (not set up) |
-| Transfer creation p95 | — | **never measured** | load test (not written) |
-| Throughput (TPS) | — | **never measured** | load test (not written) |
-| RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
+| Transfer creation p95 | — | **47–71 ms typical; 204 ms worst run** (5 runs, 2 boots; p50 ~37) | `scripts/load_transfer_probe.py`, 2026-08-04 |
+| Throughput (TPS, pipeline) | — | **231–271/s typical; 105/s worst run** (5 runs, 2 boots) | same probe, same runs |
+| Throughput (TPS, single-account contention) | — | **133/s** (worse of 2 runs; p95 98.4 ms, all 1,000 COMPLETED, no deadlocks) | `load_transfer_probe.py single`, 2026-08-04 |
+| RTO (restore component) | — | **pg_restore 1.0 s + app ready ≤10 s** (1,100-transfer DB, 810 KB dump; backup 0.7 s) | timed drill 2026-08-04: backup → `DROP DATABASE … FORCE` (destruction proven: relation gone) → restore → counts match exactly (1,100/2,200/3,300). Excludes failure detection + failover; scales with data volume. |
+| RPO | — | **= backup interval, by construction** | pg_dump snapshots only; no WAL archiving configured, so worst-case loss is time-since-last-dump. Structural property, not a measurement — continuous archiving is the fix if a tighter RPO is ever required. |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
 
-The last two rows are the only ones with evidence, and they are correctness properties rather than
-performance ones. Smallest honest next step: one load test that fills a single row.
+**Measurement conditions (read before quoting these numbers):** 1,000 transfers per run, 10
+concurrent workers, each worker its own source→destination account pair (measures the pipeline, not
+single-account lock serialisation); every measured request asserted `200 COMPLETED` — a single
+non-completed response fails the run. Full live path: JWT auth → idempotency → intelligence-gate
+fraud scoring → row-locked double-entry ledger post → audit + outbox row. Environment: single dev
+boot (`mvn spring-boot:run`) on an Apple-silicon laptop, PostgreSQL 16 in a colima VM, outbox
+*publisher* disabled (rows still written; no Kafka running), per-IP rate limiter raised (not the
+system under test), tenant step-up threshold raised to 60 so cold-start score-45 transfers complete
+in the monitor band. These are a **local baseline floor, not a production claim** — no claim about
+availability, sustained load, or multi-node behaviour follows from them.
+
+The worst pipeline run (105 TPS, p95 204 ms) was the first pipeline-path run of a freshly booted
+JVM — JIT warm-up beyond the probe's built-in warmup. Reported, not discarded: a just-deployed
+instance really is that much slower until warm. Contention mode (all 10 workers racing ONE source
+row) halves throughput vs pipeline mode and completed 2,000/2,000 transfers with zero deadlocks —
+the deterministic lock-ordering held under sustained single-row contention.
+
+**Sustained load (5 min, measured 2026-08-04) — OPEN FINDING.** `load_transfer_probe.py sustained
+300`: 43,368 transfers, zero errors, but throughput decayed **monotonically** — per-minute TPS
+240 → 207 → 109 → 94 → 73, p50 39 ms → 118 ms. **Bisected same day:** a second 5-min run with the
+reconciliation sweep disabled decayed identically (250 → 243 → 96 → 48 → 44) — the sweep is
+exonerated. **Attribution runs (same day) cleared the other suspects too:** a third 5-min run
+against *tuned* Postgres (`max_wal_size=4GB`, `shared_buffers=512MB`) still degraded, but
+`pg_stat_bgwriter` showed only **1 timed + 1 requested checkpoint** — checkpoints exonerated — and
+the JVM reported **~1.45 s total GC pause across the whole run** — GC exonerated. Decisively: the
+three runs show three *different* decay shapes (monotonic slope / cliff-at-30k / dip-then-recover),
+and the third run's first minute was already 27% slower than the cold-machine runs. **Disposition:
+not attributable on this hardware.** The variance is dominated by the host — Apple-silicon thermal
+throttling and colima-VM I/O scheduling under back-to-back sustained write load — not by any
+reproducible product behaviour. Sustained-load measurement needs controlled/server hardware;
+**no sustained-throughput number may be quoted from laptop runs** (the burst numbers above are
+bursts). Filed here so nobody chases a phantom product defect from these curves.
+
+Still unmeasured: availability; sustained load is measured but unexplained (see finding above).
 
 ## Architecture decision records (2026-07-29)
 
