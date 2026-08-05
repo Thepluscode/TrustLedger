@@ -614,6 +614,35 @@ suite + Trivy + gitleaks + SBOM). Ordered by area.
 - #68 settlement-statement detail view (lines + per-line match status).
 - #69 break → source-statement navigation (statement id stamped into evidence).
 - #70 settlement-statement CSV ingest (server-side parse, tested).
+- **Fee integrity, slice 1 (2026-08-04, VERIFIED):** every ingested line's fee is checked for
+  *schedule-independent* implausibility — a negative fee, or a fee ≥ its own line's amount on a
+  positive-amount line — raising `SETTLEMENT_FEE_IMPLAUSIBLE` (HIGH). Zero configuration: these are
+  wrong under *any* fee schedule, so no tenant setup is needed to catch corrupt or misfiled fee data.
+  A null fee (provider doesn't itemise) is never a break. Evidence: 10/10 in
+  `SettlementReconciliationIntegrationTest`, and **mutation-verified** — removing the guard turns the
+  new test red (`expected: <3> but was: <0>`) while the other 9 stay green, so the test is neither
+  decoration nor over-asserting. **Honest scope:** this is *plausibility*, not *expected-vs-received*
+  fee reconciliation — checking a fee against a real tenant/provider fee schedule needs a schedule
+  schema + API and is the next slice. Do not describe fee reconciliation as done.
+- **Fee reconciliation, slice 2 — expected vs received (2026-08-04, VERIFIED):** V39
+  `provider_fee_schedules` records what a tenant is *contracted* to pay (percentage bps + flat + optional
+  cap + per-line tolerance), and every ingested line is compared against it. A disagreement beyond
+  tolerance raises `SETTLEMENT_FEE_MISMATCH` — **HIGH for an overcharge** (a present loss, the reason
+  the feature exists), **MEDIUM for an undercharge** (a break worth investigating, not a loss) — with
+  direction, expected, received and delta in the evidence. Managed via `POST/GET
+  /api/v1/tenant/fee-schedules` (PROVIDER_CONFIG_MANAGE), audited as `PROVIDER_FEE_SCHEDULE_RECORDED`.
+  **Schedules are temporal:** the check uses the schedule in force during the statement's *period*, not
+  today's, so ingesting a historical statement after a fee renegotiation does not manufacture breaks.
+  Evidence: `ProviderFeeScheduleCalculationTest` (11 pure-arithmetic, incl. cap binding + HALF_EVEN
+  scale-4 rounding + tolerance boundaries) and `SettlementFeeReconciliationIntegrationTest` (6, real
+  PG) — 34 tests green across the settlement suites. **Mutation-verified twice:** removing the
+  plausibility guard reddens slice 1's test, and pointing the schedule lookup at `Instant.now()`
+  instead of the statement period reddens the historical test (`expected: <0> but was: <1>`), proving
+  the temporal design is load-bearing rather than decorative.
+  **Honest scope:** `IngestResult.feeChecked` reports how many lines were actually compared, because
+  with no schedule configured **nothing is checked** — "0 fee breaks" must never be read as "fees
+  verified". Still not built: tiered/volume-banded fee structures, per-instrument or per-corridor
+  rates, and FX-spread checking (a different problem — no FX posting exists yet).
 
 **Fraud control graph (VERIFIED):** #73 signals persisted as first-class rows (the V1 `fraud_signals`
 table, never previously written to) served per case; #75 same coverage on the external-rail held path;
