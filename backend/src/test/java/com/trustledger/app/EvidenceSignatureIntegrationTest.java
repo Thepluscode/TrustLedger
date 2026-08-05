@@ -139,4 +139,29 @@ class EvidenceSignatureIntegrationTest {
         assertEquals(16, a.getSigningKeyId().length());
         assertNotEquals(a.getSignature(), b.getSignature(), "distinct packs must have distinct signatures");
     }
+
+    @Test
+    @DisplayName("a persisted pack survives key rotation: its stored key id resolves the retired key")
+    void aPersistedPackStillVerifiesAfterTheSigningKeyRotates() {
+        UUID tenant = UUID.randomUUID();
+        EvidenceExportEntity export = exportPack(tenant);
+        byte[] content = evidence.download(tenant, UUID.randomUUID(), export.getId());
+
+        // Simulate the operator rotating to a new active key while retaining this one for verification.
+        String[] newKey = EvidenceSigner.generateKeyPair();
+        EvidenceSigner afterRotation = new EvidenceSigner(newKey[0], newKey[1], KEY_PAIR[1]);
+
+        assertNotEquals(export.getSigningKeyId(), afterRotation.keyId(), "the active key must have changed");
+        assertTrue(afterRotation.knowsKey(export.getSigningKeyId()));
+        // The pack's OWN recorded key id is what resolves the right public key — this is the whole
+        // reason signing_key_id is persisted alongside the signature.
+        assertTrue(afterRotation.verifyByKeyId(export.getSigningKeyId(), content, export.getSignature()),
+            "evidence exported before rotation must still verify after it");
+
+        // And if the retired key is not retained, the pack is honestly unverifiable rather than
+        // silently checked against the wrong key.
+        EvidenceSigner withoutRetired = new EvidenceSigner(newKey[0], newKey[1], "");
+        assertFalse(withoutRetired.knowsKey(export.getSigningKeyId()));
+        assertFalse(withoutRetired.verifyByKeyId(export.getSigningKeyId(), content, export.getSignature()));
+    }
 }

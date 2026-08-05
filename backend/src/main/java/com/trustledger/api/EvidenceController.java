@@ -49,7 +49,11 @@ public class EvidenceController {
                                    boolean signatureValid, String signingKeyId, String detail) {}
 
     /** What a third party needs to verify a pack offline, and all they need. */
-    public record SigningKeyView(boolean signingEnabled, String algorithm, String keyId, String publicKey) {}
+    public record SigningKeyView(boolean signingEnabled, String algorithm, String keyId, String publicKey,
+                                 List<VerificationKeyView> verificationKeys) {}
+
+    /** A key packs may have been signed with. Retired keys stay published so old evidence stays checkable. */
+    public record VerificationKeyView(String keyId, String publicKey, boolean active) {}
     public record RetentionPolicyRequest(String resourceType, int retentionDays, boolean archiveEnabled,
                                          String deletionMode, boolean legalHoldEnabled) {}
 
@@ -95,12 +99,19 @@ public class EvidenceController {
         EvidenceExportEntity export = evidence.requireExportInScope(CurrentUser.tenantId(), CurrentUser.userId(), id);
         boolean checksumValid = Checksums.sha256(content).equals(export.getChecksum());
         boolean signed = export.getSignature() != null;
-        boolean signatureValid = signed && signer.verify(content, export.getSignature());
+        // Verify against the key this pack was ACTUALLY signed with, not whichever key is active now —
+        // otherwise rotating a key would invalidate every pack produced under the previous one.
+        boolean keyKnown = signed && signer.knowsKey(export.getSigningKeyId());
+        boolean signatureValid = keyKnown
+            && signer.verifyByKeyId(export.getSigningKeyId(), content, export.getSignature());
         String detail;
         if (!checksumValid) {
             detail = "the stored bytes no longer match the recorded checksum — this pack has been altered";
         } else if (!signed) {
             detail = "intact, but UNSIGNED: it cannot be proven to have originated from this system";
+        } else if (!keyKnown) {
+            detail = "intact, but signed by key " + export.getSigningKeyId() + " which this instance no "
+                + "longer holds — register that key's public half to verify this pack again";
         } else if (!signatureValid) {
             detail = "checksum matches but the signature does not verify — the pack was re-checksummed "
                 + "after being altered, or was signed by a different key";
@@ -117,8 +128,11 @@ public class EvidenceController {
     @GetMapping("/signing-key")
     public SigningKeyView signingKey() {
         access.require(Permission.EVIDENCE_EXPORT);
+        List<VerificationKeyView> keys = signer.verificationKeys().entrySet().stream()
+            .map(e -> new VerificationKeyView(e.getKey(), e.getValue(), e.getKey().equals(signer.keyId())))
+            .toList();
         return new SigningKeyView(signer.enabled(), signer.enabled() ? EvidenceSigner.ALGORITHM : null,
-            signer.keyId(), signer.publicKeyBase64());
+            signer.keyId(), signer.publicKeyBase64(), keys);
     }
 
     @PostMapping("/exports/{id}/legal-hold")
