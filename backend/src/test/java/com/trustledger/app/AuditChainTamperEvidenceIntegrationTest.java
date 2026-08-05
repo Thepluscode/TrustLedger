@@ -237,4 +237,43 @@ class AuditChainTamperEvidenceIntegrationTest {
         assertEquals(AuditChainService.NO_CHECKPOINTS, result.status());
         assertTrue(result.detail().contains("not yet tamper-evident"), result.detail());
     }
+
+    @Test
+    @DisplayName("rewriting an outcome from DENIED to SUCCESS breaks the chain")
+    void thePolicyOutcomeFieldsAreInsideTheDigest() {
+        UUID id = UUID.randomUUID();
+        auditLogs.save(new AuditLogEntity(id, UUID.randomUUID(), "USER", UUID.randomUUID(),
+                "ACCESS_DENIED", "PERMISSION", null, "{\"permission\":\"TRANSFER_CREATE\"}")
+                .outcome(AuditLogEntity.DENIED, "RBAC:VIEWER lacks TRANSFER_CREATE"));
+        sealAndAssertSealed();
+        assertEquals(AuditChainService.VERIFIED, chain.verify().status());
+
+        // The single most attractive edit for an attacker: turn a refusal into an approval. If the
+        // outcome columns sat outside the digest, this would rewrite history and still verify.
+        withTriggerDropped(() ->
+            jdbc.update("UPDATE audit_logs SET result = 'SUCCESS' WHERE id = ?", id));
+        assertEquals("SUCCESS",
+            jdbc.queryForObject("SELECT result FROM audit_logs WHERE id = ?", String.class, id),
+            "the edit must genuinely have landed, or this test proves nothing");
+
+        assertEquals(AuditChainService.TAMPERED, chain.verify().status(),
+            "result/policy_decision/state_change must be inside the sealed digest");
+    }
+
+    @Test
+    @DisplayName("rewriting which rule denied an action also breaks the chain")
+    void thePolicyDecisionItselfIsProtected() {
+        UUID id = UUID.randomUUID();
+        auditLogs.save(new AuditLogEntity(id, UUID.randomUUID(), "USER", UUID.randomUUID(),
+                "ACCESS_DENIED", "PERMISSION", null, "{}")
+                .outcome(AuditLogEntity.DENIED, "RBAC:VIEWER lacks EVIDENCE_EXPORT"));
+        sealAndAssertSealed();
+        assertEquals(AuditChainService.VERIFIED, chain.verify().status());
+
+        withTriggerDropped(() -> jdbc.update(
+            "UPDATE audit_logs SET policy_decision = 'RBAC:OWNER lacks EVIDENCE_EXPORT' WHERE id = ?", id));
+
+        assertEquals(AuditChainService.TAMPERED, chain.verify().status(),
+            "misattributing which rule fired must be as detectable as changing the outcome");
+    }
 }

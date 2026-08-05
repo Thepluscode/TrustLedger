@@ -3,7 +3,15 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-01
+Last updated: 2026-08-05
+
+## Interface image gallery (2026-08-05)
+
+| Artifact | Status | Evidence |
+|---|---|---|
+| Complete desktop/mobile interface reference pack | **VERIFIED (artifact)** | `docs/interface-gallery/`: 26 desktop route mockups + 26 mobile route mockups + 8 critical interaction states; all 60 PNGs decode successfully with `sips`; Dashboard, Transfer Detail, Fraud Cases, ML shadow mode, Production Readiness and reconciliation-resolution samples visually inspected |
+| Route and state index | **VERIFIED (artifact)** | `docs/interface-gallery/README.md` maps every non-redirect frontend route and all eight interaction states to the generated assets |
+| Reference-image UI implementation | **IN PROGRESS** | Shared shell, cyan/slate design tokens, operational panel geometry, desktop header/sidebar, mobile header and bottom navigation implemented; `npm run build` green across 25 pages. Page-by-page visual verification remains. |
 
 ## v3.2 — audit evidence integrity
 
@@ -46,11 +54,40 @@ survives). Publishing checkpoint hashes to external, append-only storage is the 
 is **not** built. Rows written after the last seal are **not yet protected**, and `verify()` reports
 that count separately so a pass can never be misread as covering the whole trail.
 
-**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~ (done —
-see the row above), **result**, **before/after references**, **policy decision**. Unlike the
-correlation ID — which is ambient per-request and so was captured centrally without touching a single
-write site — these three are genuinely per-call-site information and need an `AuditLogEntity`
-constructor change across 30 services. Separate work.
+**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~,
+~~result~~, ~~before/after references~~, ~~policy decision~~ — **all four now exist (2026-08-04)**.
+V42 adds `result` (SUCCESS/FAILURE/DENIED, CHECK-constrained), `policy_decision` and `state_change`.
+The feared "constructor change across 30 services" was avoided: the fields are **fluent and opt-in**
+(`.outcome(result, policy)`, `.stateChange(json)`), so a call site adopts them when it has something
+true to record rather than every site being edited at once to pass placeholders — a placeholder
+outcome is worse than an honest NULL.
+
+**`state_change` holds REFERENCES, not snapshots**, deliberately: audit rows must not become a second
+copy of financial state that can disagree with the ledger.
+
+**The interaction that mattered:** the V40 checkpoint digest hashes an *explicit column list*, so new
+columns are **not** covered unless added to it. Left alone, an attacker could have rewritten `result`
+from DENIED to SUCCESS — the single most attractive edit available — without breaking the chain. The
+digest now covers all three. Mutation-verified: removing them from the digest turns both new tests
+green-to-red (`expected: <TAMPERED> but was: <VERIFIED>`), which is exactly the hole.
+
+**Adoption coverage — honest count: 8 of 18 audit write sites** (was 1), covering the two paths that
+matter most: production-canary governance and the money path itself. `AccessControlService` (every
+permission denial) records `DENIED` plus the rule that fired, because a denial that does not name its
+rule tells you that you were stopped, not by what. **All six `ProductionCanaryService` sites** now do
+the same — request, approve, pause, resume, exposure reservation and auto-pause — because every one is
+a governance decision about production money. The most valuable is the circuit breaker:
+`circuit_breaker:failure_threshold_reached` names *which* threshold stopped production, where before
+an operator saw only that it had stopped. Each site states its own policy rather than inheriting a
+default, since a defaulted SUCCESS is a placeholder and a placeholder looks like coverage. **`PersistentTransferService`** records outcomes at both of its choke points (creation-with-status and
+status-change), with the policy naming the fraud band *and* the score — `fraud:REJECT@96` — because a
+band without its score is unfalsifiable. Crucially, a **HELD or MFA_REQUIRED transfer records NO
+outcome at all**: it is neither success nor failure, and forcing it into one to make every row look
+complete would put a false answer in the field an auditor trusts most. The policy that paused it is
+still recorded, so the row says why it waits. The
+remaining 10 sites still write NULL and are *not* claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
+Evidence: `AuditChainTamperEvidenceIntegrationTest` 11 (2 new) + RBAC/immutability/correlation suites
+green.
 
 **Not correlated, by design:** rows written off-request (outbox publisher, reconciliation sweep,
 webhook inbox worker) carry a NULL correlation id — they have no request to correlate to. Rows
