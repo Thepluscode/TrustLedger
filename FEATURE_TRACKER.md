@@ -63,15 +63,21 @@ from DENIED to SUCCESS — the single most attractive edit available — without
 digest now covers all three. Mutation-verified: removing them from the digest turns both new tests
 green-to-red (`expected: <TAMPERED> but was: <VERIFIED>`), which is exactly the hole.
 
-**Adoption coverage — honest count: 7 of 18 audit write sites** (was 1). `AccessControlService` (every
+**Adoption coverage — honest count: 8 of 18 audit write sites** (was 1), covering the two paths that
+matter most: production-canary governance and the money path itself. `AccessControlService` (every
 permission denial) records `DENIED` plus the rule that fired, because a denial that does not name its
 rule tells you that you were stopped, not by what. **All six `ProductionCanaryService` sites** now do
 the same — request, approve, pause, resume, exposure reservation and auto-pause — because every one is
 a governance decision about production money. The most valuable is the circuit breaker:
 `circuit_breaker:failure_threshold_reached` names *which* threshold stopped production, where before
 an operator saw only that it had stopped. Each site states its own policy rather than inheriting a
-default, since a defaulted SUCCESS is a placeholder and a placeholder looks like coverage. The
-remaining 11 sites still write NULL and are *not* claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
+default, since a defaulted SUCCESS is a placeholder and a placeholder looks like coverage. **`PersistentTransferService`** records outcomes at both of its choke points (creation-with-status and
+status-change), with the policy naming the fraud band *and* the score — `fraud:REJECT@96` — because a
+band without its score is unfalsifiable. Crucially, a **HELD or MFA_REQUIRED transfer records NO
+outcome at all**: it is neither success nor failure, and forcing it into one to make every row look
+complete would put a false answer in the field an auditor trusts most. The policy that paused it is
+still recorded, so the row says why it waits. The
+remaining 10 sites still write NULL and are *not* claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
 Evidence: `AuditChainTamperEvidenceIntegrationTest` 11 (2 new) + RBAC/immutability/correlation suites
 green.
 
