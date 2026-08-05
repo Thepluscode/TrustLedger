@@ -3,7 +3,15 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-01
+Last updated: 2026-08-05
+
+## Interface image gallery (2026-08-05)
+
+| Artifact | Status | Evidence |
+|---|---|---|
+| Complete desktop/mobile interface reference pack | **VERIFIED (artifact)** | `docs/interface-gallery/`: 26 desktop route mockups + 26 mobile route mockups + 8 critical interaction states; all 60 PNGs decode successfully with `sips`; Dashboard, Transfer Detail, Fraud Cases, ML shadow mode, Production Readiness and reconciliation-resolution samples visually inspected |
+| Route and state index | **VERIFIED (artifact)** | `docs/interface-gallery/README.md` maps every non-redirect frontend route and all eight interaction states to the generated assets |
+| Reference-image UI implementation | **IN PROGRESS** | Shared shell, cyan/slate design tokens, operational panel geometry, desktop header/sidebar, mobile header and bottom navigation implemented; `npm run build` green across 25 pages. Page-by-page visual verification remains. |
 
 ## v3.2 — audit evidence integrity
 
