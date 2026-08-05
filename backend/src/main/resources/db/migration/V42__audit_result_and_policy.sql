@@ -31,5 +31,21 @@ ALTER TABLE audit_logs ADD CONSTRAINT chk_audit_result
 
 -- "Show me everything that was refused" is the query an incident review opens with, and it must not
 -- be a full scan of every action ever taken.
+--
+-- OPERATIONAL HAZARD, measured 2026-08-05 — read before applying this to a POPULATED audit_logs.
+-- A plain CREATE INDEX takes a ShareLock on the table (confirmed in pg_locks during a real build),
+-- and a ShareLock blocks INSERT (measured: an audit write blocked for 2.6s while one was held).
+-- Every money movement writes an audit row, so on a large audit_logs this migration stalls ALL
+-- payments for the duration of the index build.
+--
+-- This is safe as written when applied to an empty or small table, which is the case for any fresh
+-- deployment — the index builds in milliseconds. If you are ever applying it to an existing table
+-- with significant history, do NOT run it as-is. Instead:
+--   1. skip this statement (or apply the migration with it removed),
+--   2. build the index out-of-band:  CREATE INDEX CONCURRENTLY idx_audit_logs_refused
+--          ON audit_logs (tenant_id, created_at DESC) WHERE result IN ('FAILURE','DENIED');
+--      CONCURRENTLY does not block writes, but cannot run inside a transaction (so it needs a
+--      non-transactional Flyway script) and leaves an INVALID index behind if it fails, which must
+--      be dropped and retried manually.
 CREATE INDEX idx_audit_logs_refused ON audit_logs (tenant_id, created_at DESC)
     WHERE result IN ('FAILURE', 'DENIED');
