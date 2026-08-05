@@ -194,8 +194,13 @@ an unrelated stash from a previous session, merging obsolete edits into `Externa
 30 files of unrelated parallel work; a reflexive `git checkout -- .` would have deleted all of it. The
 correct recovery separates stash-derived files from everything else and touches only the former.
 
-**Level:** 2. Level 4 is a PreToolUse hook rejecting a `git switch`/`checkout` chained to another git
-subcommand on one line.
+**Level:** 4 as of 2026-08-05 — `.claude/hooks/block-chained-git-switch.py` refuses the chained form
+before it runs, wired as a project PreToolUse hook. It is deliberately narrow (only a branch change
+followed by another *git* subcommand; `git switch X && npm test` still passes), fails **open** on a
+malformed payload so a hook bug can never block a session, and carries `--selftest` over 13 cases
+including one accepted false positive: text that merely quotes the pattern is blocked too, because
+distinguishing quoted from executed text needs a shell parser and a half-correct one would fail in the
+direction that matters.
 
 **Revisit when:** a session passes with branch changes always issued alone — then this has become
 habit and can be demoted.
