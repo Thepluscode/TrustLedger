@@ -71,7 +71,10 @@ public class SecurityConfig {
         CorsConfiguration cfg = new CorsConfiguration();
         cfg.setAllowedOrigins(Arrays.stream(allowedOrigins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "X-API-Key"));
+        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "X-API-Key", "X-Auth-Mode"));
+        // The refresh cookie is httpOnly and cross-origin in local dev, so the browser only sends it
+        // when credentials are allowed. Safe here because origins are an explicit allowlist, never "*".
+        cfg.setAllowCredentials(true);
         cfg.setExposedHeaders(List.of("X-Evidence-Checksum"));
         cfg.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
