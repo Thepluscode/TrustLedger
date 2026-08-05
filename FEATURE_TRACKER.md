@@ -63,10 +63,15 @@ from DENIED to SUCCESS — the single most attractive edit available — without
 digest now covers all three. Mutation-verified: removing them from the digest turns both new tests
 green-to-red (`expected: <TAMPERED> but was: <VERIFIED>`), which is exactly the hole.
 
-**Adoption coverage — honest count: 1 of 18 audit write sites.** `AccessControlService` (every
+**Adoption coverage — honest count: 7 of 18 audit write sites** (was 1). `AccessControlService` (every
 permission denial) records `DENIED` plus the rule that fired, because a denial that does not name its
-rule tells you that you were stopped, not by what. The other 17 sites still write NULL and are *not*
-claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
+rule tells you that you were stopped, not by what. **All six `ProductionCanaryService` sites** now do
+the same — request, approve, pause, resume, exposure reservation and auto-pause — because every one is
+a governance decision about production money. The most valuable is the circuit breaker:
+`circuit_breaker:failure_threshold_reached` names *which* threshold stopped production, where before
+an operator saw only that it had stopped. Each site states its own policy rather than inheriting a
+default, since a defaulted SUCCESS is a placeholder and a placeholder looks like coverage. The
+remaining 11 sites still write NULL and are *not* claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
 Evidence: `AuditChainTamperEvidenceIntegrationTest` 11 (2 new) + RBAC/immutability/correlation suites
 green.
 
