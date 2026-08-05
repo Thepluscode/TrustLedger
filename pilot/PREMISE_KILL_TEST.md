@@ -150,3 +150,41 @@ gate was raised to 25 on 2026-07-31.)*
   the scorer (11 cases, including that a booked-but-unheld call does not count toward N).
 - The scorer fails fast: if pain becomes unreachable even were every remaining interview to clear
   it, it returns STOP before you finish the set.
+
+---
+
+## Send-channel log — read before drawing any conclusion from the reply rate
+
+**As of 2026-08-05:** 17 messages sent (all channel C, cold email, on 2026-08-04). **0 replies.**
+Interviews still 0 of 25 — the scorer is the source of truth, not this paragraph.
+
+**0 replies is not yet a signal.** The sends are ~28 hours old; cold outreach to finance and ops
+leaders typically replies over 2–5 working days, and a chunk of the first batch went out on a
+Tuesday afternoon. Do not re-cut the segment or declare the channel dead before **2026-08-11**.
+
+**What IS a signal, now:** address quality. Every channel-C address was *constructed* from a name
+plus a domain pattern, not verified. Confirmed outcomes from mailer-daemon:
+
+| Company | Outcome |
+|---|---|
+| PalmPay | `samuel.oluyemi@palmpay.co` — 554 address-not-found. No working email route found. |
+| Alpaca | primary bounced 550; retry to the founder's legacy domain did not bounce. |
+| MultiBank Group | **both** variants bounced. No working email route. |
+| Lemonway | original did not bounce; the **recovery** message bounced, so the subject-tag correction never landed. |
+
+**Correction recorded 2026-08-05.** The commit `60d7bfe` states "both retry addresses hold (no
+bounce)". That is false: two of those retries bounced, the DSNs arriving up to 30 minutes after the
+send. The claim was made from an immediate inbox check. **A bounce is not synchronous — a
+non-bounce read within minutes of sending proves nothing.** Re-check delivery at least an hour later
+before recording an outcome, and never record "delivered": the honest states are *bounced* and
+*not-bounced*, because silent spam-foldering is invisible from the sending side.
+
+**Process defect, unresolved.** Three messages went out with the placeholder tag
+`[ADDRESS IS A GUESS — …]` still in the subject line (Lemonway, Trading 212, IG Group). Recovery
+messages were sent for all three; Lemonway's bounced. Any future send must be blocked if `[` appears
+in the subject.
+
+**Channel implication.** With ~5 bounces across 17 constructed addresses and two companies with no
+working email route at all, cold email is carrying an unknown and probably poor delivery rate.
+`INTERVIEW_OUTREACH.md` ranks warm intros (A) above LinkedIn (B) above cold email (C), and the
+campaign has so far used only C. The next batch should not be more constructed addresses.
