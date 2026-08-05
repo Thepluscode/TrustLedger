@@ -48,6 +48,7 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 const TOKEN_KEY = "trustledger.token";
+const REFRESH_KEY = "trustledger.refresh";
 const SESSION_KEY = "trustledger.session";
 
 /** Non-secret session display info (email/role/tenant) for the shell. The JWT stays the only credential. */
@@ -68,6 +69,27 @@ export function setToken(token: string | null): void {
   else window.localStorage.removeItem(TOKEN_KEY);
 }
 
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(REFRESH_KEY);
+}
+
+export function setRefreshToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) window.localStorage.setItem(REFRESH_KEY, token);
+  else window.localStorage.removeItem(REFRESH_KEY);
+}
+
+/** Fired when the session ends unexpectedly, so the shell can route to login. */
+export const SESSION_EXPIRED_EVENT = "trustledger:session-expired";
+
+/** Clears every trace of the session locally. Server-side revocation is api.logout(). */
+export function clearSession(): void {
+  setToken(null);
+  setRefreshToken(null);
+  setSession(null);
+}
+
 export function getSession(): SessionInfo | null {
   if (typeof window === "undefined") return null;
   try {
@@ -84,19 +106,71 @@ export function setSession(info: SessionInfo | null): void {
   else window.localStorage.removeItem(SESSION_KEY);
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+/**
+ * In-flight refresh, shared by every caller. Refresh tokens are single-use and rotate on the
+ * server, so two concurrent refreshes would invalidate each other and log the user out mid-work.
+ * One promise, awaited by all, is the only safe shape here.
+ */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  const res = await fetch(`${BASE}/api/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) return null;
+
+  const body = (await res.json()) as AuthResponse;
+  if (!body.token) return null;
+  setToken(body.token);
+  // The server rotated the family: store the new one or the next refresh replays a dead token.
+  if (body.refreshToken) setRefreshToken(body.refreshToken);
+  setSession({ email: body.email, role: body.role, tenantId: body.tenantId });
+  return body.token;
+}
+
+function sharedRefresh(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken()
+      .catch(() => null)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+async function send(path: string, options: RequestInit, token: string | null): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
-  const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(`${BASE}${path}`, { ...options, headers });
+}
 
-  const res = await fetch(`${BASE}${path}`, { ...options, headers });
-  if (res.status === 401) {
-    setToken(null);
-    throw new Error("Unauthorized");
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  let res = await send(path, options, getToken());
+
+  // A 401 on a short-lived JWT usually means expiry, not revocation — try exactly one refresh.
+  // Auth endpoints are excluded: refreshing a failed login would loop.
+  if (res.status === 401 && !path.startsWith("/api/v1/auth/")) {
+    const refreshed = await sharedRefresh();
+    if (refreshed) res = await send(path, options, refreshed);
   }
+
+  if (res.status === 401) {
+    clearSession();
+    // Clearing credentials isn't enough: without this the user sits on a dead page with no data
+    // and no way to tell why. The shell listens and routes to login.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    throw new Error("Your session has expired — please sign in again.");
+  }
+
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
@@ -111,6 +185,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ tenantName, email, password }),
     }),
+
+  /** Confirms the stored token is still valid and returns the authoritative role/tenant. */
+  me: () => request<AuthResponse>("/api/v1/auth/me"),
+
+  /**
+   * Revokes the refresh-token family server-side, then clears local state. The short-lived JWT
+   * stays valid until it expires — that is why discarding it locally is part of logging out, not
+   * an optimisation.
+   */
+  logout: async (): Promise<void> => {
+    const refreshToken = getRefreshToken();
+    try {
+      if (refreshToken) {
+        await fetch(`${BASE}/api/v1/auth/logout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } finally {
+      // A failed revocation must never trap the user in a session they asked to leave.
+      clearSession();
+    }
+  },
 
   login: (tenantId: string, email: string, password: string) =>
     request<AuthResponse>("/api/v1/auth/login", {

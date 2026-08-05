@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { api, getSession, getToken, setSession, setToken } from "../lib/api";
+import { api, clearSession, getSession, getToken, SESSION_EXPIRED_EVENT } from "../lib/api";
 import type { OrgUnit } from "../lib/types";
 import CommandPalette from "./CommandPalette";
 import PlatformProductionGate from "./PlatformProductionGate";
@@ -127,12 +127,23 @@ export default function Shell({ children, active }: { children: ReactNode; activ
 
   useEffect(() => setExpandedGroup(activeGroup), [activeGroup]);
 
+  // A session that dies mid-page must land the user somewhere they can act, not on a dead view.
+  useEffect(() => {
+    const onExpired = () => router.replace("/login");
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [router]);
+
   if (!ready) return null;
 
-  function logout() {
-    setToken(null);
-    setSession(null);
-    router.replace("/login");
+  /** Revokes the refresh-token family server-side; local state is cleared either way. */
+  async function logout() {
+    try {
+      await api.logout();
+    } finally {
+      clearSession();
+      router.replace("/login");
+    }
   }
 
   const activeTitle = NAV.flatMap((g) => g.links).find(([, href]) => href === active)?.[0] ?? "TrustLedger";

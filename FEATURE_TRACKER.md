@@ -645,3 +645,28 @@ a tenant self-approving its own payout destination.
 
 **Not wired:** `auth/logout`, `auth/me`, `auth/refresh`; `GET /fraud/cases/{caseId}`; `GET /accounts/{id}`
 and `/balance`; open-banking consent endpoints.
+
+### Session lifecycle (2026-08-05)
+
+The client stored a JWT and silently discarded the refresh token the server returned, so a session
+died at access-token expiry mid-work, and "Log out" cleared local state while leaving the refresh
+token valid server-side.
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Refresh-on-401 with single retry | **VERIFIED** | browser: garbage access token + valid refresh → `/accounts` renders, token replaced with a real JWT, refresh rotated, and the session email is corrected to the server's value |
+| Single-flight refresh | **VERIFIED** | see measurement below — concurrent refreshes destroy the session without it |
+| Dead refresh → clear + route to login | **VERIFIED** | browser: garbage token + revoked refresh → all three keys cleared and redirected to `/login` |
+| Logout revokes server-side | **VERIFIED** | browser: click Log out → local cleared, redirected, and the refresh token returns **401** afterwards |
+| `GET /auth/me` | **IMPLEMENTED** | wired as `api.me()`; not yet used for boot-time session validation |
+
+**Why refresh is single-flight, measured — not assumed.** Refresh tokens rotate and are single-use,
+and reuse detection revokes the whole family. Two concurrent refreshes of the same live token returned
+`200` and `401` — and the **winner's newly issued token was then also dead**, because the loser's
+rejected attempt tripped reuse detection and revoked the family. So without a shared in-flight promise,
+two parallel 401s log the user out completely, including the request that succeeded. One promise,
+awaited by all, is the only safe shape.
+
+**Residual risk, not fixed here:** tokens live in `localStorage`, so any XSS reads them. Moving to
+httpOnly cookies is a backend change (cookie issuance + CSRF protection) and was out of scope for
+wiring; it is the right next hardening step.

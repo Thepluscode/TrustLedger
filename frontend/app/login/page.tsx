@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { api, setSession, setToken } from "../lib/api";
+import { api, setRefreshToken, setSession, setToken } from "../lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,6 +24,8 @@ export default function LoginPage() {
         ? await api.register(tenantName, email, password)
         : await api.login(tenantId, email, password);
       setToken(res.token);
+      // Without this the session simply dies when the short-lived JWT expires, mid-work.
+      setRefreshToken(res.refreshToken ?? null);
       setSession({ email: res.email, role: res.role, tenantId: res.tenantId });
       router.replace("/dashboard");
     } catch (err) {

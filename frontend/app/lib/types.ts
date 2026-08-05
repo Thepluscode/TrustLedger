@@ -4,6 +4,9 @@ export interface AuthResponse {
   userId: string;
   role: string;
   email: string;
+  /** Absent on /auth/me, which describes the current session rather than issuing one. */
+  refreshToken?: string | null;
+  refreshExpiresIn?: number;
 }
 
 export interface AccountView {
