@@ -272,6 +272,18 @@ providers. Every one looked plausible.
 
 **Revisit when:** a promoted row turns out to have been wrong, which means the promotion rule is too weak.
 
+## Definition of done — data resilience (Rule 0.8)
+
+A feature that persists customer or operational data is **not production-ready until backup, retention, restoration, integrity validation and failure recovery have been designed and tested.** Check with `~/.claude/scripts/data-resilience-gate scan .`.
+
+**Current verdict: RESTORE TESTED FOR DEVELOPMENT** (2026-08-04). The drill has now been run and recorded — see `docs/RESTORE_TEST_RECORD.md`: primary database destroyed outright, restored in 0.8 s, **10/10 financial invariants held**, zero data loss against the backup point, and the validator itself proven to fail on a single deleted credit entry. `scripts/verify-restore-integrity.sh` is new and wired into the drill, because row counts are not integrity.
+
+**Not pilot-ready yet, and the remaining gaps are specific:** nothing schedules the drill (Rule 0.8 treats one older than 90 days as stale), backups are not stored outside the primary failure domain, object storage is unexercised, and the lock-execution-before-resume sequence has never been rehearsed — provider reconciliation after a restore is the dangerous, unrehearsed part. RPO is still the backup interval: no PITR/WAL archiving, and financial state cannot be reconstructed casually, so PITR is required before real money moves.
+
+**Finding raised by the drill (open):** opening balances are written straight into `available_balance`/`posted_balance` with **no ledger entry**, so balances are *not* fully derivable from the journal and a rebuild-from-ledger recovery would be wrong for every funded account. Filed, not silently patched — posting opening balances as real double-entry movements is a money-semantics decision for the product owner.
+
+**Never restore and reopen payment execution.** The sequence is: restore → **lock external execution** → validate ledger invariants → reconcile providers → replay safe events → classify ambiguity into the exception queue → operator approval → resume. After any restore, prove: every journal entry balanced, no transaction executed twice, idempotency keys survived, provider state reconciled against restored internal state, balances recomputed and compared against stored balances, audit records retain actor + correlation id.
+
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
 in the runtime, say a layer is written-but-unverified rather than implying it passed.

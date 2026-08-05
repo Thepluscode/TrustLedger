@@ -19,6 +19,10 @@ ingested, verified, correlated and reconciled — never assigned directly to int
 Corollaries, all enforced in code:
 
 - Balances are derived views over ledger entries, never independently mutable totals.
+  **Exception, recorded 2026-08-04:** an account's *opening balance* is written directly to the
+  balance columns with no ledger entry, so balances are not fully derivable today. See
+  [ADR-006](ADR-006-opening-balances-bypass-the-ledger.md) — the decision is open, and until it is
+  taken this corollary states an intent rather than an enforced property.
 - Posted entries are immutable; corrections are reversing entries (DB trigger, not convention).
 - Every external transaction stays traceable to its internal record (provider ref ↔ transfer id) —
   invariant 9.
