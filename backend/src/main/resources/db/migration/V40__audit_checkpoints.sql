@@ -45,6 +45,18 @@ CREATE TRIGGER audit_checkpoints_append_only
     FOR EACH ROW EXECUTE FUNCTION trustledger_reject_audit_mutation();
 
 -- Verification reads every row of a window ordered by (created_at, id); without this it is a sort.
+--
+-- OPERATIONAL HAZARD, measured 2026-08-05 — read before applying this to a POPULATED audit_logs.
+-- A plain CREATE INDEX takes a ShareLock on the table (confirmed in pg_locks during a real build),
+-- and a ShareLock blocks INSERT (measured: an audit write blocked for 2.6s while one was held).
+-- Every money movement writes an audit row, so on a large audit_logs this stalls ALL payments for
+-- the duration of the build.
+--
+-- Safe as written on an empty or small table — a fresh deployment builds this in milliseconds.
+-- Against an existing table with real history: skip this statement and build it out-of-band with
+--   CREATE INDEX CONCURRENTLY idx_audit_logs_created_id ON audit_logs (created_at, id);
+-- which does not block writes, but cannot run inside a transaction and leaves an INVALID index to
+-- clean up by hand if it fails.
 CREATE INDEX idx_audit_logs_created_id ON audit_logs (created_at, id);
 
 -- Hole found while building this slice: V37's guard is a row-level BEFORE UPDATE OR DELETE trigger,
