@@ -38,6 +38,16 @@ public class EvidenceExportEntity {
     @Column(name = "generated_by")
     private UUID generatedBy;
 
+    /** Detached Ed25519 signature over the stored bytes. NULL means unsigned — never assume verified. */
+    @Column(name = "signature")
+    private String signature;
+
+    @Column(name = "signing_key_id", length = 64)
+    private String signingKeyId;
+
+    @Column(name = "signature_algorithm", length = 32)
+    private String signatureAlgorithm;
+
     @Column(name = "legal_hold", nullable = false)
     private boolean legalHold;
 
@@ -70,4 +80,15 @@ public class EvidenceExportEntity {
     public String getChecksum() { return checksum; }
     public boolean isLegalHold() { return legalHold; }
     public void setLegalHold(boolean v) { this.legalHold = v; }
+
+    public String getSignature() { return signature; }
+    public String getSigningKeyId() { return signingKeyId; }
+    public String getSignatureAlgorithm() { return signatureAlgorithm; }
+
+    /** Set once at export time, before the row is first persisted. */
+    public void sign(String signature, String signingKeyId, String signatureAlgorithm) {
+        this.signature = signature;
+        this.signingKeyId = signingKeyId;
+        this.signatureAlgorithm = signatureAlgorithm;
+    }
 }
