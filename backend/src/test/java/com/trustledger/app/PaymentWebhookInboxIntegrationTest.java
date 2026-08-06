@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.persistence.entity.AccountEntity;
 import com.trustledger.persistence.entity.ExternalPaymentAttemptEntity;
+import com.trustledger.persistence.entity.PaymentWebhookEnvelopeEntity;
 import com.trustledger.persistence.entity.PaymentWebhookInboxEntity;
 import com.trustledger.persistence.entity.TransferEntity;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
+import com.trustledger.persistence.repo.PaymentWebhookEnvelopeRepository;
 import com.trustledger.persistence.repo.PaymentWebhookInboxRepository;
 import com.trustledger.persistence.repo.TransferRepository;
 import com.trustledger.rails.ExternalPaymentStatus;
@@ -65,6 +67,9 @@ class PaymentWebhookInboxIntegrationTest {
     @Autowired PaymentWebhookInboxService inbox;
     @Autowired PaymentWebhookInboxWorker worker;
     @Autowired PaymentWebhookInboxRepository inboxRepo;
+    @Autowired WebhookEnvelopeRecorder envelopeRecorder;
+    @Autowired PaymentWebhookEnvelopeRepository envelopeRepo;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
     @Autowired AccountRepository accounts;
     @Autowired TransferRepository transfers;
     @Autowired ExternalPaymentAttemptRepository attempts;
@@ -176,6 +181,72 @@ class PaymentWebhookInboxIntegrationTest {
         assertEquals(ExternalPaymentStatus.SETTLED, attemptStatus(ref));
         assertBalances(source.getId(), clearing.getId(), "0.0000", "800.0000", "200.0000");
         assertEquals(1, settleDebits(source.getId()), "a redelivered webhook must not double-post the ledger");
+    }
+
+    @Test
+    void refusedUnknownProviderLeavesForensicEnvelope() {
+        String body = eventBody("evt-forensic", "ref-" + UUID.randomUUID(), ExternalPaymentStatus.SETTLED);
+
+        assertThrows(IllegalArgumentException.class, () -> inbox.receive("no-such-provider", body, "sig"));
+
+        PaymentWebhookEnvelopeEntity envelope = envelopeRepo.findByBodyHash(sha256Hex(body)).stream()
+            .findFirst().orElseThrow(() -> new AssertionError("refused delivery left no envelope"));
+        assertEquals("UNSUPPORTED_PROVIDER", envelope.getOutcome());
+        assertEquals("no-such-provider", envelope.getRequestedProvider());
+        assertNull(envelope.getProvider(), "alias never resolved, canonical provider must be NULL");
+        assertEquals(body, envelope.getRawBody(), "the raw body survives verbatim");
+        assertNotNull(envelopeRepo.findById(envelope.getId()).orElseThrow().getReceivedAt());
+    }
+
+    @Test
+    void oversizedPayloadIsRefusedButHashedInFullAndStoredTruncated() {
+        // Above both the inbox cap (262144 default) and the recorder's stored-body cap.
+        String body = "x".repeat(WebhookEnvelopeRecorder.MAX_STORED_BYTES + 10_000);
+
+        assertThrows(PaymentWebhookInboxService.PayloadTooLargeException.class,
+            () -> inbox.receive("sandbox", body, "sig"));
+
+        PaymentWebhookEnvelopeEntity envelope = envelopeRepo.findByBodyHash(sha256Hex(body)).stream()
+            .findFirst().orElseThrow(() -> new AssertionError("oversized delivery left no envelope"));
+        assertEquals("PAYLOAD_TOO_LARGE", envelope.getOutcome());
+        assertEquals(RAIL, envelope.getProvider(), "the alias resolved, so the canonical provider is known");
+        assertEquals(WebhookEnvelopeRecorder.MAX_STORED_BYTES, envelope.getRawBody().length(),
+            "stored body is capped");
+        // and the hash is of the FULL body — that is the forensic identity, proven by the lookup above
+    }
+
+    @Test
+    void acceptedDeliveryWritesNoEnvelope() {
+        String body = eventBody("evt-accepted", "sbx_" + UUID.randomUUID(), ExternalPaymentStatus.SETTLED);
+
+        inbox.receive("sandbox", body, signer.sign(body));
+
+        assertTrue(envelopeRepo.findByBodyHash(sha256Hex(body)).isEmpty(),
+            "accepted deliveries are evidenced by the inbox row; a duplicate envelope is waste");
+    }
+
+    @Test
+    void envelopeSurvivesRollbackOfTheSurroundingTransaction() {
+        String body = "{\"probe\":\"" + UUID.randomUUID() + "\"}";
+        var template = new org.springframework.transaction.support.TransactionTemplate(txManager);
+
+        template.executeWithoutResult(status -> {
+            envelopeRecorder.record("paystack", null, body, "UNSUPPORTED_PROVIDER");
+            status.setRollbackOnly();
+        });
+
+        assertEquals(1, envelopeRepo.findByBodyHash(sha256Hex(body)).size(),
+            "REQUIRES_NEW must commit the evidence even when the caller's transaction rolls back");
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            byte[] bytes = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(bytes);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     // Result.UNKNOWN_REFERENCE.name(), inlined to avoid importing the nested enum.
