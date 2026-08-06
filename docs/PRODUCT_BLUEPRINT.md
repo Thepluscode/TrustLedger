@@ -1060,7 +1060,72 @@ The current TrustLedger implementation already includes major components of this
 
 # 8. Next major feature groups
 
-## 8.1 Provider certification system
+Sequenced around the wedge. §8.1 is the named next increment; everything after it is retained
+capability work that must not jump the queue.
+
+## 8.1 TrustLedger Settlement Watch — the immediate increment
+
+TrustLedger should not merely record financial truth. It should continuously defend it. Settlement
+Watch is the first expression of that: a **read-only** service that
+
+1. ingests provider transactions and settlement reports;
+2. matches expected against actual settlements;
+3. detects missing, delayed or incorrect payments;
+4. classifies each break using the closed taxonomy (§1.3);
+5. creates an exception with supporting evidence, financial exposure and an owner;
+6. alerts the responsible operator;
+7. records every observation and investigation step in the immutable audit trail.
+
+This is not a new subsystem. It is scheduled watchers over data the platform already holds —
+statement ingestion and line matching (V32), the reconciliation worker, the evidence store — plus
+the taxonomy and the exception-ops upgrade (owner, exposure, deadline, activity history).
+
+### The Financial Operations Agents module
+
+Settlement Watch is the first of a family of continuous watchers:
+
+```text
+Financial Operations Agents
+├── Settlement Watcher          (missing / late / short settlements)
+├── Webhook Health Agent        (delivery gaps, duplicate rate, signature failures)
+├── Reconciliation Investigator (gathers the evidence for a break, proposes a cause)
+├── Fee and FX Monitor          (expected vs charged fees and rates)
+└── Evidence Pack Generator     (assembles the audit bundle for a case)
+```
+
+Rules that keep this a moat rather than a gimmick:
+
+* **Every agent action passes through the shared control plane** — identity (who is the agent
+  acting for), policy (what it may inspect and enforce), audit (what it observed and concluded),
+  observability (is it operating correctly), evidence (what proves the alert).
+* **Agents observe and propose; the deterministic engine decides.** The reconciliation engine —
+  never an agent, never an LLM — determines financial truth (§1.3). Agents watch, classify against
+  the closed taxonomy, and assemble evidence.
+* **The agent is replaceable. The governed financial history, policies, evidence and integrations
+  are not.** That is where the value accumulates.
+
+### The commercial ladder this unlocks
+
+Each step increases revenue on the same infrastructure — no throwaway consulting, no side products:
+
+```text
+manual reconciliation assessment
+→ read-only TrustLedger pilot
+→ continuous exception monitoring   (Settlement Watch — this increment)
+→ automated investigation
+→ human-approved remediation
+→ policy-controlled autonomous action
+```
+
+Every engagement compounds the same assets: provider connectors, reconciliation rules, exception
+taxonomy, financial policies, evidence schemas, audit history, operational benchmarks. Over time
+that data powers provider reliability scoring, anomaly detection, settlement-risk prediction and
+automated root-cause analysis — which is the §10 defensibility, not a separate AI product.
+
+**Explicitly not this:** a generic AI-agent platform, a chatbot attached to TrustLedger, a local-AI
+hardware product, an automation consultancy, or another repository. Those dilute the company.
+
+## 8.2 Provider certification system
 
 Automate the evidence required before a provider can move production money:
 
@@ -1076,7 +1141,7 @@ Automate the evidence required before a provider can move production money:
 * credential-rotation drills,
 * emergency-stop exercises.
 
-## 8.2 Certification evidence packs
+## 8.3 Certification evidence packs
 
 Generate a signed report containing:
 
@@ -1093,7 +1158,7 @@ Generate a signed report containing:
 * checksums,
 * unresolved risks.
 
-## 8.3 Additional payment providers
+## 8.4 Additional payment providers
 
 Potential providers:
 
@@ -1109,7 +1174,7 @@ Potential providers:
 
 Each new provider should use the existing adapter and governance contracts.
 
-## 8.4 Advanced reconciliation
+## 8.5 Advanced reconciliation
 
 * Statement ingestion
 * Automated matching
@@ -1120,7 +1185,7 @@ Each new provider should use the existing adapter and governance contracts.
 * Break investigation
 * Automated evidence generation
 
-## 8.5 Enterprise controls
+## 8.6 Enterprise controls
 
 * Maker-checker approval
 * Multi-stage approvals
@@ -1134,7 +1199,7 @@ Each new provider should use the existing adapter and governance contracts.
 * Data-residency controls
 * Legal-entity separation
 
-## 8.6 Reliability and scale
+## 8.7 Reliability and scale
 
 * Multi-region deployment
 * Disaster recovery

@@ -345,7 +345,7 @@ intelligence gate opens real held cases (see the closed v2.3/v2.8 deferral above
 
 ## v3.1 — provider certification & production evidence
 
-Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.1/§8.2, first slice only.
+Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.2/§8.3 (certification — renumbered when §8.1 became Settlement Watch), first slice only.
 
 | Feature | Status | Evidence / note |
 |---------|--------|------|
