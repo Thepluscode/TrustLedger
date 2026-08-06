@@ -228,6 +228,62 @@ class SettlementReconciliationIntegrationTest {
     }
 
     @Test
+    void duplicateProviderReferenceInOneStatementRaisesADuplicateBreak() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-a", "10.0000");
+
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-DUPLINE", List.of(
+                line("ref-a", "10.0000"),       // MATCHED
+                line("ref-a", "10.0000"))));    // DUPLICATE — same reference settled twice in one statement
+
+        assertEquals(1, result.matched());
+        assertEquals(1, result.duplicate());
+        var raised = issues.findByTenantIdOrderByCreatedAtDesc(tenant);
+        var dup = raised.stream().filter(i -> "SETTLEMENT_LINE_DUPLICATE".equals(i.getType()))
+                .findFirst().orElseThrow(() -> new AssertionError("no duplicate break raised: " + raised));
+        assertEquals("DUPLICATE_TRANSACTION", dup.getClassification());
+        assertTrue(lines.findByStatementId(result.statement().getId()).stream()
+                .anyMatch(l -> "DUPLICATE".equals(l.getMatchStatus())));
+    }
+
+    @Test
+    void currencyMismatchIsDetectedBeforeAmountsAreCompared() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-fx", "100.0000"); // attempt currency is NGN
+
+        // Same reference, same numeric amount — but the statement is USD. Amounts across currencies
+        // must never be compared as equal: this is a CURRENCY_MISMATCH, not a MATCH.
+        IngestResult result = settlements.ingest(tenant, UUID.randomUUID(),
+                new StatementInput(PROVIDER, "USD", "STMT-FX", periodStart, periodEnd,
+                        List.of(line("ref-fx", "100.0000")), null, null));
+
+        assertEquals(0, result.matched());
+        assertEquals(0, result.amountMismatch());
+        assertEquals(1, result.currencyMismatch());
+        var raised = issues.findByTenantIdOrderByCreatedAtDesc(tenant);
+        var fx = raised.stream().filter(i -> "SETTLEMENT_CURRENCY_MISMATCH".equals(i.getType()))
+                .findFirst().orElseThrow(() -> new AssertionError("no currency break raised: " + raised));
+        assertEquals("CURRENCY_MISMATCH", fx.getClassification());
+    }
+
+    @Test
+    void everyRaisedBreakCarriesItsClosedTaxonomyClassification() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-mismatch", "50.0000");
+        settledAttempt(tenant, "ref-missing", "77.0000");
+
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-CLASS", List.of(
+                line("ref-mismatch", "55.0000"),    // → AMOUNT_MISMATCH
+                line("ref-orphan", "200.0000"))));  // → MISSING_INTERNAL_RECORD (+ ref-missing → MISSING_SETTLEMENT)
+
+        var byType = issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .collect(java.util.stream.Collectors.toMap(i -> i.getType(), i -> i.getClassification()));
+        assertEquals("AMOUNT_MISMATCH", byType.get("SETTLEMENT_AMOUNT_MISMATCH"));
+        assertEquals("MISSING_INTERNAL_RECORD", byType.get("SETTLEMENT_LINE_UNMATCHED"));
+        assertEquals("MISSING_SETTLEMENT", byType.get("SETTLEMENT_MISSING"));
+    }
+
+    @Test
     void aResolvedBreakReRaisesWhenItRecursButOpenOnesAreDeduped() {
         UUID tenant = UUID.randomUUID();
         settledAttempt(tenant, "ref-a", "50.0000");

@@ -3,7 +3,17 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-01
+Last updated: 2026-08-06
+
+## v3.3 — Settlement Watch groundwork (blueprint §8.1, branch `pilot/batch-01-drafts`)
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Forensic envelope for refused webhook deliveries (V39) | **VERIFIED (local)** | Commit `558c8e4`. Deliveries the durable inbox refuses (unknown provider / blank body / oversized) now persist to `payment_webhook_envelopes` before the throw; accepted deliveries deliberately write no envelope (the inbox row is that evidence). `PaymentWebhookInboxIntegrationTest` 8/8 incl. all three refusal outcomes + no-envelope-on-accept; rollback survival proven by mutation — REQUIRES_NEW→REQUIRED made the test fail (`expected: <1> but was: <0>`), restored. Full suite before commit: `Tests run: 369, Failures: 0`. Not yet green in CI. |
+| Closed reconciliation taxonomy (§1.3) on every issue (V40) | **VERIFIED (local)** | `ReconciliationClassification` enum (11 codes) + `classification` column, derived from `type` in the entity constructor (single source of truth; V40 backfill mirrors it, CHECK-constrained at the DB). Exposed in `ReconciliationIssueView`. Scoped run: `Tests run: 33, Failures: 0` (settlement 12, classification unit 13, worker 2, api 6). Full suite: `Tests run: 385, Failures: 1` — the 1 failure was a pre-existing monitoring clock-skew flake (negative age when the DB clock leads the JVM; colima VM measured +2s), root-caused and fixed by clamping `ageSince()` at 0; monitoring classes re-run green (5/5). Not yet green in CI. |
+| New settlement break detectors: `SETTLEMENT_CURRENCY_MISMATCH` (currency compared before amount), `SETTLEMENT_LINE_DUPLICATE` (same provider ref twice in one statement) | **VERIFIED (local)** | `currencyMismatchIsDetectedBeforeAmountsAreCompared`, `duplicateProviderReferenceInOneStatementRaisesADuplicateBreak` green in both the scoped and full runs. Counted in `IngestResult`/`IngestResponse`; line `match_status` CHECK widened in V40. |
+
+Next in §8.1 order: exception-ops upgrade (owner, financial exposure, resolution deadline, activity history on `reconciliation_issues`), then the scheduled watcher + alerting.
 
 ## v3.2 — audit evidence integrity
 
