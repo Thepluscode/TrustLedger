@@ -30,7 +30,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** End-to-end HTTP test over a real server + PostgreSQL, with JWT auth + tenant isolation. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TransferApiIntegrationTest {
 
     @Container

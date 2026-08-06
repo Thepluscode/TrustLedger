@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
  * authentication + RBAC via the key, scope guards, and USER-permission gating.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ApiKeyManagementIntegrationTest {
 
     @Container

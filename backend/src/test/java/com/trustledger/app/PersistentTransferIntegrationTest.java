@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** Verifies the persistence layer against a real PostgreSQL (Flyway schema + row locks). */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PersistentTransferIntegrationTest {
 
     @Container
