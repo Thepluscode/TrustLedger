@@ -147,10 +147,19 @@ public class MonitoringService {
         return new LatencyStat(status, method + " " + uri, count, round(meanMs), round(maxMs));
     }
 
+    /**
+     * Age of a DB-stamped timestamp, clamped at zero. The row's created_at comes from the database
+     * clock and "now" from the JVM's; small skew between them (observed: 2s on the local VM) would
+     * otherwise render a nonsense negative age on the monitoring card.
+     */
+    private static long ageSince(Instant dbTimestamp) {
+        return Math.max(0, Duration.between(dbTimestamp, Instant.now()).toSeconds());
+    }
+
     private OutboxHealth outbox(UUID tenantId) {
         long pending = outbox.countByTenantIdAndStatus(tenantId, OUTBOX_PENDING);
         Instant oldest = pending > 0 ? outbox.oldestCreatedAt(tenantId, OUTBOX_PENDING) : null;
-        Long ageSeconds = oldest == null ? null : Duration.between(oldest, Instant.now()).toSeconds();
+        Long ageSeconds = oldest == null ? null : ageSince(oldest);
         boolean warn = pending > OUTBOX_PENDING_WARN || (ageSeconds != null && ageSeconds > OUTBOX_AGE_WARN_SECONDS);
         return new OutboxHealth(warn ? WARN : OK, pending, ageSeconds);
     }
@@ -168,7 +177,7 @@ public class MonitoringService {
         long open = reconciliation.countByTenantIdAndStatus(tenantId, RECON_OPEN);
         long criticalOpen = reconciliation.countByTenantIdAndStatusAndSeverity(tenantId, RECON_OPEN, RECON_CRITICAL);
         Instant oldestOpen = open > 0 ? reconciliation.oldestCreatedAtByStatus(tenantId, RECON_OPEN) : null;
-        Long oldestAge = oldestOpen == null ? null : Duration.between(oldestOpen, Instant.now()).toSeconds();
+        Long oldestAge = oldestOpen == null ? null : ageSince(oldestOpen);
         Instant last = reconciliation.latestCreatedAt(tenantId);
         // Severity/age-aware: any open break is a WARN, but a CRITICAL-severity break or one left open past
         // the SLA escalates the card to CRITICAL so an urgent, unreconciled loss doesn't read like noise.
