@@ -22,7 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * with no org-unit assignment is tenant-wide (role-only); and scope never crosses tenants.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopeServiceIntegrationTest {
 
     @Container

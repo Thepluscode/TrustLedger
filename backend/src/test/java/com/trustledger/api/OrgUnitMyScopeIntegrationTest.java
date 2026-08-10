@@ -31,7 +31,7 @@ import tools.jackson.databind.ObjectMapper;
  * to a unit reports {@code scoped:true} with that unit's name — and it needs no admin permission.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgUnitMyScopeIntegrationTest {
 
     @Container

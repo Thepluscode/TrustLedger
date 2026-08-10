@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * production precondition satisfied — so the only variable under test is the certification gate.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CertificationGateIntegrationTest {
 
     @Container

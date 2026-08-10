@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * checksum ("these bytes are intact") and a signature ("these bytes are intact AND came from here").
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class EvidenceSignatureIntegrationTest {
 
     @Container

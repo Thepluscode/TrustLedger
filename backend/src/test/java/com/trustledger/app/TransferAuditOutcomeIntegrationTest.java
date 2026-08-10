@@ -23,7 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * would put a false answer in the field an auditor trusts most.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TransferAuditOutcomeIntegrationTest {
 
     @Container

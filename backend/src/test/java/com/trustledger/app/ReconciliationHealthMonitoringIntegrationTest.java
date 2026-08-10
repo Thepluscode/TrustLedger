@@ -26,7 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * by loading every issue.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationHealthMonitoringIntegrationTest {
 
     @Container
