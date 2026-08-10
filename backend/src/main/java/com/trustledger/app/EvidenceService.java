@@ -1,6 +1,7 @@
 package com.trustledger.app;
 
 import com.trustledger.evidence.Checksums;
+import com.trustledger.evidence.EvidenceSigner;
 import com.trustledger.evidence.EvidenceStorage;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
@@ -32,6 +33,7 @@ public class EvidenceService {
     private final EvidenceExportRepository exports;
     private final EvidenceStorage storage;
     private final UsageMeteringService usage;
+    private final EvidenceSigner signer;
     private final ObjectMapper json;
 
     private final OrgScopeService orgScope;
@@ -40,7 +42,8 @@ public class EvidenceService {
                            TransferRepository transfers, LedgerTransactionRepository ledgerTransactions,
                            LedgerEntryRepository ledgerEntries, AuditLogRepository auditLogs,
                            EvidenceExportRepository exports, EvidenceStorage storage,
-                           UsageMeteringService usage, ObjectMapper json, OrgScopeService orgScope) {
+                           UsageMeteringService usage, ObjectMapper json, OrgScopeService orgScope, EvidenceSigner signer) {
+        this.signer = signer;
         this.fraudCases = fraudCases;
         this.caseLinks = caseLinks;
         this.transfers = transfers;
@@ -172,10 +175,16 @@ public class EvidenceService {
         UUID exportId = UUID.randomUUID();
         String key = "evidence/" + tenantId + "/" + resourceType.toLowerCase() + "/" + resourceId + "/" + exportId + ".json";
         storage.store(key, content);
-        EvidenceExportEntity export = exports.save(new EvidenceExportEntity(exportId, tenantId, resourceType,
-            resourceId, "JSON", key, content.length, checksum, generatedBy));
+        EvidenceExportEntity pack = new EvidenceExportEntity(exportId, tenantId, resourceType,
+            resourceId, "JSON", key, content.length, checksum, generatedBy);
+        // Sign the EXACT bytes that were stored, not a re-serialisation of the bundle: a signature over
+        // anything else would verify against something the auditor was never given.
+        String signature = signer.sign(content);
+        if (signature != null) pack.sign(signature, signer.keyId(), EvidenceSigner.ALGORITHM);
+        EvidenceExportEntity export = exports.save(pack);
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", generatedBy, "EVIDENCE_EXPORTED",
-            resourceType, resourceId, writeJsonString(Map.of("exportId", exportId.toString(), "checksum", checksum))));
+            resourceType, resourceId, writeJsonString(Map.of("exportId", exportId.toString(), "checksum", checksum,
+                "signed", signature != null, "signingKeyId", signature == null ? "—" : signer.keyId()))));
         usage.record(tenantId, UsageMeteringService.EVIDENCE_EXPORTS, 1);
         return export;
     }

@@ -71,7 +71,7 @@ public class ProductionCanaryService {
             command.maxTransactionAmount(), command.maxCumulativeAmount(), command.maxTransactions(),
             command.failurePauseThreshold(), command.unknownPauseThreshold(), command.reversalPauseThreshold());
         plans.save(plan);
-        audit(tenantId, actorId, "PRODUCTION_CANARY_REQUESTED", plan, Map.of(
+        auditRequested(tenantId, actorId, plan, Map.of(
             "providerConfigId", configId.toString(),
             "maxTransactions", command.maxTransactions(),
             "maxTransactionAmount", command.maxTransactionAmount().toPlainString(),
@@ -106,7 +106,8 @@ public class ProductionCanaryService {
         plan.approve(actorId, now);
         plans.save(plan);
         audit(tenantId, actorId, "PRODUCTION_CANARY_APPROVED", plan,
-            Map.of("requester", plan.getRequestedBy().toString()));
+            Map.of("requester", plan.getRequestedBy().toString()),
+            AuditLogEntity.SUCCESS, "dual_control:approver_differs_from_requester");
         return plan;
     }
 
@@ -120,7 +121,8 @@ public class ProductionCanaryService {
         plan.pause(normalizeReason(reason, "manual_pause"), Instant.now());
         plans.save(plan);
         audit(tenantId, actorId, "PRODUCTION_CANARY_PAUSED", plan,
-            Map.of("reason", plan.getPauseReason()));
+            Map.of("reason", plan.getPauseReason()),
+            AuditLogEntity.SUCCESS, "operator_pause:" + plan.getPauseReason());
         return plan;
     }
 
@@ -138,7 +140,8 @@ public class ProductionCanaryService {
         }
         plan.resume(now);
         plans.save(plan);
-        audit(tenantId, actorId, "PRODUCTION_CANARY_RESUMED", plan, Map.of());
+        audit(tenantId, actorId, "PRODUCTION_CANARY_RESUMED", plan, Map.of(),
+            AuditLogEntity.SUCCESS, "operator_resume:eligible_for_resume");
         return plan;
     }
 
@@ -218,7 +221,7 @@ public class ProductionCanaryService {
         plans.save(plan);
         reservations.save(new ProductionCanaryReservationEntity(UUID.randomUUID(), tenantId, plan.getId(),
             configId, "PRODUCTION", transferId, amount, currency));
-        audit(tenantId, null, "PRODUCTION_CANARY_EXPOSURE_RESERVED", plan, Map.of(
+        auditReserved(tenantId, plan, Map.of(
             "transferId", transferId.toString(), "amount", amount.toPlainString(), "currency", currency,
             "reservedTransactions", plan.getReservedTransactions(),
             "reservedAmount", plan.getReservedAmount().toPlainString()));
@@ -268,9 +271,12 @@ public class ProductionCanaryService {
             ? reason : normalizeReason("predecessor_" + reason, reason);
         pauseTarget.pause(pauseReason, Instant.now());
         plans.save(pauseTarget);
+        // The circuit breaker firing is the single most important canary record: it must name the
+        // threshold that tripped, or an operator sees only that production stopped.
         audit(pauseTarget.getTenantId(), null, "PRODUCTION_CANARY_AUTO_PAUSED", pauseTarget,
             Map.of("reason", pauseReason, "triggerPlanId", plan.getId().toString(),
-                "transferId", transferId.toString(), "outcome", outcome));
+                "transferId", transferId.toString(), "outcome", outcome),
+            AuditLogEntity.SUCCESS, "circuit_breaker:" + pauseReason);
         outbox.save(new OutboxEventEntity(UUID.randomUUID(), pauseTarget.getTenantId(), "PRODUCTION_CANARY",
             pauseTarget.getId(), "PRODUCTION_CANARY_AUTO_PAUSED", write(Map.of(
                 "planId", pauseTarget.getId().toString(),
@@ -338,8 +344,14 @@ public class ProductionCanaryService {
         return TERMINAL_OUTCOMES.contains(status);
     }
 
+    /**
+     * Every canary action is a governance decision about production money, so each records not just
+     * what happened but <b>which rule decided it</b>. The policy is passed per call site rather than
+     * defaulted: a defaulted SUCCESS would be a placeholder, and a placeholder outcome is worse than
+     * an honest NULL because it looks like coverage.
+     */
     private void audit(UUID tenantId, UUID actorId, String action, ProductionCanaryPlanEntity plan,
-                       Map<String, Object> extra) {
+                       Map<String, Object> extra, String result, String policyDecision) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("planId", plan.getId().toString());
         metadata.put("providerConfigId", plan.getTenantProviderConfigId().toString());
@@ -347,7 +359,8 @@ public class ProductionCanaryService {
         metadata.putAll(extra);
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId,
             actorId == null ? "SYSTEM" : "USER", actorId, action,
-            "PRODUCTION_CANARY", plan.getId(), write(metadata)));
+            "PRODUCTION_CANARY", plan.getId(), write(metadata))
+            .outcome(result, policyDecision));
     }
 
     private String write(Map<String, Object> value) {
@@ -359,5 +372,16 @@ public class ProductionCanaryService {
         if (reason == null || reason.isBlank()) return fallback;
         String normalized = reason.trim();
         return normalized.length() > 120 ? normalized.substring(0, 120) : normalized;
+    }
+
+    private void auditRequested(UUID tenantId, UUID actorId, ProductionCanaryPlanEntity plan,
+                                Map<String, Object> extra) {
+        audit(tenantId, actorId, "PRODUCTION_CANARY_REQUESTED", plan, extra,
+            AuditLogEntity.SUCCESS, "dual_control:awaiting_independent_approval");
+    }
+
+    private void auditReserved(UUID tenantId, ProductionCanaryPlanEntity plan, Map<String, Object> extra) {
+        audit(tenantId, null, "PRODUCTION_CANARY_EXPOSURE_RESERVED", plan, extra,
+            AuditLogEntity.SUCCESS, "canary_limits:within_approved_exposure");
     }
 }

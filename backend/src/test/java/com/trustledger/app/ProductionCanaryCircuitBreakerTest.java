@@ -1,9 +1,12 @@
 package com.trustledger.app;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.ProductionCanaryPlanEntity;
 import com.trustledger.persistence.entity.ProductionCanaryReservationEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
@@ -95,7 +98,7 @@ class ProductionCanaryCircuitBreakerTest {
         OutboxEventRepository outbox = mock(OutboxEventRepository.class);
         ProductionCanaryService service = new ProductionCanaryService(plans, reservations,
             mock(TenantProviderConfigRepository.class), audit, outbox, new ObjectMapper());
-        return new Fixture(service, plan, outbox, transferId);
+        return new Fixture(service, plan, outbox, transferId, audit);
     }
 
     private static ProductionCanaryPlanEntity plan(UUID id, UUID tenant, UUID configId) {
@@ -108,5 +111,31 @@ class ProductionCanaryCircuitBreakerTest {
     }
 
     private record Fixture(ProductionCanaryService service, ProductionCanaryPlanEntity plan,
-                           OutboxEventRepository outbox, UUID transferId) {}
+                           OutboxEventRepository outbox, UUID transferId, AuditLogRepository auditLogs) {}
+
+    @Test
+    void theAutoPauseAuditRecordsWhichThresholdTripped() {
+        Fixture fixture = fixture();
+
+        fixture.service().recordOutcome(fixture.transferId(), ExternalPaymentStatus.FAILED);
+
+        // An operator seeing production stop needs to know WHICH rule stopped it. Recording only
+        // "auto-paused" tells them the outcome and withholds the cause.
+        org.mockito.ArgumentCaptor<AuditLogEntity> captor =
+            org.mockito.ArgumentCaptor.forClass(AuditLogEntity.class);
+        verify(fixture.auditLogs(), atLeastOnce()).save(captor.capture());
+
+        AuditLogEntity autoPause = captor.getAllValues().stream()
+            .filter(a -> "PRODUCTION_CANARY_AUTO_PAUSED".equals(a.getAction()))
+            .findFirst().orElse(null);
+        assertNotNull(autoPause, "the circuit breaker firing must be audited");
+        assertEquals(AuditLogEntity.SUCCESS, autoPause.getResult(),
+            "the pause itself succeeded — the failure it reacted to is a separate record");
+        assertNotNull(autoPause.getPolicyDecision(), "the rule that fired must be named");
+        assertTrue(autoPause.getPolicyDecision().startsWith("circuit_breaker:"),
+            autoPause.getPolicyDecision());
+        assertTrue(autoPause.getPolicyDecision().contains("failure_threshold_reached"),
+            "the specific threshold must be identifiable, not just 'a circuit breaker': "
+                + autoPause.getPolicyDecision());
+    }
 }

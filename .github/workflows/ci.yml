@@ -66,6 +66,40 @@ jobs:
       - name: Repo validation
         run: python3 scripts/validate_repo.py
 
+  migration-upgrade:
+    name: Migrations over existing data
+    runs-on: ubuntu-latest
+    # Every Testcontainers test replays migrations onto an EMPTY database, which cannot fail the way a
+    # real upgrade fails: a CHECK constraint validated against existing rows, a NOT NULL column with no
+    # default, a unique index meeting duplicates that were legal before. This job applies the migrations
+    # to a populated baseline instead — the state a production upgrade actually meets.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: t
+          POSTGRES_PASSWORD: t
+          POSTGRES_DB: t
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U t"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations over an existing, populated schema
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: t
+          PGPASSWORD: t
+        # Baseline 38 is the last version released before the current batch. Raise it as versions land
+        # so this always tests the newest migrations against a realistic predecessor rather than
+        # re-testing history that has already shipped.
+        run: bash scripts/verify-migrations-over-existing-data.sh upgrade_check 38
+
   iac:
     name: IaC validation (Helm + Terraform + manifests)
     runs-on: ubuntu-latest

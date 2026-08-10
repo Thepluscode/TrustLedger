@@ -14,14 +14,21 @@ headings.
 | [003](ADR-003-provider-and-geography-neutral-core.md) | Core stays provider- and geography-neutral; regional/industry packs are earned, not pre-built | Accepted (amended 2026-07-29) |
 | [004](ADR-004-currency-minor-units-at-the-boundary.md) | Scale-4 internally, currency minor units at the provider boundary | Accepted |
 
+## Open decisions
+
+- **[ADR-006](ADR-006-opening-balances-bypass-the-ledger.md) — opening balances bypass the ledger.**
+  Proposed, not decided. Contradicts ADR-002's "balances are derived views" corollary; found by the
+  2026-08-04 recovery drill. Needs a product decision on whether TrustLedger models external funding.
+
 ## Not yet recorded
 
-Decisions taken in code that still lack an ADR — write one before the reasoning is lost:
+~~Outbox-over-direct-publish for Kafka~~ → [ADR-008](ADR-008-transactional-outbox-over-direct-publish.md)
+~~Optimistic vs pessimistic locking~~ → [ADR-007](ADR-007-locking-strategy-for-money-versus-metadata.md)
+~~Dual-control certification sign-off~~ and ~~synthetic-fixtures-only drills~~ →
+[ADR-009](ADR-009-certification-dual-control-and-synthetic-fixtures.md)
 
-- Outbox-over-direct-publish for Kafka.
-- Optimistic locking for account metadata vs pessimistic row locks for money movement.
-- Dual-control sign-off on provider certification (signer ≠ initiator).
-- Synthetic-fixtures-only certification drills (why drills never touch real tenant money).
+All four are now recorded (2026-08-04). Add new entries here the moment a decision is taken in code
+without an ADR — this list exists so the reasoning is captured before the person who held it moves on.
 
 ## Quality attributes
 

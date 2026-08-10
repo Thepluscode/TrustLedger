@@ -1,5 +1,7 @@
 package com.trustledger.rails;
 
+import com.trustledger.core.model.Money;
+
 import java.math.BigDecimal;
 import java.util.Set;
 import java.util.UUID;
@@ -48,7 +50,18 @@ public interface PaymentRailAdapter {
                                 UUID tenantProviderConfigId, String providerEnvironment,
                                 UUID payoutInstrumentId, UUID providerRecipientMappingId,
                                 String providerRecipientCode,
-                                BigDecimal amount, String currency, String scenario) {}
+                                BigDecimal amount, String currency, String scenario) {
+        /**
+         * No adapter may ever receive an amount its currency cannot express in minor units —
+         * a provider that rounds for us is a reconciliation break. Enforced at construction
+         * so every adapter, present and future, is covered without per-adapter code.
+         */
+        public PaymentSubmitRequest {
+            if (amount == null) throw new IllegalArgumentException("amount is required");
+            if (currency == null || currency.isBlank()) throw new IllegalArgumentException("currency is required");
+            Money.of(amount.toPlainString(), currency).toMinorUnits();
+        }
+    }
 
     record PaymentStatusRequest(UUID tenantId, UUID tenantProviderConfigId,
                                 String providerEnvironment, String providerReference) {}

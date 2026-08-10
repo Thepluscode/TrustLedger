@@ -169,10 +169,10 @@ public class ProviderCertificationService {
         return runs.findCurrentValid(tenantId, configId, environment, Instant.now()).stream().findFirst();
     }
 
-    /** All certification runs for a tenant, newest first. */
+    /** Certification runs for a tenant, newest first, capped at 200 (no unbounded lists). */
     @Transactional(readOnly = true)
     public List<CertificationRunEntity> runsForTenant(UUID tenantId) {
-        return runs.findByTenantIdOrderByStartedAtDesc(tenantId);
+        return runs.findTop200ByTenantIdOrderByStartedAtDesc(tenantId);
     }
 
     /** A single run, verified to belong to the tenant. */

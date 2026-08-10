@@ -309,4 +309,32 @@ class SettlementReconciliationIntegrationTest {
                 .filter(i -> "SETTLEMENT_AMOUNT_MISMATCH".equals(i.getType())).count(),
                 "a resolved break that recurs must re-raise a new issue");
     }
+
+    @Test
+    void implausibleFeesRaiseAFeeIntegrityBreakAndPlausibleOnesDoNot() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-neg", "100.0000");
+        settledAttempt(tenant, "ref-swallow", "50.0000");
+        settledAttempt(tenant, "ref-exact", "40.0000");
+        settledAttempt(tenant, "ref-ok", "30.0000");
+
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-FEES", List.of(
+                new LineInput("ref-neg", new BigDecimal("100.0000"), new BigDecimal("-1.00"), "SETTLED"),
+                new LineInput("ref-swallow", new BigDecimal("50.0000"), new BigDecimal("60.00"), "SETTLED"),
+                new LineInput("ref-exact", new BigDecimal("40.0000"), new BigDecimal("40.0000"), "SETTLED"),
+                new LineInput("ref-ok", new BigDecimal("30.0000"), new BigDecimal("1.50"), "SETTLED"))));
+
+        var feeBreaks = issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .filter(i -> "SETTLEMENT_FEE_IMPLAUSIBLE".equals(i.getType())).toList();
+        assertEquals(3, feeBreaks.size(),
+                "negative fee, fee > amount, and fee == amount must each break; a normal fee must not");
+        assertTrue(feeBreaks.stream().allMatch(i -> "HIGH".equals(i.getSeverity())));
+        // A null fee is a provider that doesn't itemise fees — never a break.
+        UUID tenant2 = UUID.randomUUID();
+        settledAttempt(tenant2, "ref-nofee", "10.0000");
+        settlements.ingest(tenant2, UUID.randomUUID(), statement("STMT-NOFEE", List.of(
+                new LineInput("ref-nofee", new BigDecimal("10.0000"), null, "SETTLED"))));
+        assertTrue(issues.findByTenantIdOrderByCreatedAtDesc(tenant2).stream()
+                .noneMatch(i -> "SETTLEMENT_FEE_IMPLAUSIBLE".equals(i.getType())));
+    }
 }

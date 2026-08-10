@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-06
+Last updated: 2026-08-10
 
 ## v3.3 — Settlement Watch groundwork (blueprint §8.1, branch `pilot/batch-01-drafts`)
 
@@ -15,6 +15,14 @@ Last updated: 2026-08-06
 
 Next in §8.1 order: exception-ops upgrade (owner, financial exposure, resolution deadline, activity history on `reconciliation_issues`), then the scheduled watcher + alerting.
 
+## Interface image gallery (2026-08-05)
+
+| Artifact | Status | Evidence |
+|---|---|---|
+| Complete desktop/mobile interface reference pack | **VERIFIED (artifact)** | `docs/interface-gallery/`: 26 desktop route mockups + 26 mobile route mockups + 8 critical interaction states; all 60 PNGs decode successfully with `sips`; Dashboard, Transfer Detail, Fraud Cases, ML shadow mode, Production Readiness and reconciliation-resolution samples visually inspected |
+| Route and state index | **VERIFIED (artifact)** | `docs/interface-gallery/README.md` maps every non-redirect frontend route and all eight interaction states to the generated assets |
+| Reference-image UI implementation | **IN PROGRESS** | Shared shell, cyan/slate design tokens, operational panel geometry, desktop header/sidebar, mobile header and bottom navigation implemented; `npm run build` green across 25 pages. Page-by-page visual verification remains. |
+
 ## v3.2 — audit evidence integrity
 
 | Feature | Status | Evidence |
@@ -23,15 +31,73 @@ Next in §8.1 order: exception-ops upgrade (owner, financial exposure, resolutio
 | ADR-005 recorded | **DEPLOYED** | `docs/architecture/ADR-005-audit-log-immutability.md`, on `main` |
 | Correlation ID on audit rows + every log line + `X-Request-Id` response header | **VERIFIED (CI)** | `V38__audit_correlation_id.sql`, `CorrelationId` + `CorrelationIdFilter`. `CorrelationIdTest` (11) + `CorrelationIdIntegrationTest` (3, real Postgres + real HTTP) green in CI on the merge commit `804f202` — all 7 checks pass. Merged via #107. Captured centrally from ambient request state, so none of the 30 audit write sites changed. **Not yet observed in a deployed environment.** |
 
-**Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
-still edit audit rows and nothing would detect it. Do not tell a buyer otherwise. Tamper-evidence
-needs a hash chain — deferred, with the trigger to revisit written into ADR-005.
+~~**Honest scope:** this is **append-only, not tamper-evident**. A role that can `DROP TRIGGER` can
+still edit audit rows and nothing would detect it.~~ **CLOSED 2026-08-04 — see the row below.**
 
-**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~ (done —
-see the row above), **result**, **before/after references**, **policy decision**. Unlike the
-correlation ID — which is ambient per-request and so was captured centrally without touching a single
-write site — these three are genuinely per-call-site information and need an `AuditLogEntity`
-constructor change across 30 services. Separate work.
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| **Tamper-EVIDENCE via sealed checkpoint chain** | **VERIFIED** | V40 `audit_checkpoints`: a scheduled sealer digests each window of audit rows (SHA-256 over the **raw stored column values**, length-prefixed, ordered by `(created_at, id)`) and chains it to the previous checkpoint. `AuditChainTamperEvidenceIntegrationTest` (9, real PG) **performs the actual attack** V37 could only describe — `DROP TRIGGER`, edit/delete/back-date rows, restore the trigger — and asserts detection every time. Also proves re-sealing after tampering does **not** launder it (the break is still reported at the original window), and that checkpoints are themselves append-only so an attacker cannot edit a row and re-seal to match. Mutation-verified: excluding one column from the digest lets the forged edit pass as VERIFIED. Surfaced at `GET /api/v1/audit/chain/verify` (AUDIT_VIEW — an auditor can check the chain without the power to extend it). |
+
+**Why checkpoints rather than a per-row hash chain:** a per-row chain needs a total order over writes,
+i.e. serialising every audit write behind a lock or sequence. Audit rows are written inside business
+transactions on the money path — making them contend would be paying for evidence with throughput. A
+window digest needs no ordering between concurrent writers at all.
+
+**Two real bugs found while building it, both fixed here:**
+1. **Clock-source bug (caught by the tests, would have been silent in production):** `created_at` is
+   stamped by the *database* clock, but window boundaries were computed from the *JVM* clock. With the
+   two skewed — routine between a host and a containerised DB, and measured at 60–90 ms in this very
+   environment — rows fall outside every window and are **never sealed**, or land inside an
+   already-sealed one and read as tampering. Boundaries now come from `SELECT now()`. Same clock, or no
+   proof.
+2. **`TRUNCATE` hole in V37:** its guard is a row-level `BEFORE UPDATE OR DELETE` trigger, and
+   PostgreSQL does **not** fire row-level triggers on `TRUNCATE` — so `TRUNCATE audit_logs` would have
+   erased the entire trail without tripping the append-only guard. V40 adds statement-level TRUNCATE
+   guards on both audit tables, with a test. (The chain would have *detected* the erasure, but refusing
+   it is better than detecting it.)
+
+**Honest scope of the new claim:** this is tamper-**evidence**, not tamper-*proofing* — an attacker
+with full DB access can still destroy data; what they cannot do is alter it *undetectably*. The
+checkpoints live in the same database as the rows they seal, so an attacker who deletes the chain
+wholesale removes the evidence along with it (detectable as a sequence gap only if some checkpoint
+survives). Publishing checkpoint hashes to external, append-only storage is the next hardening step and
+is **not** built. Rows written after the last seal are **not yet protected**, and `verify()` reports
+that count separately so a pass can never be misread as covering the whole trail.
+
+**Still missing from the audit trail** (required by the playbook pattern): ~~correlation ID~~,
+~~result~~, ~~before/after references~~, ~~policy decision~~ — **all four now exist (2026-08-04)**.
+V42 adds `result` (SUCCESS/FAILURE/DENIED, CHECK-constrained), `policy_decision` and `state_change`.
+The feared "constructor change across 30 services" was avoided: the fields are **fluent and opt-in**
+(`.outcome(result, policy)`, `.stateChange(json)`), so a call site adopts them when it has something
+true to record rather than every site being edited at once to pass placeholders — a placeholder
+outcome is worse than an honest NULL.
+
+**`state_change` holds REFERENCES, not snapshots**, deliberately: audit rows must not become a second
+copy of financial state that can disagree with the ledger.
+
+**The interaction that mattered:** the V40 checkpoint digest hashes an *explicit column list*, so new
+columns are **not** covered unless added to it. Left alone, an attacker could have rewritten `result`
+from DENIED to SUCCESS — the single most attractive edit available — without breaking the chain. The
+digest now covers all three. Mutation-verified: removing them from the digest turns both new tests
+green-to-red (`expected: <TAMPERED> but was: <VERIFIED>`), which is exactly the hole.
+
+**Adoption coverage — honest count: 8 of 18 audit write sites** (was 1), covering the two paths that
+matter most: production-canary governance and the money path itself. `AccessControlService` (every
+permission denial) records `DENIED` plus the rule that fired, because a denial that does not name its
+rule tells you that you were stopped, not by what. **All six `ProductionCanaryService` sites** now do
+the same — request, approve, pause, resume, exposure reservation and auto-pause — because every one is
+a governance decision about production money. The most valuable is the circuit breaker:
+`circuit_breaker:failure_threshold_reached` names *which* threshold stopped production, where before
+an operator saw only that it had stopped. Each site states its own policy rather than inheriting a
+default, since a defaulted SUCCESS is a placeholder and a placeholder looks like coverage. **`PersistentTransferService`** records outcomes at both of its choke points (creation-with-status and
+status-change), with the policy naming the fraud band *and* the score — `fraud:REJECT@96` — because a
+band without its score is unfalsifiable. Crucially, a **HELD or MFA_REQUIRED transfer records NO
+outcome at all**: it is neither success nor failure, and forcing it into one to make every row look
+complete would put a false answer in the field an auditor trusts most. The policy that paused it is
+still recorded, so the row says why it waits. The
+remaining 10 sites still write NULL and are *not* claimed as covered; the query `WHERE result IN ('FAILURE','DENIED')` is indexed for incident review.
+Evidence: `AuditChainTamperEvidenceIntegrationTest` 11 (2 new) + RBAC/immutability/correlation suites
+green.
 
 **Not correlated, by design:** rows written off-request (outbox publisher, reconciliation sweep,
 webhook inbox worker) carry a NULL correlation id — they have no request to correlate to. Rows
@@ -121,6 +187,7 @@ in order.
 | Fraud-case evidence pack (signals, linked cases, transfer) | **VERIFIED** | `EvidenceService.exportFraudCase`; bundle includes signals |
 | Ledger evidence report proves debits == credits | **VERIFIED** | `EvidenceExportIntegrationTest` asserts `balanced` + equal totals |
 | Checksums generated + verifiable | **VERIFIED** | `Checksums.sha256`; download bytes re-hash matches; `X-Evidence-Checksum` header |
+| **Signed evidence packs (blueprint §8.2)** | **VERIFIED** | V41 adds a detached **Ed25519** signature (JDK-native, no new dependency) over the **exact stored bytes** of every pack, plus the signing key id and algorithm. A checksum proves bytes are intact; it proves nothing about origin, because anyone who edits a pack can recompute its checksum. A signature proves both, and verifying needs only the **public** key — so an auditor can check a pack we handed them *without trusting us* and without holding anything that would let them forge one. Published at `GET /api/v1/evidence/signing-key`; re-verification at `GET /api/v1/evidence/exports/{id}/verify` reports checksum and signature **separately**. Evidence: `EvidenceSignerTest` (8 pure) + `EvidenceSignatureIntegrationTest` (4, real PG) — 19 evidence tests green across signed **and** unsigned modes. Mutation-verified: computing the signature but not attaching it reddens 3 of the 4 integration tests. |
 | Object storage abstraction (V10 evidence_exports) | **VERIFIED** | `EvidenceStorage` + in-memory default; S3/MinIO adapter is the prod target behind the same interface |
 | Export tenant-scoped + audited | **VERIFIED** | cross-tenant export 403; every export writes `EVIDENCE_EXPORTED` audit log |
 | Retention policies + legal hold (V10 retention_policies) | **VERIFIED** | `RetentionService`; **legal hold blocks deletion** then allows once released |
@@ -128,6 +195,32 @@ in order.
 | Backend suite | **VERIFIED** | 80 tests, 0 failures |
 
 Deferred (honest): PDF rendering (JSON bundles are the canonical, checksummed form — PDF is a renderer on top); audit/reconciliation CSV report exports beyond the fraud+ledger packs; the live S3/MinIO adapter (interface + in-memory verified).
+
+**Signing — honest scope (2026-08-04):** **unsigned is a supported state and says so.** With no key
+configured nothing is signed, `verify` reports `signed=false` with *"intact, but UNSIGNED: it cannot be
+proven to have originated from this system"*, and packs exported before V41 stay NULL — signing them
+now would date a signature to a key that did not exist when the evidence was produced, which is worse
+than an honest NULL. Deliberately **not** done: generating an ephemeral key at startup (it would
+produce signatures that verify today and silently stop verifying after a restart — a provenance claim
+that expires); timestamping or
+counter-signature by an external authority, which is what would prove *when* a pack was signed rather
+than only by whom. A half-configured or mismatched key pair **fails startup** rather than degrading to
+unsigned, because unsigned-by-accident looks identical to unsigned-by-choice.
+
+**Key rotation — done (2026-08-04).** One active signing key plus any number of retired public keys
+(`trustledger.evidence.signing.retired-public-keys`). Verification resolves the key by the
+`signing_key_id` **recorded on the pack**, not by whichever key is active now, so rotating a key does
+not invalidate evidence produced under the previous one. An instance with signing withdrawn entirely
+still verifies what it signed before. Two fail-closed choices: an unknown key id **does not** fall back
+to the active key (that would make the recorded key id decorative and let a pack be re-attributed to a
+key that never signed it), and a malformed retired key **fails startup** rather than being skipped
+(silently dropping it would make old packs unverifiable with no warning). Evidence:
+`EvidenceSignerTest` 13 + `EvidenceSignatureIntegrationTest` 5 — 25 evidence tests green.
+**A mutation caught a real hole in my own test:** making an unknown key id fall back to the active key
+did *not* fail the suite, because the rotation test signed with the old key so the fallback failed
+anyway. The missing case — a signature genuinely made by the **active** key but presented under an
+unknown key id — now has its own assertion, and reddens under that mutation. Still not built:
+per-tenant keys, and automatic rotation scheduling (rotation is an operator action today).
 
 ## v2.5 — production hardening
 
@@ -368,6 +461,27 @@ Branch `feat/provider-certification`, **PR #46** (→ main). Blueprint §8.2/§8
 | REST surface `/api/v1/tenant/certifications` (run/sign-off/list/detail) | **VERIFIED** | `CertificationApiIntegrationTest`: E2E + no-secrets assertion + cross-tenant deny |
 | **Whole backend: `mvn test`** | **VERIFIED** | `Tests run: 224, Failures: 0` (2026-07-20, real PG via colima) + all CI checks green on PR #46 (Backend Maven+Testcontainers on CI) |
 
+**OPEN GAP — certification exercises the sandbox adapter, not the certified provider (found
+2026-08-05).** Certification is described as "the evidence required before a provider can move
+production money", but `DrillContext` carries the provider config's *id* and never its provider
+*name*, no drill reads `getProvider()`, and `CertificationSyntheticFixtures` hardcodes
+`SandboxPaymentRailAdapter.RAIL`. Certifying Paystack therefore exercises the **sandbox** adapter's
+webhook verification, status normalisation and ambiguity handling — not Paystack's. What a pass *does*
+evidence is the **orchestration**: reservation, the durable submission boundary, the webhook inbox,
+reconciliation, ledger posting and the governance controls. That is real and worth having; it is just
+not what "certified PAYSTACK" sounds like.
+
+Demonstrated, not asserted, by `CertificationProviderCoverageTest` (2 tests, real PG): after
+certifying a PAYSTACK config, every attempt the drills created carries provider `SANDBOX`, and
+`DrillContext` has no provider component to branch on. Both assertions are written to **fail
+deliberately** when the gap is closed. ADR-009 has been corrected — as first written it claimed drills
+prove behaviour "against a provider's sandbox contract", which overstated the guarantee.
+
+**Do not describe certification as provider-specific until this is closed.** Closing it means putting
+the provider on the context and having fixtures use the certified adapter, which then needs that
+provider's sandbox credentials — the same trade-off ADR-009 already records, now with an accurate
+statement of what is currently proven.
+
 Whole-branch review (java-reviewer) caught + fixed a CRITICAL: the reconciliation-proof drill
 originally ran the GLOBAL cross-tenant reconciliation sweep (live provider calls for other tenants) →
 now tenant-scoped `checkTenantLedgerBalance`. **Merged to `main` 2026-07-20 (squash `1e09f87`, PR #46)
@@ -531,6 +645,35 @@ suite + Trivy + gitleaks + SBOM). Ordered by area.
 - #68 settlement-statement detail view (lines + per-line match status).
 - #69 break → source-statement navigation (statement id stamped into evidence).
 - #70 settlement-statement CSV ingest (server-side parse, tested).
+- **Fee integrity, slice 1 (2026-08-04, VERIFIED):** every ingested line's fee is checked for
+  *schedule-independent* implausibility — a negative fee, or a fee ≥ its own line's amount on a
+  positive-amount line — raising `SETTLEMENT_FEE_IMPLAUSIBLE` (HIGH). Zero configuration: these are
+  wrong under *any* fee schedule, so no tenant setup is needed to catch corrupt or misfiled fee data.
+  A null fee (provider doesn't itemise) is never a break. Evidence: 10/10 in
+  `SettlementReconciliationIntegrationTest`, and **mutation-verified** — removing the guard turns the
+  new test red (`expected: <3> but was: <0>`) while the other 9 stay green, so the test is neither
+  decoration nor over-asserting. **Honest scope:** this is *plausibility*, not *expected-vs-received*
+  fee reconciliation — checking a fee against a real tenant/provider fee schedule needs a schedule
+  schema + API and is the next slice. Do not describe fee reconciliation as done.
+- **Fee reconciliation, slice 2 — expected vs received (2026-08-04, VERIFIED):** V39
+  `provider_fee_schedules` records what a tenant is *contracted* to pay (percentage bps + flat + optional
+  cap + per-line tolerance), and every ingested line is compared against it. A disagreement beyond
+  tolerance raises `SETTLEMENT_FEE_MISMATCH` — **HIGH for an overcharge** (a present loss, the reason
+  the feature exists), **MEDIUM for an undercharge** (a break worth investigating, not a loss) — with
+  direction, expected, received and delta in the evidence. Managed via `POST/GET
+  /api/v1/tenant/fee-schedules` (PROVIDER_CONFIG_MANAGE), audited as `PROVIDER_FEE_SCHEDULE_RECORDED`.
+  **Schedules are temporal:** the check uses the schedule in force during the statement's *period*, not
+  today's, so ingesting a historical statement after a fee renegotiation does not manufacture breaks.
+  Evidence: `ProviderFeeScheduleCalculationTest` (11 pure-arithmetic, incl. cap binding + HALF_EVEN
+  scale-4 rounding + tolerance boundaries) and `SettlementFeeReconciliationIntegrationTest` (6, real
+  PG) — 34 tests green across the settlement suites. **Mutation-verified twice:** removing the
+  plausibility guard reddens slice 1's test, and pointing the schedule lookup at `Instant.now()`
+  instead of the statement period reddens the historical test (`expected: <0> but was: <1>`), proving
+  the temporal design is load-bearing rather than decorative.
+  **Honest scope:** `IngestResult.feeChecked` reports how many lines were actually compared, because
+  with no schedule configured **nothing is checked** — "0 fee breaks" must never be read as "fees
+  verified". Still not built: tiered/volume-banded fee structures, per-instrument or per-corridor
+  rates, and FX-spread checking (a different problem — no FX posting exists yet).
 
 **Fraud control graph (VERIFIED):** #73 signals persisted as first-class rows (the V1 `fraud_signals`
 table, never previously written to) served per case; #75 same coverage on the external-rail held path;
@@ -554,21 +697,54 @@ availability, p95 latencies, throughput, RTO/RPO, scale targets. Checking the re
 - **No benchmark, load test, JMH harness or k6 script exists anywhere.**
 - Therefore **not one** of those numbers has ever been measured on this system.
 
-Status: **PLANNED**. Nothing here may be written as a target-that-reads-like-a-result — Rule 3, "it
-should be fast enough" is not evidence. The table gets created when the first row can be filled from
-a real run.
+Status: **IN PROGRESS** — first two performance rows measured 2026-08-04. Nothing here may be
+written as a target-that-reads-like-a-result — Rule 3, "it should be fast enough" is not evidence.
 
 | Attribute | Target | Measured | How |
 |---|---|---|---|
 | Core API availability | — | **never measured** | synthetic monitoring (not set up) |
-| Transfer creation p95 | — | **never measured** | load test (not written) |
-| Throughput (TPS) | — | **never measured** | load test (not written) |
-| RTO / RPO | — | **never measured** | recovery exercise (backup→restore round-trip has run; not timed) |
+| Transfer creation p95 | — | **47–71 ms typical; 204 ms worst run** (5 runs, 2 boots; p50 ~37) | `scripts/load_transfer_probe.py`, 2026-08-04 |
+| Throughput (TPS, pipeline) | — | **231–271/s typical; 105/s worst run** (5 runs, 2 boots) | same probe, same runs |
+| Throughput (TPS, single-account contention) | — | **133/s** (worse of 2 runs; p95 98.4 ms, all 1,000 COMPLETED, no deadlocks) | `load_transfer_probe.py single`, 2026-08-04 |
+| RTO (restore component) | — | **pg_restore 1.0 s + app ready ≤10 s** (1,100-transfer DB, 810 KB dump; backup 0.7 s) | timed drill 2026-08-04: backup → `DROP DATABASE … FORCE` (destruction proven: relation gone) → restore → counts match exactly (1,100/2,200/3,300). Excludes failure detection + failover; scales with data volume. |
+| RPO | — | **= backup interval, by construction** | pg_dump snapshots only; no WAL archiving configured, so worst-case loss is time-since-last-dump. Structural property, not a measurement — continuous archiving is the fix if a tighter RPO is ever required. |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
 
-The last two rows are the only ones with evidence, and they are correctness properties rather than
-performance ones. Smallest honest next step: one load test that fills a single row.
+**Measurement conditions (read before quoting these numbers):** 1,000 transfers per run, 10
+concurrent workers, each worker its own source→destination account pair (measures the pipeline, not
+single-account lock serialisation); every measured request asserted `200 COMPLETED` — a single
+non-completed response fails the run. Full live path: JWT auth → idempotency → intelligence-gate
+fraud scoring → row-locked double-entry ledger post → audit + outbox row. Environment: single dev
+boot (`mvn spring-boot:run`) on an Apple-silicon laptop, PostgreSQL 16 in a colima VM, outbox
+*publisher* disabled (rows still written; no Kafka running), per-IP rate limiter raised (not the
+system under test), tenant step-up threshold raised to 60 so cold-start score-45 transfers complete
+in the monitor band. These are a **local baseline floor, not a production claim** — no claim about
+availability, sustained load, or multi-node behaviour follows from them.
+
+The worst pipeline run (105 TPS, p95 204 ms) was the first pipeline-path run of a freshly booted
+JVM — JIT warm-up beyond the probe's built-in warmup. Reported, not discarded: a just-deployed
+instance really is that much slower until warm. Contention mode (all 10 workers racing ONE source
+row) halves throughput vs pipeline mode and completed 2,000/2,000 transfers with zero deadlocks —
+the deterministic lock-ordering held under sustained single-row contention.
+
+**Sustained load (5 min, measured 2026-08-04) — OPEN FINDING.** `load_transfer_probe.py sustained
+300`: 43,368 transfers, zero errors, but throughput decayed **monotonically** — per-minute TPS
+240 → 207 → 109 → 94 → 73, p50 39 ms → 118 ms. **Bisected same day:** a second 5-min run with the
+reconciliation sweep disabled decayed identically (250 → 243 → 96 → 48 → 44) — the sweep is
+exonerated. **Attribution runs (same day) cleared the other suspects too:** a third 5-min run
+against *tuned* Postgres (`max_wal_size=4GB`, `shared_buffers=512MB`) still degraded, but
+`pg_stat_bgwriter` showed only **1 timed + 1 requested checkpoint** — checkpoints exonerated — and
+the JVM reported **~1.45 s total GC pause across the whole run** — GC exonerated. Decisively: the
+three runs show three *different* decay shapes (monotonic slope / cliff-at-30k / dip-then-recover),
+and the third run's first minute was already 27% slower than the cold-machine runs. **Disposition:
+not attributable on this hardware.** The variance is dominated by the host — Apple-silicon thermal
+throttling and colima-VM I/O scheduling under back-to-back sustained write load — not by any
+reproducible product behaviour. Sustained-load measurement needs controlled/server hardware;
+**no sustained-throughput number may be quoted from laptop runs** (the burst numbers above are
+bursts). Filed here so nobody chases a phantom product defect from these curves.
+
+Still unmeasured: availability; sustained load is measured but unexplained (see finding above).
 
 ## Architecture decision records (2026-07-29)
 
@@ -596,8 +772,20 @@ Paystack adapter). What was missing was proof, plus two real defects.
 | ADR-003 amended + ADR-004 written | **VERIFIED** | `docs/architecture/` |
 
 **Open follow-ups (honest):**
-- `toMinorUnits()` is **not yet enforced at the rail-submission boundary** — adapters can still send a
-  scale-4 `BigDecimal`. The correct call exists; the call site is unchanged.
+- ~~`toMinorUnits()` not enforced at the rail-submission boundary~~ **CLOSED (2026-08-04).** Payability
+  is now enforced by construction in `PaymentSubmitRequest` (no adapter, present or future, can receive
+  an amount its currency cannot express in minor units) and in `ExternalTransferRequest` (rejected as a
+  clean 400 **before** any funds are reserved), which also closed a positivity hole: the public
+  `initiate(req, decision)` overload skipped `TransferCommand`'s check, so a negative amount there would
+  have *increased* the source balance. Evidence: `RailBoundaryAmountValidationTest` (12 tests, green);
+  full suite 377 tests with the only failure being the pre-existing
+  `ReconciliationHealthMonitoringIntegrationTest` clock-skew flake (fails identically on unmodified
+  `origin/main` — colima VM Postgres clock ~60–90 ms ahead of host makes `Duration.toSeconds()` return
+  −1 for a just-inserted row; see follow-up below). CI green on the PR is the authoritative full run.
+- **Environment-sensitive test:** `ReconciliationHealthMonitoringIntegrationTest.aHighSeverityOpenBreakWarnsButDoesNotEscalate`
+  asserts `oldestOpenAgeSeconds >= 0`, but the age is `Duration.between(dbCreatedAt, jvmNow)` — any
+  DB-clock-ahead-of-JVM skew (measured ~60–90 ms under colima) truncates to −1 and fails. Fix candidate:
+  clamp negative ages to 0 in `MonitoringService` (a negative age is always clock skew, never truth).
 - **SEPA blocker:** `PayoutInstrumentService` requires `bankCode` for every `BANK_ACCOUNT`. An IBAN
   self-describes its bank and SEPA payouts often omit BIC, so a legitimate EU instrument is rejected
   today. Needs a jurisdiction rule — take it from the first EU customer, not from a guess.

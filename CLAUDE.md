@@ -182,6 +182,45 @@ the claim required.
 
 ---
 
+### Never chain a state-changing git command behind one that can silently refuse
+
+**Trigger:** Any `git switch` / `checkout` / `rebase` combined with `stash pop`, `cherry-pick`,
+`commit` or `push` in a single command line.
+
+**Rule:** Run the branch change alone, confirm it landed, then run the state-changing command. `git
+switch` **refuses** when the working tree conflicts with the target branch, and it exits non-zero —
+so anything joined to it with `;` executes on the branch you were already on.
+
+**Prohibited:** `git switch X; git stash pop` and `git switch X && git commit …` written as one line.
+`&&` is safer than `;` but still hides *which* command failed in the output you skim.
+
+**Evidence required:** `git branch --show-current` before the second command, or split the calls.
+After any `stash pop`, `git stash list` to confirm which entry moved, and `git status` before staging
+anything.
+
+**Reason:** Twice in one session. First, a `git switch` aborted and a V40 documentation edit landed on
+the wrong branch while the commit message claimed otherwise — caught only by checking which branches
+actually contained the text. Second, a `git switch` aborted and the following `git stash pop` grabbed
+an unrelated stash from a previous session, merging obsolete edits into `ExternalPaymentService`,
+`PaymentWebhookService` and `PaymentRailAdapter` — money-path files — and leaving conflict markers.
+
+**Why it is worse than it looks:** the recovery is where real work gets destroyed. This tree also held
+30 files of unrelated parallel work; a reflexive `git checkout -- .` would have deleted all of it. The
+correct recovery separates stash-derived files from everything else and touches only the former.
+
+**Level:** 4 as of 2026-08-05 — `.claude/hooks/block-chained-git-switch.py` refuses the chained form
+before it runs, wired as a project PreToolUse hook. It is deliberately narrow (only a branch change
+followed by another *git* subcommand; `git switch X && npm test` still passes), fails **open** on a
+malformed payload so a hook bug can never block a session, and carries `--selftest` over 13 cases
+including one accepted false positive: text that merely quotes the pattern is blocked too, because
+distinguishing quoted from executed text needs a shell parser and a half-correct one would fail in the
+direction that matters.
+
+**Revisit when:** a session passes with branch changes always issued alone — then this has become
+habit and can be demoted.
+
+---
+
 ### Tenant-scoped locking
 
 **Trigger:** Any repository query that locks or mutates tenant-owned data.
@@ -246,6 +285,18 @@ providers. Every one looked plausible.
 **Level:** 4 — the two files enforce the split structurally.
 
 **Revisit when:** a promoted row turns out to have been wrong, which means the promotion rule is too weak.
+
+## Definition of done — data resilience (Rule 0.8)
+
+A feature that persists customer or operational data is **not production-ready until backup, retention, restoration, integrity validation and failure recovery have been designed and tested.** Check with `~/.claude/scripts/data-resilience-gate scan .`.
+
+**Current verdict: RESTORE TESTED FOR DEVELOPMENT** (2026-08-04). The drill has now been run and recorded — see `docs/RESTORE_TEST_RECORD.md`: primary database destroyed outright, restored in 0.8 s, **10/10 financial invariants held**, zero data loss against the backup point, and the validator itself proven to fail on a single deleted credit entry. `scripts/verify-restore-integrity.sh` is new and wired into the drill, because row counts are not integrity.
+
+**Not pilot-ready yet, and the remaining gaps are specific:** nothing schedules the drill (Rule 0.8 treats one older than 90 days as stale), backups are not stored outside the primary failure domain, object storage is unexercised, and the lock-execution-before-resume sequence has never been rehearsed — provider reconciliation after a restore is the dangerous, unrehearsed part. RPO is still the backup interval: no PITR/WAL archiving, and financial state cannot be reconstructed casually, so PITR is required before real money moves.
+
+**Finding raised by the drill (open):** opening balances are written straight into `available_balance`/`posted_balance` with **no ledger entry**, so balances are *not* fully derivable from the journal and a rebuild-from-ledger recovery would be wrong for every funded account. Filed, not silently patched — posting opening balances as real double-entry movements is a money-semantics decision for the product owner.
+
+**Never restore and reopen payment execution.** The sequence is: restore → **lock external execution** → validate ledger invariants → reconcile providers → replay safe events → classify ambiguity into the exception queue → operator approval → resume. After any restore, prove: every journal entry balanced, no transaction executed twice, idempotency keys survived, provider state reconciled against restored internal state, balances recomputed and compared against stored balances, audit records retain actor + correlation id.
 
 ## Honesty
 Don't claim "bank-grade." Don't claim a layer works without running it. If Docker/DB isn't available
