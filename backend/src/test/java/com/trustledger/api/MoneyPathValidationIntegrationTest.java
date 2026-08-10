@@ -30,7 +30,7 @@ import tools.jackson.databind.ObjectMapper;
  * sweep). The domain request record now validates required fields at construction.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MoneyPathValidationIntegrationTest {
 
     @Container
