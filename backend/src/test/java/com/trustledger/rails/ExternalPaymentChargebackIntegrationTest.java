@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * replayed dispute must not double-credit the source.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ExternalPaymentChargebackIntegrationTest {
 
     private static final UUID SYSTEM_USER = new UUID(0L, 0L);

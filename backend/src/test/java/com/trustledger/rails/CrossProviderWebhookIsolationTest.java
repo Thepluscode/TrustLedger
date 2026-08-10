@@ -34,7 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * isolation test here while being completely broken.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CrossProviderWebhookIsolationTest {
 
     @Container
