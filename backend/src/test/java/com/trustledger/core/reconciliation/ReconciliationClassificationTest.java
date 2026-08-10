@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** The type→classification map is the single source of truth the V40 backfill mirrors. */
+/** The type→classification map is the single source of truth the V45 backfill mirrors. */
 class ReconciliationClassificationTest {
 
     @ParameterizedTest

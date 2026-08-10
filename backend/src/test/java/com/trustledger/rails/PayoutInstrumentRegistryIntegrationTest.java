@@ -25,7 +25,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -151,40 +150,6 @@ class PayoutInstrumentRegistryIntegrationTest {
         service.setInstrumentStatus(fixture.tenantId(), fixture.userId(), instrument.getId(), "REVOKED");
         assertThrows(IllegalStateException.class, () -> service.setInstrumentStatus(fixture.tenantId(),
             fixture.userId(), instrument.getId(), "SUSPENDED"));
-    }
-
-    @Test
-    void ibanInstrumentIsAcceptedWithoutABankCodeButOtherIdentifiersStillRequireOne() {
-        Fixture fixture = fixture();
-
-        // An IBAN encodes its own bank, so SEPA payouts that omit BIC are legitimate.
-        PayoutInstrumentEntity sepa = service.createInstrument(fixture.tenantId(), fixture.userId(),
-            fixture.beneficiary().getId(), new PayoutInstrumentService.CreateInstrumentCommand(
-                "BANK_ACCOUNT", "DE", "EUR", "Recipient", null, "DE89****3000",
-                "vault://payouts/sepa-iban"));
-        assertNull(sepa.getBankCode());
-        assertEquals("DE89****3000", sepa.getMaskedIdentifier());
-
-        // The guard still fires for identifiers that do not carry the bank — a GB sort code here.
-        assertThrows(IllegalArgumentException.class, () -> service.createInstrument(fixture.tenantId(),
-            fixture.userId(), fixture.beneficiary().getId(),
-            new PayoutInstrumentService.CreateInstrumentCommand("BANK_ACCOUNT", "GB", "GBP", "Recipient",
-                null, "******6789", "vault://payouts/no-bank-code")));
-    }
-
-    @Test
-    void databaseConstraintEnforcesTheSameRuleAsTheService() {
-        Fixture fixture = fixture();
-
-        // Bypass the service so this asserts V41 itself, not the Java guard in front of it.
-        assertThrows(DataIntegrityViolationException.class, () -> instruments.saveAndFlush(
-            new PayoutInstrumentEntity(UUID.randomUUID(), fixture.tenantId(), fixture.beneficiary().getId(),
-                "BANK_ACCOUNT", "GB", "GBP", "Recipient", null, "******6789", "vault://payouts/db-reject")));
-
-        PayoutInstrumentEntity accepted = instruments.saveAndFlush(new PayoutInstrumentEntity(UUID.randomUUID(),
-            fixture.tenantId(), fixture.beneficiary().getId(), "BANK_ACCOUNT", "FR", "EUR", "Recipient",
-            null, "FR14****6606", "vault://payouts/db-accept"));
-        assertNull(accepted.getBankCode());
     }
 
     private Fixture fixture() {

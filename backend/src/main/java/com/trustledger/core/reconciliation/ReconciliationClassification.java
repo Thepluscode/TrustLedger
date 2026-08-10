@@ -22,7 +22,7 @@ public enum ReconciliationClassification {
     UNKNOWN;
 
     /**
-     * Canonical classification for each specific issue type. The V40 backfill mirrors this map; keep the
+     * Canonical classification for each specific issue type. The V45 backfill mirrors this map; keep the
      * two in sync when adding a type. An unknown type is UNKNOWN, never a guess (invariant 10: ambiguity
      * is preserved, not resolved by inference).
      */
