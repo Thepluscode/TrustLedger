@@ -81,11 +81,20 @@ condition below is the trigger.
 Also deliberately not built: `CARD` and `WALLET` payout-instrument types. No adapter can execute
 either, so adding them to the enum and the DB CHECK would create dead values with no consumer.
 
-**Real global blocker found and not yet fixed:** `PayoutInstrumentService` requires `bankCode` for
-every `BANK_ACCOUNT`. An IBAN self-describes its bank and SEPA payouts frequently omit BIC, so a
-legitimate EU payout instrument is currently rejected. Tracked in `FEATURE_TRACKER.md` — it needs a
-jurisdiction rule, which is precisely the kind of thing to get from the first EU customer rather
-than from a guess about SEPA.
+**Real global blocker found — fixed 2026-08-10 (V41).** `PayoutInstrumentService` required
+`bankCode` for every `BANK_ACCOUNT`. An IBAN self-describes its bank and SEPA payouts frequently
+omit BIC, so a legitimate EU payout instrument was rejected.
+
+The fix deliberately did **not** become the jurisdiction rule this paragraph originally called for.
+A country list gets `GB` wrong in both directions: a UK IBAN needs no bank code, and a UK sort-code
+instrument does — same country, opposite answers. So the rule keys on the **identifier scheme**
+(`^[A-Z]{2}[0-9]{2}` on the masked identifier — the IBAN country-plus-check-digit prefix), which is
+derived from the data rather than guessed from geography, consistent with the ICP rule in
+`CLAUDE.md`. Enforced twice: in the service and in `chk_bank_instrument_code`. Evidence in
+`FEATURE_TRACKER.md`.
+
+A genuine jurisdiction rule is still deferred to the first EU customer; this change only stops a
+valid instrument being refused.
 
 ## Reversal conditions
 
