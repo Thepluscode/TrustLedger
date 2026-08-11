@@ -17,7 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** Rate limiting returns 429 once the per-IP window is exceeded (limit pinned low for the test). */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class RateLimitIntegrationTest {
 
     @Container

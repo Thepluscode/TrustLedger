@@ -31,7 +31,7 @@ import tools.jackson.databind.ObjectMapper;
  * and a malformed resolution is rejected before any state changes.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationResolutionIntegrationTest {
 
     @Container

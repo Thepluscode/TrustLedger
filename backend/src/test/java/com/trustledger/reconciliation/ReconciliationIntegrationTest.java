@@ -19,7 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** The reconciliation worker must detect drift the happy path can never produce. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationIntegrationTest {
 
     @Container

@@ -31,7 +31,7 @@ import tools.jackson.databind.ObjectMapper;
  * same id is on every log line the request emitted.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CorrelationIdIntegrationTest {
 
     @Container

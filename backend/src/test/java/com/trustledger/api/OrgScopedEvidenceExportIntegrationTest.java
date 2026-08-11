@@ -43,7 +43,7 @@ import tools.jackson.databind.ObjectMapper;
  * that straddles a sibling unit; a tenant-wide user can export anything.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedEvidenceExportIntegrationTest {
 
     @Container

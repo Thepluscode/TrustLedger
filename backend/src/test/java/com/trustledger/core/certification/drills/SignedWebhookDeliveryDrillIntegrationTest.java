@@ -32,7 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * delivery is rejected with no state change, and it must FAIL when the settlement pipeline is broken.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SignedWebhookDeliveryDrillIntegrationTest {
 
     @Container

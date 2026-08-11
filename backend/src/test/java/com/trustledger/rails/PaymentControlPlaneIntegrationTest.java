@@ -25,7 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** End-to-end proofs for the provider-routing control plane on the real persistence path. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PaymentControlPlaneIntegrationTest {
 
     @Container

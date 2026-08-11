@@ -26,7 +26,7 @@ import org.testcontainers.redpanda.RedpandaContainer;
 
 /** Verifies the transactional outbox actually delivers to Redpanda and is replay-safe. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OutboxPublisherIntegrationTest {
 
     @Container

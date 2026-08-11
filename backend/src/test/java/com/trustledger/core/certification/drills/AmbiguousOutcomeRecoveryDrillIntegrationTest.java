@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * broken (never reaches PENDING_UNKNOWN / never resolves), rather than always reporting green.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class AmbiguousOutcomeRecoveryDrillIntegrationTest {
 
     @Container

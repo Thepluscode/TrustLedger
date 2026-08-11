@@ -28,7 +28,7 @@ import tools.jackson.databind.ObjectMapper;
  * is blocked unless explicitly enabled; L3 a login for a non-existent user still fails cleanly.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SecurityAuditFollowupsIntegrationTest {
 
     @Container

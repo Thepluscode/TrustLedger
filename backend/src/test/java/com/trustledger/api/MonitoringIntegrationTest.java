@@ -25,7 +25,7 @@ import tools.jackson.databind.ObjectMapper;
  * tenant-scoped counts, lock query), is permission-gated, and the overall banner is consistent.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MonitoringIntegrationTest {
 
     @Container

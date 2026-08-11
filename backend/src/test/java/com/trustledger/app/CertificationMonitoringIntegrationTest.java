@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * production configs raise a WARN; a fully-certified tenant is OK.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CertificationMonitoringIntegrationTest {
 
     @Container

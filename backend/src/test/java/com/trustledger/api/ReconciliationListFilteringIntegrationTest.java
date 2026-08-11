@@ -29,7 +29,7 @@ import tools.jackson.databind.ObjectMapper;
  * stay accurate even when the table is narrowed. Another tenant's issues never appear in items or counts.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationListFilteringIntegrationTest {
 
     @Container

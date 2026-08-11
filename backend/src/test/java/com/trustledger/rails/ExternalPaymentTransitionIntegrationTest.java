@@ -26,7 +26,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ExternalPaymentTransitionIntegrationTest {
 
     private static final UUID SYSTEM_USER = new UUID(0L, 0L);

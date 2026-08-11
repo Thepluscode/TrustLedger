@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * transfer-level audit before the choke-point refactor; this test is their regression guard.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TransferTransitionAuditIntegrationTest {
 
     @Container

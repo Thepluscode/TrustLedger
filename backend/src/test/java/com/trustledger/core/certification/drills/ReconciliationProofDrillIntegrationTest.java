@@ -35,7 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * must FAIL when an unbalanced ledger transaction exists for the certified tenant.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationProofDrillIntegrationTest {
 
     @Container

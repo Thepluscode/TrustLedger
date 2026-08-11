@@ -27,7 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * releases the reservation exactly once, and fails when the settlement/release pipeline is broken.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class FailureReleaseDrillIntegrationTest {
 
     @Container

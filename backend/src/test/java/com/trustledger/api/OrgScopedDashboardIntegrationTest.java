@@ -38,7 +38,7 @@ import tools.jackson.databind.ObjectMapper;
  * totals. Reconciliation stays tenant-wide (integrity surface).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedDashboardIntegrationTest {
 
     @Container

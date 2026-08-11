@@ -43,7 +43,7 @@ import tools.jackson.databind.ObjectMapper;
  * transfer originates in its subtree, and is 403'd opening a sibling-unit case or its signals.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedFraudCaseVisibilityIntegrationTest {
 
     @Container

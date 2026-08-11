@@ -35,7 +35,7 @@ import tools.jackson.databind.ObjectMapper;
  * response body.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CertificationApiIntegrationTest {
 
     @Container

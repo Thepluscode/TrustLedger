@@ -25,7 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * correct OTP settles it exactly once through the real submission action boundary.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OtpFinalizationDrillIntegrationTest {
 
     @Container

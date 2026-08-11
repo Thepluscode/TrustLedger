@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * schedule that was in force then — not by today's.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SettlementFeeReconciliationIntegrationTest {
 
     @Container

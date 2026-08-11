@@ -30,7 +30,7 @@ import tools.jackson.databind.ObjectMapper;
  * point wrapping the servlet error). It must now be accepted (200/202) with a proper transfer response.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class NullBeneficiaryTransferIntegrationTest {
 
     @Container

@@ -33,7 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * recording every drill result.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ProviderCertificationIntegrationTest {
 
     @Container

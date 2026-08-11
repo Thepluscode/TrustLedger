@@ -25,7 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** v2.3: behavioural/device/beneficiary-aware risk decisions. */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class FraudIntelligenceIntegrationTest {
 
     @Container

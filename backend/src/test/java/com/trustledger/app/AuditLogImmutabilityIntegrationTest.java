@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * undetected. See {@code docs/architecture/ADR-005-audit-log-immutability.md}.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class AuditLogImmutabilityIntegrationTest {
 
     @Container

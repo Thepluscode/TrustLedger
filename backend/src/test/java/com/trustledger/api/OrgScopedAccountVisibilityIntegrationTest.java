@@ -36,7 +36,7 @@ import tools.jackson.databind.ObjectMapper;
  * not sibling-unit accounts and not untagged (tenant-level) accounts.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedAccountVisibilityIntegrationTest {
 
     @Container

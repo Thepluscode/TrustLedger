@@ -28,7 +28,7 @@ import tools.jackson.databind.ObjectMapper;
  * sums their score contribution, and is strictly tenant-scoped — another tenant's signals never appear.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class FraudSignalSummaryIntegrationTest {
 
     @Container

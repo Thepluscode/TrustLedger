@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * and each decision must emit a structured log line, not just a DB audit row.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class TransferObservabilityIntegrationTest {
 
     @Container
