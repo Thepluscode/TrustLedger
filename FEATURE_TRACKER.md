@@ -3,7 +3,13 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-05
+Last updated: 2026-08-10
+
+## Global payout instruments (2026-08-10)
+
+| Feature | Status | Evidence |
+|---|---|---|
+| IBAN payout instruments accepted without a `bankCode` (V43) — the global blocker ADR-003 left open | **VERIFIED (local)** | An IBAN encodes its own bank, so SEPA instruments that omit BIC were being rejected by V23's `chk_bank_instrument_code`. The rule keys on the **identifier scheme, not the country** (`^[A-Z]{2}[0-9]{2}` on `masked_identifier`), so a GB sort code still requires its bank code while a GB IBAN does not. Enforced in both `PayoutInstrumentService` and the DB CHECK. `PayoutInstrumentRegistryIntegrationTest` 7/7 (was 5) — incl. the negative twin (non-IBAN + null bankCode still rejected) and a direct-repository test that bypasses the service to assert the constraint itself. Mutation-proven: narrowing the CHECK back to `OR FALSE` made exactly the 2 new tests fail (`Tests run: 7, Errors: 2`), restored. Full suite on the source branch: `Tests run: 387, Failures: 0, Errors: 0` — `BUILD SUCCESS`. **Not yet green in CI, and not yet re-run against main's V39-V42** (the migration was renumbered V41→V43 to clear a collision with main's `V41__evidence_signatures.sql`). |
 
 ## Interface image gallery (2026-08-05)
 
