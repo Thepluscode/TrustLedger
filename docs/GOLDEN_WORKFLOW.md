@@ -4,7 +4,27 @@
 deferred (see the feature decision rule in `CLAUDE.md`). Status per stage lives in
 `FEATURE_TRACKER.md` — never in this file.
 
-## The path
+There are two paths, and they are not alternatives — the wedge path is a **prefix** of the full
+path with execution removed. A read-only pilot ships the wedge path only.
+
+## The wedge path (read-only reliability layer — what gets sold first)
+
+```
+provider webhook / settlement row / ledger import
+  → store raw evidence before parsing   (evidence persisted independent of outcome)
+  → verify signature + integrity        (rails/WebhookSigner)
+  → normalise to a canonical event      (provider states → canonical states, original retained)
+  → append to the event stream          (idempotent on tenant+provider+event id+type+ref)
+  → compare against internal ledger     (reconciliation/)
+  → classify the break                  (closed taxonomy — see PRODUCT_BLUEPRINT §1.3)
+  → raise an operator exception         (severity + financial exposure + owner + evidence)
+  → record the resolution               (core/audit — immutable, attributable)
+```
+
+No money moves anywhere on this path. That is the point: it is deployable into a customer's
+production without custody, initiation or routing risk.
+
+## The full path (execution enabled — rungs four and five, not the first sale)
 
 ```
 create payout

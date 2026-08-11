@@ -48,12 +48,14 @@ public class SettlementReconciliationService {
      * "0 fee breaks" can be distinguished from "no schedule configured, nothing was checked".
      */
     public record IngestResult(SettlementStatementEntity statement, boolean alreadyIngested,
-                               int matched, int unmatched, int amountMismatch, int missing,
-                               boolean totalMismatch, int feeChecked, int feeMismatch) {}
+                               int matched, int unmatched, int amountMismatch, int currencyMismatch,
+                               int duplicate, int missing, boolean totalMismatch,
+                               int feeChecked, int feeMismatch) {}
 
     public record StatementDetail(SettlementStatementEntity statement, List<SettlementStatementLineEntity> lines) {}
 
-    private static final String MATCHED = "MATCHED", UNMATCHED = "UNMATCHED", AMOUNT_MISMATCH = "AMOUNT_MISMATCH";
+    private static final String MATCHED = "MATCHED", UNMATCHED = "UNMATCHED", AMOUNT_MISMATCH = "AMOUNT_MISMATCH",
+            CURRENCY_MISMATCH = "CURRENCY_MISMATCH", DUPLICATE = "DUPLICATE";
 
     private final SettlementStatementRepository statements;
     private final SettlementStatementLineRepository lines;
@@ -109,42 +111,66 @@ public class SettlementReconciliationService {
                 .findFirstByTenantIdAndProviderAndCurrencyAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
                         tenantId, in.provider(), in.currency(), in.periodStart());
 
-        int matched = 0, unmatched = 0, mismatch = 0, feeChecked = 0, feeMismatch = 0;
+        int matched = 0, unmatched = 0, mismatch = 0, currencyMismatch = 0, duplicate = 0,
+                feeChecked = 0, feeMismatch = 0;
         Set<String> statementRefs = new HashSet<>();
         for (LineInput li : in.lines()) {
-            statementRefs.add(li.providerReference());
+            // Fee checks run on every line, a duplicated one included — a duplicate line still carries
+            // a fee, and a provider that double-charges is exactly what the fee break is meant to catch.
             checkFeeIntegrity(tenantId, stmtId, in, li);
             if (schedule.isPresent() && li.fee() != null) {
                 feeChecked++;
                 if (checkFeeAgainstSchedule(tenantId, stmtId, in, li, schedule.get())) feeMismatch++;
             }
-            Optional<ExternalPaymentAttemptEntity> attempt = attempts
-                    .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
             String matchStatus;
             UUID matchedId = null;
-            if (attempt.isEmpty()) {
-                matchStatus = UNMATCHED;
-                unmatched++;
-                raise(tenantId, "HIGH", "SETTLEMENT_LINE_UNMATCHED", "SETTLEMENT_STATEMENT_LINE",
-                        UUID.nameUUIDFromBytes((stmtId + ":" + li.providerReference()).getBytes()),
-                        "a matching payout attempt", "no attempt for provider_reference " + li.providerReference(),
+            if (!statementRefs.add(li.providerReference())) {
+                // The same provider reference twice in one statement is a double-settlement signal.
+                matchStatus = DUPLICATE;
+                duplicate++;
+                raise(tenantId, "CRITICAL", "SETTLEMENT_LINE_DUPLICATE", "SETTLEMENT_STATEMENT_LINE",
+                        UUID.nameUUIDFromBytes((stmtId + ":" + li.providerReference() + ":dup").getBytes()),
+                        "each provider reference appears once per statement",
+                        "provider_reference " + li.providerReference() + " appears more than once",
                         Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
                                 "amount", li.amount().toPlainString(), "statementId", stmtId.toString()));
             } else {
-                ExternalPaymentAttemptEntity a = attempt.get();
-                matchedId = a.getId();
-                if (li.amount().compareTo(a.getAmount()) != 0) {
-                    matchStatus = AMOUNT_MISMATCH;
-                    mismatch++;
-                    raise(tenantId, "CRITICAL", "SETTLEMENT_AMOUNT_MISMATCH", "EXTERNAL_PAYMENT_ATTEMPT", a.getId(),
-                            a.getAmount().toPlainString() + " " + a.getCurrency(),
-                            li.amount().toPlainString() + " " + in.currency(),
+                Optional<ExternalPaymentAttemptEntity> attempt = attempts
+                        .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
+                if (attempt.isEmpty()) {
+                    matchStatus = UNMATCHED;
+                    unmatched++;
+                    raise(tenantId, "HIGH", "SETTLEMENT_LINE_UNMATCHED", "SETTLEMENT_STATEMENT_LINE",
+                            UUID.nameUUIDFromBytes((stmtId + ":" + li.providerReference()).getBytes()),
+                            "a matching payout attempt", "no attempt for provider_reference " + li.providerReference(),
                             Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
-                                    "ledgerAmount", a.getAmount().toPlainString(),
-                                    "statementAmount", li.amount().toPlainString(), "statementId", stmtId.toString()));
+                                    "amount", li.amount().toPlainString(), "statementId", stmtId.toString()));
                 } else {
-                    matchStatus = MATCHED;
-                    matched++;
+                    ExternalPaymentAttemptEntity a = attempt.get();
+                    matchedId = a.getId();
+                    if (!in.currency().equals(a.getCurrency())) {
+                        // Currency first: comparing amounts across currencies is meaningless.
+                        matchStatus = CURRENCY_MISMATCH;
+                        currencyMismatch++;
+                        raise(tenantId, "CRITICAL", "SETTLEMENT_CURRENCY_MISMATCH", "EXTERNAL_PAYMENT_ATTEMPT",
+                                a.getId(), a.getAmount().toPlainString() + " " + a.getCurrency(),
+                                li.amount().toPlainString() + " " + in.currency(),
+                                Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
+                                        "ledgerCurrency", a.getCurrency(), "statementCurrency", in.currency(),
+                                        "statementId", stmtId.toString()));
+                    } else if (li.amount().compareTo(a.getAmount()) != 0) {
+                        matchStatus = AMOUNT_MISMATCH;
+                        mismatch++;
+                        raise(tenantId, "CRITICAL", "SETTLEMENT_AMOUNT_MISMATCH", "EXTERNAL_PAYMENT_ATTEMPT", a.getId(),
+                                a.getAmount().toPlainString() + " " + a.getCurrency(),
+                                li.amount().toPlainString() + " " + in.currency(),
+                                Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
+                                        "ledgerAmount", a.getAmount().toPlainString(),
+                                        "statementAmount", li.amount().toPlainString(), "statementId", stmtId.toString()));
+                    } else {
+                        matchStatus = MATCHED;
+                        matched++;
+                    }
                 }
             }
             SettlementStatementLineEntity line = new SettlementStatementLineEntity(UUID.randomUUID(), stmtId,
@@ -156,8 +182,8 @@ public class SettlementReconciliationService {
 
         int missing = reverseSweep(tenantId, stmtId, in, statementRefs);
         audit(tenantId, actorId, stmt, matched, unmatched, mismatch, missing, feeChecked, feeMismatch);
-        return new IngestResult(stmt, false, matched, unmatched, mismatch, missing, totalMismatch,
-                feeChecked, feeMismatch);
+        return new IngestResult(stmt, false, matched, unmatched, mismatch, currencyMismatch, duplicate,
+                missing, totalMismatch, feeChecked, feeMismatch);
     }
 
     /**
@@ -295,7 +321,7 @@ public class SettlementReconciliationService {
     }
 
     private IngestResult summarize(SettlementStatementEntity stmt) {
-        int matched = 0, unmatched = 0, mismatch = 0;
+        int matched = 0, unmatched = 0, mismatch = 0, currencyMismatch = 0, duplicate = 0;
         Set<String> statementRefs = new HashSet<>();
         for (SettlementStatementLineEntity line : lines.findByStatementId(stmt.getId())) {
             statementRefs.add(line.getProviderReference());
@@ -303,6 +329,8 @@ public class SettlementReconciliationService {
                 case MATCHED -> matched++;
                 case UNMATCHED -> unmatched++;
                 case AMOUNT_MISMATCH -> mismatch++;
+                case CURRENCY_MISMATCH -> currencyMismatch++;
+                case DUPLICATE -> duplicate++;
                 default -> { }
             }
         }
@@ -311,7 +339,10 @@ public class SettlementReconciliationService {
                 stmt.getPeriodStart(), stmt.getPeriodEnd(), statementRefs).size();
         // On idempotent replay the declared totals aren't re-supplied; the total-mismatch check already
         // ran (and raised, if applicable) on first ingest, so report false here rather than re-deriving.
-        return new IngestResult(stmt, true, matched, unmatched, mismatch, missing, false, 0, 0);
+        // Fee counters are 0 on replay: fees were checked (and raised) on first ingest and are not
+        // re-derived here, so 0 means "not re-checked", consistent with the record's javadoc.
+        return new IngestResult(stmt, true, matched, unmatched, mismatch, currencyMismatch, duplicate,
+                missing, false, 0, 0);
     }
 
     private void raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,

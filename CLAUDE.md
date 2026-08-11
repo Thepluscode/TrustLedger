@@ -5,15 +5,29 @@ CLAUDE.md when you are inside `projects/fintech/TrustLedger_v2/`.
 
 ## What this is
 
-**TrustLedger** is a ledger-first **Payment Operations Control Plane**. It sits *above* PSPs,
-banks, and mobile-money providers and helps payment-ops / finance / risk teams **govern, route,
-observe, reconcile, investigate and prove** every movement of money across multiple providers.
-It is **not** a payment gateway, a regulated bank, a card issuer, or a production processor.
+**TrustLedger is the Payment Reliability OS** — a payment-operations control system for companies
+running money across multiple providers, banks, internal ledgers and settlement processes. Its job:
+**detect where a payment broke, reconstruct what happened, identify who must act, and preserve the
+evidence required to resolve it.** It is **not** a payment gateway, a regulated bank, a card issuer,
+or a production processor.
 
-**Commercial wedge (build this, defer the rest):** cross-provider **reconciliation, exception
-management, and operational evidence** for organisations already live on 2+ payment providers.
-Not connectors, not dashboards, not generic routing. See `docs/GOLDEN_WORKFLOW.md` for the one
-end-to-end path that matters more than breadth.
+**Commercial wedge (sell this, defer the rest): a read-only reliability layer.** Cross-provider
+reconciliation, exception management and operational evidence for organisations already live on 2+
+providers. The pilot deployment does **not** move or route customer money — ingestion, reconciliation,
+exceptions and evidence only, execution surface off.
+
+**This is a posture, not a capability claim.** The repo already contains a tested execution engine
+(double-entry ledger, fraud gate, external-rail submission). It is real and stays. It is simply
+outside the first sale. Do not describe the MVP as a global financial control plane.
+
+The one slice that matters more than breadth (`docs/GOLDEN_WORKFLOW.md`):
+`provider webhook → canonical event → immutable evidence → internal-ledger comparison →
+reconciliation mismatch → operator exception → resolution audit trail`.
+
+**Do not build yet:** autonomous provider routing, custody, payment initiation, AI reconciliation
+decisions, thirty connectors, a fraud-detection platform, crypto, ERP replacement, general
+accounting, a consumer payment app, a microservice estate. Full framing: `docs/PRODUCT_BLUEPRINT.md`
+§1 (wedge + MVP boundary), §9 (packaging), §10 (expansion sequence).
 
 ### Feature decision rule
 Before adding anything, it must do at least one of: (1) help a user understand where money is,
