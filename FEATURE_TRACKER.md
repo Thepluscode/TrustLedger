@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## v3.3 — Settlement Watch groundwork (blueprint §8.1, branch `pilot/batch-01-drafts`)
 
@@ -14,6 +14,22 @@ Last updated: 2026-08-10
 | New settlement break detectors: `SETTLEMENT_CURRENCY_MISMATCH` (currency compared before amount), `SETTLEMENT_LINE_DUPLICATE` (same provider ref twice in one statement) | **VERIFIED (local)** | `currencyMismatchIsDetectedBeforeAmountsAreCompared`, `duplicateProviderReferenceInOneStatementRaisesADuplicateBreak` green in both the scoped and full runs. Counted in `IngestResult`/`IngestResponse`; line `match_status` CHECK widened in V48. |
 
 Next in §8.1 order: exception-ops upgrade (owner, financial exposure, resolution deadline, activity history on `reconciliation_issues`), then the scheduled watcher + alerting.
+
+## Global payout instruments (2026-08-10)
+
+| Feature | Status | Evidence |
+|---|---|---|
+| IBAN payout instruments accepted without a `bankCode` (V43) — the global blocker ADR-003 left open | **VERIFIED (local)** | An IBAN encodes its own bank, so SEPA instruments that omit BIC were being rejected by V23's `chk_bank_instrument_code`. The rule keys on the **identifier scheme, not the country** (`^[A-Z]{2}[0-9]{2}` on `masked_identifier`), so a GB sort code still requires its bank code while a GB IBAN does not. Enforced in both `PayoutInstrumentService` and the DB CHECK. `PayoutInstrumentRegistryIntegrationTest` 7/7 (was 5) — incl. the negative twin (non-IBAN + null bankCode still rejected) and a direct-repository test that bypasses the service to assert the constraint itself. Mutation-proven: narrowing the CHECK back to `OR FALSE` made exactly the 2 new tests fail (`Tests run: 7, Errors: 2`), restored. Full suite on the source branch: `Tests run: 387, Failures: 0, Errors: 0` — `BUILD SUCCESS`. **VERIFIED (CI)** on merge commit `686c0a5` — all 8 checks SUCCESS incl. Backend (Maven + Testcontainers) and `Migrations over existing data`. Renumbered V41→V43 to clear a collision with main's `V41__evidence_signatures.sql`. Still **not observed in a deployed environment**. |
+
+## v3.4 — three gaps closed (2026-08-11, merged `2be83e9` via #129)
+
+| Feature | Status | Evidence |
+|---|---|---|
+| Unparseable request body returns 400, not 500 | **VERIFIED (CI)** | Found by RUNNING the service against live Postgres, not by a test: `{}` returned 400 but `5`, `"x"`, `[]`, `notjson` returned **500 + ERROR** — `HttpMessageNotReadableException` fell through to the catch-all. A 5xx invites a client to retry a request that can never succeed, so a malformed provider webhook became a retry storm, and the ERROR noise buried real 500s. Now `400 MALFORMED_REQUEST`, parse detail logged at WARN by cause-class only (never echoing internal DTO names). Confirmed live: all five bodies → 400, 0 ERROR lines after restart. Mutation-verified: forcing 500 back gives `expected: <400 BAD_REQUEST> but was: <500 INTERNAL_SERVER_ERROR>`. **481 tests never caught this.** |
+| Enterprise OIDC SSO (off unless `trustledger.oidc.issuer-uri` is set) | **VERIFIED (CI)** | `OidcAuthFilter` + `OidcConfig`, 8/8. Runs AFTER `JwtAuthFilter` and only on requests it left anonymous, so a misconfigured or hostile IdP cannot shadow a locally-issued identity (asserted by test). **A token with no tenant claim is refused, never defaulted** — mutation-verified: defaulting it gives `expected: <null> but was: <AuthPrincipal[...tenantId=1111...]>`. Claim names are config; a missing role yields VIEWER. Audience validated separately from issuer (issuer alone proves provenance, not that the token was minted for us). Observed running unconfigured: boots 6.9s, 401 without token, 401 with junk token. **Trade-off:** pulls `com.fasterxml.jackson 2.21.4` beside `tools.jackson 3.1.4`, contradicting `JwtService`'s "no Jackson-version entanglement" note — safe (different packages) but a second JSON library on a Trivy-gated build. |
+| Reconciliation break past SLA is pushed, exactly once (V46) | **VERIFIED (CI)** | The breach was already *detectable* (`MonitoringService` escalates past `RECON_AGE_CRITICAL_SECONDS`) but nothing pushed it. `ReconciliationSlaNotifierIntegrationTest` 5/5 vs real Postgres. Idempotency enforced twice — worker guard + `UNIQUE (reconciliation_issue_id)` — because two workers can overlap after a restart. Mutation-verified: removing BOTH turns 5/5 into 3 failures. **Nothing leaves the building:** persisted + structured WARN; wiring to email/Slack is an external action needing explicit sign-off. |
+
+**Honest scope:** all three are `VERIFIED (CI)` — 8/8 checks on `2be83e9`. Runtime observation was localhost against colima. **None is observed in a deployed environment**; that remains the open gap and needs hosting.
 
 ## Interface image gallery (2026-08-05)
 
