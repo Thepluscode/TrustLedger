@@ -62,7 +62,7 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      <section className="panel">
+      <section className="panel onboarding-checklist">
         {steps === null ? (
           <div className="panelBody"><div className="skeleton" style={{ minHeight: 60 }} /></div>
         ) : (

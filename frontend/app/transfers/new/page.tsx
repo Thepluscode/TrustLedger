@@ -148,7 +148,7 @@ export default function TransfersPage() {
 
       {/* §22.1 success screen */}
       {result ? (
-        <section className="panel">
+        <section className={`panel transfer-result${result.status === "MFA_REQUIRED" || result.status === "HELD_FOR_REVIEW" ? ` transfer-state-dialog ${result.status.toLowerCase()}` : ""}`}>
           <div className="panelBody">
             <h2>
               {result.status === "COMPLETED"
@@ -209,7 +209,7 @@ export default function TransfersPage() {
           </div>
         </section>
       ) : (
-        <section className="panel">
+        <section className="panel transfer-create-flow">
           <div className="panelBody">
             <div className="steps" aria-label="Transfer steps">
               {STEPS.map((s, i) => (
@@ -278,7 +278,7 @@ export default function TransfersPage() {
             )}
 
             {step === 1 && (
-              <div>
+              <div className="risk-preview-state">
                 <h2>Risk preview</h2>
                 {assessing && <div className="skeleton" style={{ maxWidth: 380, minHeight: 22 }} />}
                 {assess && (
@@ -314,7 +314,7 @@ export default function TransfersPage() {
             )}
 
             {step === 2 && (
-              <div>
+              <div className="transfer-confirm-state">
                 <h2>Confirm</h2>
                 <div className="entry"><span className="muted">From</span><span className="mono">{shortId(source)}</span></div>
                 <div className="entry"><span className="muted">To</span><span className="mono">{shortId(destination)}</span></div>
@@ -348,7 +348,7 @@ export default function TransfersPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel external-payment" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>External payment (sandbox rail)</h2>

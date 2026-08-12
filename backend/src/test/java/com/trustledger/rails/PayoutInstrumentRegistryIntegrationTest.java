@@ -79,6 +79,22 @@ class PayoutInstrumentRegistryIntegrationTest {
             .anyMatch(a -> "PAYOUT_INSTRUMENT_CREATED".equals(a.getAction())));
     }
 
+    /**
+     * A schemeless reference is the likeliest operator mistake. It must be a validation error the
+     * caller can act on, not a NullPointerException surfacing as a 500 — Set.of() throws on
+     * contains(null), so the scheme has to be checked before the lookup.
+     */
+    @Test
+    void schemelessExternalReferenceIsRejectedAsValidationNotCrash() {
+        Fixture fixture = fixture();
+
+        for (String reference : new String[] {"probe-ref-1", "just a description", "/payouts/instrument-a"}) {
+            assertThrows(IllegalArgumentException.class, () -> service.createInstrument(fixture.tenantId(),
+                fixture.userId(), fixture.beneficiary().getId(), command("******6789", reference)),
+                "expected a validation error for schemeless reference: " + reference);
+        }
+    }
+
     @Test
     void crossTenantBeneficiaryCannotReceiveInstrument() {
         Fixture owner = fixture();

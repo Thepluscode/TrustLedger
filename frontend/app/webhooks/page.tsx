@@ -31,7 +31,7 @@ export default function WebhooksPage() {
         <b>no second row and no double ledger posting</b>. This list is the already-deduplicated set.
       </div>
 
-      <section className="panel">
+      <section className="panel webhook-list">
         <table>
           <thead>
             <tr><th>Event</th><th>Type</th><th>Provider ref</th><th>Signature</th><th>Processed</th><th>Created</th><th></th></tr>

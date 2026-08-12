@@ -30,6 +30,11 @@ export default function AccountsPage() {
     }
   }
 
+  const summaryCurrency = accounts?.find((a) => a.currency === "GBP")?.currency ?? accounts?.[0]?.currency ?? "GBP";
+  const summaryAccounts = (accounts ?? []).filter((a) => a.currency === summaryCurrency);
+  const total = (field: "availableBalance" | "pendingBalance" | "postedBalance") =>
+    summaryAccounts.reduce((sum, account) => sum + Number(account[field]), 0);
+
   return (
     <Shell active="/accounts">
       <header className="topbar">
@@ -40,7 +45,13 @@ export default function AccountsPage() {
         </div>
       </header>
 
-      <section className="panel">
+      <section className="grid account-metrics" aria-label={`${summaryCurrency} account summary`}>
+        <article className="card"><span>Total posted</span><strong>{money(total("postedBalance"), summaryCurrency)}</strong><small>{summaryAccounts.length} {summaryCurrency} accounts</small></article>
+        <article className="card"><span>Available</span><strong>{money(total("availableBalance"), summaryCurrency)}</strong><small>Spendable now</small></article>
+        <article className="card"><span>Reserved / pending</span><strong>{money(total("pendingBalance"), summaryCurrency)}</strong><small>Held or in flight</small></article>
+      </section>
+
+      <section className="panel account-create">
         <div className="panelHeader">
           <h2>Open an account</h2>
         </div>
@@ -60,7 +71,7 @@ export default function AccountsPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel account-list" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr>

@@ -240,7 +240,9 @@ public class PayoutInstrumentService {
         catch (Exception e) { throw new IllegalArgumentException("externalReference must be an opaque URI reference"); }
         String scheme = uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT);
         String specific = uri.getSchemeSpecificPart();
-        if (!REFERENCE_SCHEMES.contains(scheme) || specific == null || specific.isBlank()
+        // Set.of() throws on contains(null), so a schemeless reference — the likeliest operator
+        // mistake — must be rejected before the lookup, not crash inside it.
+        if (scheme == null || !REFERENCE_SCHEMES.contains(scheme) || specific == null || specific.isBlank()
             || RAW_NUMERIC_REFERENCE.matcher(specific).matches()) {
             throw new IllegalArgumentException("externalReference must be a supported opaque reference, not raw account data");
         }

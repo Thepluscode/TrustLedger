@@ -804,3 +804,68 @@ Paystack adapter). What was missing was proof, plus two real defects.
   today. Needs a jurisdiction rule — take it from the first EU customer, not from a guess.
 - **Not built, deliberately:** regional policy packs, industry packs, multi-region, i18n catalogues,
   and `CARD`/`WALLET` instrument types (no adapter can execute either — dead enum values).
+
+## Reference-interface implementation (2026-08-05)
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Reference image library (26 desktop, 26 mobile, 8 states) | **IMPLEMENTED** | `references/interface-images/original/` and `docs/interface-gallery/` |
+| Complete reference-to-route comparison | **IMPLEMENTED** | `docs/interface-gallery/FIDELITY_AUDIT.md` maps all 26 desktop/mobile route pairs and all 8 interaction states, including reference conflicts, capability boundaries and required render evidence |
+| Dark operational-console design system and responsive shell | **IN PROGRESS** | shared `frontend/app/aesthetic.css` and `frontend/app/components/Shell.tsx`; 2026-08-05 reference audit corrected grouped navigation, brand, environment/search/action hierarchy and mobile card layouts; build passes |
+| Route compositions aligned to the reference image set | **IN PROGRESS** | every route is mapped, but exact visual parity has not been proved. Authentication and critical states were corrected; settlement list/detail and certification-run detail were added to the correction pass after the full audit exposed their omission; route-by-route rendered comparisons are still required |
+| Representative rendered-layout review | **NEEDS RE-RUN** | earlier checks proved renderability/overflow only, not visual equality. User-supplied comparison exposed material login and shell drift; do not treat the earlier screenshots as fidelity evidence |
+
+This is implementation evidence, not production verification. The console remains dependent on the
+deployed API and authorised tenant data; no UI screenshot is evidence that a backend workflow works in production.
+
+## Frontend API wiring (2026-08-05)
+
+Connecting Codex's redesigned interfaces to the backend. Each row's evidence is a live call against a
+running backend, not a typecheck — a compiling client proves nothing about a contract.
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Evidence lifecycle (ledger export, legal hold/release, delete, retention policy) | **VERIFIED** | delete under hold → 403 "Evidence is under legal hold and cannot be deleted"; 204 after release |
+| Provider controls + credential rotation | **VERIFIED** | activation with a stale `expectedActiveCredentialId` → 422, so concurrent rotation cannot silently win |
+| ML governance (promote / rollback / monitoring) | **VERIFIED** | ladder `OFF → SHADOW → ANALYST_ASSIST`, third promote → 422 "Blocking/decision promotion is not allowed in v2.8"; all actions 403 unless `trustledger.ml.model-governance-enabled` |
+| Fraud analyst feedback | **VERIFIED** | verdict recorded against a case via `POST /fraud/cases/{id}/feedback` |
+| Dual-control approvals (new `/approvals` page) | **VERIFIED** | raise → queue → self-approve **403 "The requester cannot approve their own request"** → reject 200 |
+| Payout instruments + provider recipients (new `/beneficiaries` page) | **VERIFIED** | create → `PENDING_VERIFICATION`; missing bankCode 400; duplicate reference 400; provider registration on unverified instrument **422**; `ACTIVE` status 400; SUSPENDED → REVOKED → terminal 422 |
+
+**Defect found and fixed:** `PayoutInstrumentService.externalReference` called `Set.of(...).contains(scheme)`
+with a null scheme, so a schemeless reference — the likeliest operator mistake — threw
+`NullPointerException` and surfaced as a **500**. Now a 400 with the actionable message. Regression test
+`schemelessExternalReferenceIsRejectedAsValidationNotCrash`; `mvn -B test -Dtest=PayoutInstrumentRegistryIntegrationTest`
+→ Tests run: 6, Failures: 0, Errors: 0.
+
+**Known constraint, surfaced in the UI rather than hidden:** instrument verification is deliberately not a
+tenant endpoint, so an instrument cannot be marked verified from the console — that separation is what stops
+a tenant self-approving its own payout destination.
+
+**Not wired:** `auth/logout`, `auth/me`, `auth/refresh`; `GET /fraud/cases/{caseId}`; `GET /accounts/{id}`
+and `/balance`; open-banking consent endpoints.
+
+### Session lifecycle (2026-08-05)
+
+The client stored a JWT and silently discarded the refresh token the server returned, so a session
+died at access-token expiry mid-work, and "Log out" cleared local state while leaving the refresh
+token valid server-side.
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Refresh-on-401 with single retry | **VERIFIED** | browser: garbage access token + valid refresh → `/accounts` renders, token replaced with a real JWT, refresh rotated, and the session email is corrected to the server's value |
+| Single-flight refresh | **VERIFIED** | see measurement below — concurrent refreshes destroy the session without it |
+| Dead refresh → clear + route to login | **VERIFIED** | browser: garbage token + revoked refresh → all three keys cleared and redirected to `/login` |
+| Logout revokes server-side | **VERIFIED** | browser: click Log out → local cleared, redirected, and the refresh token returns **401** afterwards |
+| `GET /auth/me` | **IMPLEMENTED** | wired as `api.me()`; not yet used for boot-time session validation |
+
+**Why refresh is single-flight, measured — not assumed.** Refresh tokens rotate and are single-use,
+and reuse detection revokes the whole family. Two concurrent refreshes of the same live token returned
+`200` and `401` — and the **winner's newly issued token was then also dead**, because the loser's
+rejected attempt tripped reuse detection and revoked the family. So without a shared in-flight promise,
+two parallel 401s log the user out completely, including the request that succeeded. One promise,
+awaited by all, is the only safe shape.
+
+**Residual risk, not fixed here:** tokens live in `localStorage`, so any XSS reads them. Moving to
+httpOnly cookies is a backend change (cookie issuance + CSRF protection) and was out of scope for
+wiring; it is the right next hardening step.

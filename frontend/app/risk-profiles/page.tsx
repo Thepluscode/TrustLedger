@@ -30,7 +30,8 @@ export default function RiskProfilesPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <div className="risk-profile-tabs" aria-hidden><span className="active">Devices</span><span>Beneficiaries</span><span>Users</span></div>
+      <section className="panel risk-profile-panel">
         <div className="panelHeader"><div><h2>Devices</h2><p className="sub">A device is auto-trusted after enough clean transfers; trusted devices stop adding risk.</p></div></div>
         <table>
           <thead>
@@ -56,7 +57,7 @@ export default function RiskProfilesPage() {
         )}
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel risk-profile-panel" style={{ marginTop: 18 }}>
         <div className="panelHeader"><div><h2>Beneficiaries</h2><p className="sub">Recipient risk — volume, distinct senders (mule signal at 5+), and fraud linkage.</p></div></div>
         <table>
           <thead>
@@ -88,7 +89,7 @@ export default function RiskProfilesPage() {
         )}
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel risk-profile-panel" style={{ marginTop: 18 }}>
         <div className="panelHeader"><div><h2>Users</h2><p className="sub">Per-user spend baseline used to flag amount anomalies.</p></div></div>
         <table>
           <thead>

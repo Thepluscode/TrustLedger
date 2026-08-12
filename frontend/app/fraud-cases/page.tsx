@@ -23,6 +23,11 @@ export default function FraudCasesPage() {
   const [summary, setSummary] = useState<FraudSignalFrequency[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [caseSignals, setCaseSignals] = useState<FraudSignalDetail[] | null>(null);
+  // Analyst feedback: the label that later retrains the model. Kept per-case so an open row carries
+  // its own draft rather than one shared field leaking between cases.
+  const [feedbackLabel, setFeedbackLabel] = useState("CONFIRMED_FRAUD");
+  const [feedbackReason, setFeedbackReason] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
 
   function load() {
     api.listFraudCases().then(setCases).catch((e) => setError((e as Error).message));
@@ -97,6 +102,14 @@ export default function FraudCasesPage() {
     },
   };
   const copy = pending ? modalCopy[pending.kind] : null;
+  const caseMetrics = cases
+    ? [
+        { label: "Open", value: cases.filter((c) => c.status === "OPEN").length },
+        { label: "Critical", value: cases.filter((c) => c.status === "OPEN" && c.severity === "CRITICAL").length },
+        { label: "High risk", value: cases.filter((c) => c.status === "OPEN" && c.riskScore >= 60).length },
+        { label: "Resolved", value: cases.filter((c) => c.status !== "OPEN").length },
+      ]
+    : [];
 
   return (
     <Shell active="/fraud-cases">
@@ -110,8 +123,20 @@ export default function FraudCasesPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
+      <section className="grid fraud-metrics" aria-label="Case queue summary">
+        {caseMetrics.length === 0
+          ? Array.from({ length: 4 }, (_, i) => <article className="card" key={i}><div className="skeleton" /><div className="skeleton" style={{ minHeight: 28, width: "30%" }} /></article>)
+          : caseMetrics.map((metric) => (
+              <article className={`card${metric.label !== "Resolved" && metric.value > 0 ? " alert" : ""}`} key={metric.label}>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+                <small>{metric.label === "Open" ? "Awaiting analyst review" : metric.label === "Resolved" ? "Decision recorded" : "Priority attention"}</small>
+              </article>
+            ))}
+      </section>
+
       {summary && summary.length > 0 && (
-        <section className="panel">
+        <section className="panel fraud-signal-panel">
           <div className="panelHeader">
             <div>
               <h2>Signal frequency</h2>
@@ -135,7 +160,7 @@ export default function FraudCasesPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel fraud-queue-panel" style={{ marginTop: 18 }}>
         <table>
           <thead>
             <tr>
@@ -190,6 +215,56 @@ export default function FraudCasesPage() {
                           <span className="muted">{s.reason}</span>
                         </div>
                       ))}
+
+                      <div className="subpanel" style={{ marginTop: 12 }}>
+                        <h4>Analyst verdict</h4>
+                        <p className="sub">
+                          Recording what this case actually turned out to be is what the model is retrained
+                          against. It does not change the case decision — approve and reject above do that.
+                        </p>
+                        <div className="form-row">
+                          <label>
+                            Label
+                            <select value={feedbackLabel} onChange={(e) => setFeedbackLabel(e.target.value)}>
+                              <option value="CONFIRMED_FRAUD">Confirmed fraud</option>
+                              <option value="FALSE_POSITIVE">False positive</option>
+                              <option value="INCONCLUSIVE">Inconclusive</option>
+                            </select>
+                          </label>
+                          <label style={{ flex: 1 }}>
+                            Reason
+                            <input
+                              value={feedbackReason}
+                              placeholder="What decided it — chargeback confirmed, customer verified, etc."
+                              onChange={(e) => setFeedbackReason(e.target.value)}
+                            />
+                          </label>
+                          <button
+                            disabled={feedbackBusy || !feedbackReason.trim()}
+                            onClick={async () => {
+                              setFeedbackBusy(true);
+                              setError(null);
+                              try {
+                                await api.submitFraudFeedback(
+                                  c.id,
+                                  c.transactionId,
+                                  feedbackLabel,
+                                  "1.0",
+                                  feedbackReason.trim(),
+                                );
+                                setNote(`Verdict recorded for case ${shortId(c.id)}.`);
+                                setFeedbackReason("");
+                              } catch (e) {
+                                setError((e as Error).message);
+                              } finally {
+                                setFeedbackBusy(false);
+                              }
+                            }}
+                          >
+                            Record verdict
+                          </button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 )}

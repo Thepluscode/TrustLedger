@@ -52,7 +52,7 @@ export default function TransfersListPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <section className="panel transfer-list">
         <div className="panelHeader">
           <div className="row" style={{ gap: 12 }}>
             <div>
