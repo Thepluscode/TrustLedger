@@ -12,6 +12,8 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app ./
+# node:alpine ships a non-root 'node' user (uid 1000); own the app files and drop to it.
+COPY --from=build --chown=node:node /app ./
+USER node
 EXPOSE 3000
 CMD ["npm", "start"]
