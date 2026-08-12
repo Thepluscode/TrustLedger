@@ -3,7 +3,7 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## v3.3 — Settlement Watch groundwork (blueprint §8.1, branch `pilot/batch-01-drafts`)
 
@@ -798,10 +798,7 @@ Paystack adapter). What was missing was proof, plus two real defects.
   `ReconciliationHealthMonitoringIntegrationTest` clock-skew flake (fails identically on unmodified
   `origin/main` — colima VM Postgres clock ~60–90 ms ahead of host makes `Duration.toSeconds()` return
   −1 for a just-inserted row; see follow-up below). CI green on the PR is the authoritative full run.
-- **Environment-sensitive test:** `ReconciliationHealthMonitoringIntegrationTest.aHighSeverityOpenBreakWarnsButDoesNotEscalate`
-  asserts `oldestOpenAgeSeconds >= 0`, but the age is `Duration.between(dbCreatedAt, jvmNow)` — any
-  DB-clock-ahead-of-JVM skew (measured ~60–90 ms under colima) truncates to −1 and fails. Fix candidate:
-  clamp negative ages to 0 in `MonitoringService` (a negative age is always clock skew, never truth).
+- ~~**Environment-sensitive test (closed 2026-08-12):** `MonitoringService.nonNegativeAgeSeconds` floors computed age at 0 (`Math.max(0, …)`) — a negative result is always clock skew, never truth. Applied `@Testcontainers(disabledWithoutDocker = true)` to the 75 remaining integration tests not covered by PR #21 — see PR #131.~~
 - **SEPA blocker:** `PayoutInstrumentService` requires `bankCode` for every `BANK_ACCOUNT`. An IBAN
   self-describes its bank and SEPA payouts often omit BIC, so a legitimate EU instrument is rejected
   today. Needs a jurisdiction rule — take it from the first EU customer, not from a guess.

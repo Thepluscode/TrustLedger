@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * never applies the settlement/reversal.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReversalAccountingDrillIntegrationTest {
 
     @Container

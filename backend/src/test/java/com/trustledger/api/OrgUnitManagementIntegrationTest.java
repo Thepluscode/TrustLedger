@@ -29,7 +29,7 @@ import tools.jackson.databind.ObjectMapper;
  * that unit's account. Non-admins cannot manage org units.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgUnitManagementIntegrationTest {
 
     @Container

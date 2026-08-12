@@ -41,7 +41,7 @@ import tools.jackson.databind.ObjectMapper;
  * fast-forwarded by moving {@code available_at} into the past, which is what real elapsed time would do.</p>
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PaymentWebhookInboxIntegrationTest {
 
     private static final UUID SYSTEM_USER = new UUID(0L, 0L);

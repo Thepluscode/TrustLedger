@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * code path can ever corrupt the source of financial truth. Corrections are reversal entries.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class LedgerImmutabilityIntegrationTest {
 
     @Container

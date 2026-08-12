@@ -30,7 +30,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** v2.6: Open Banking consent flow — create, secure callback, replay protection, submit, expiry. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OpenBankingIntegrationTest {
 
     @Container

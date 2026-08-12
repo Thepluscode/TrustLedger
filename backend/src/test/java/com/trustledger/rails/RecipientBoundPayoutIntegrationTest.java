@@ -32,7 +32,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 @Import(RecipientBoundPayoutIntegrationTest.ProviderConfiguration.class)
 class RecipientBoundPayoutIntegrationTest {
 

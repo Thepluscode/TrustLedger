@@ -40,7 +40,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * visible, deliberate test failure rather than a silent change in meaning.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CertificationProviderCoverageTest {
 
     @Container

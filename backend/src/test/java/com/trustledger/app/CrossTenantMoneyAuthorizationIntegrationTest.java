@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * a same-tenant transfer must still succeed (the guard does not block the happy path).
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class CrossTenantMoneyAuthorizationIntegrationTest {
 
     @Container

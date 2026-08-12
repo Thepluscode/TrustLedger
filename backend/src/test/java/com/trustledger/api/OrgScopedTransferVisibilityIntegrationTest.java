@@ -46,7 +46,7 @@ import tools.jackson.databind.ObjectMapper;
  * even though that transaction is reachable via the user's own in-scope account's ledger entries.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedTransferVisibilityIntegrationTest {
 
     @Container

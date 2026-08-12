@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * reconciliation issue; and re-ingesting the same statement is idempotent (no duplicate rows/issues).
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SettlementReconciliationIntegrationTest {
 
     @Container

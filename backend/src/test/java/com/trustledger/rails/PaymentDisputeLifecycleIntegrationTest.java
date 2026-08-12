@@ -32,7 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * terminal, a dispute the merchant later wins would leave that divergence permanent and silent.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PaymentDisputeLifecycleIntegrationTest {
 
     private static final UUID SYSTEM_USER = new UUID(0L, 0L);

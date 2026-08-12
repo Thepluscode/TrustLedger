@@ -34,7 +34,7 @@ import tools.jackson.databind.ObjectMapper;
  * user is unaffected.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedTransferCreationIntegrationTest {
 
     @Container

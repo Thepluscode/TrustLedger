@@ -39,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
  * for a sibling unit's transfer is 403. A tenant-wide user is unaffected.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OrgScopedApprovalIntegrationTest {
 
     @Container

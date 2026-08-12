@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Exercises the read/CRUD REST surface (accounts, beneficiaries, dashboard) with auth + isolation. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class RestEndpointsIntegrationTest {
 
     @Container

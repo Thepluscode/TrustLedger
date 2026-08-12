@@ -27,7 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * until the tampering has actually been attempted.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class AuditChainTamperEvidenceIntegrationTest {
 
     @Container
