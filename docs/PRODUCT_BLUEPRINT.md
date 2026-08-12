@@ -2,38 +2,72 @@
 
 ## 1. Project goal
 
-**TrustLedger is a ledger-first, multi-tenant payment and financial-control platform for fintechs, marketplaces, banks, lenders and regulated businesses.**
+**TrustLedger is the Payment Reliability OS: a payment-operations control system for companies running money across multiple payment providers, bank accounts, internal ledgers and settlement processes.**
 
-Its purpose is to provide the infrastructure between a company’s application and external payment providers so that every financial transaction is:
+Its job, stated in one sentence:
 
-* authorised,
-* risk-assessed,
-* idempotent,
-* routed safely,
-* recorded using double-entry accounting,
-* reconciled against the provider,
-* recoverable after failures,
-* and supported by complete audit evidence.
+> Detect where a payment broke, reconstruct what happened, identify who must act, and preserve the evidence required to resolve it.
 
-The product is not simply another payment gateway or wallet. It is a **payment control plane** that coordinates:
+The thing being sold is not a dashboard and not an AI feature. It is the **daily operational control point** where a critical workflow happens and where proprietary operational intelligence compounds.
+
+What a buyer hears:
+
+> TrustLedger detects missing, delayed, duplicated and mismatched payments across your providers, bank settlements and internal ledger. It shows your team exactly what happened, what money is exposed and what must happen next.
+
+### 1.1 The wedge: sell the read-only reliability layer first
+
+The commercial entry point is a **read-only** layer that does not move or route customer money. It connects to payment providers, banks and settlement files, merchant transaction databases, internal accounting/ledger systems and webhook infrastructure, and answers:
+
+* Did the provider process the payment?
+* Did the merchant receive the webhook?
+* Did the internal system record the transaction?
+* Did the payment settle?
+* Were the expected fees and FX rates applied?
+* Do all systems agree on the state?
+* Is money missing, delayed, duplicated or disputed?
+* What action should the operator take next?
+
+**Honest note on the codebase.** TrustLedger already contains a tested execution engine — a double-entry ledger, a fraud gate that holds and approves transfers, and external-rail submission. The read-only framing is a *deployment and pilot posture*, not a claim that the engine cannot execute. A read-only pilot deploys the ingestion, reconciliation, exception and evidence path with the execution surface switched off. Everything below §5 describing routing, payouts and canaries is real, retained, and deliberately outside the first sale.
+
+The first engineering milestone is one end-to-end vertical slice:
 
 ```text
-Customer application
-        ↓
-TrustLedger API and policy engine
-        ↓
-Fraud, compliance and operational controls
-        ↓
-Double-entry ledger
-        ↓
-Payment-provider routing
-        ↓
-Paystack / banks / open-banking rails / future providers
-        ↓
-Webhook, settlement and reconciliation processing
+Provider webhook
+→ canonical event
+→ immutable evidence
+→ internal-ledger comparison
+→ reconciliation mismatch
+→ operator exception
+→ resolution audit trail
 ```
 
-The central product promise is:
+Until that runs against real customer data and finds a problem worth money, everything else is architecture cosplay.
+
+### 1.2 MVP boundary
+
+**Build:** two provider connectors · CSV settlement-file importer · internal ledger import · canonical payment model · unified transaction timeline · deterministic reconciliation · exception queue · evidence viewer · daily reconciliation report · tenant isolation · RBAC · immutable audit history · alerting · basic provider scorecard.
+
+**Do not build yet:** autonomous provider routing · custody · payment initiation · AI reconciliation decisions · thirty connectors · a fraud-detection platform · crypto · ERP replacement · general accounting · a consumer payment app · a microservice estate.
+
+### 1.3 Deterministic truth
+
+The reconciliation engine — not an LLM — determines financial truth. Results are a closed taxonomy:
+
+```text
+MATCHED
+MISSING_PROVIDER_RECORD
+MISSING_INTERNAL_RECORD
+AMOUNT_MISMATCH
+CURRENCY_MISMATCH
+FEE_MISMATCH
+DUPLICATE_TRANSACTION
+MISSING_SETTLEMENT
+LATE_SETTLEMENT
+INVALID_STATE_TRANSITION
+UNKNOWN
+```
+
+The underlying safety promise still holds wherever execution is enabled:
 
 > No money movement should occur without a deterministic decision, a durable ledger record, a known provider state and evidence explaining exactly what happened.
 
@@ -61,6 +95,21 @@ Instead of every business implementing payment safety independently, TrustLedger
 ---
 
 # 3. Primary customers
+
+Start where payment uncertainty causes measurable financial or operational damage. Qualification is operational, never geographic:
+
+1. Fintechs using several payment providers
+2. Marketplaces splitting money between buyers and sellers
+3. Remittance and cross-border payment companies
+4. Subscription businesses with high payment volumes
+5. PSPs and payment aggregators
+6. Large merchants operating across several countries or currencies
+
+**Users:** Head of Payment Operations · Reconciliation Manager · Finance Operations Analyst · Treasury Operations · Payments Engineering · Risk and Compliance · Customer Support escalation.
+
+**Budget owner:** COO, CFO, Head of Payments or CTO.
+
+The sections below describe the wider surface the platform can serve once the reliability wedge is established.
 
 ## Fintech companies
 
@@ -1011,7 +1060,72 @@ The current TrustLedger implementation already includes major components of this
 
 # 8. Next major feature groups
 
-## 8.1 Provider certification system
+Sequenced around the wedge. §8.1 is the named next increment; everything after it is retained
+capability work that must not jump the queue.
+
+## 8.1 TrustLedger Settlement Watch — the immediate increment
+
+TrustLedger should not merely record financial truth. It should continuously defend it. Settlement
+Watch is the first expression of that: a **read-only** service that
+
+1. ingests provider transactions and settlement reports;
+2. matches expected against actual settlements;
+3. detects missing, delayed or incorrect payments;
+4. classifies each break using the closed taxonomy (§1.3);
+5. creates an exception with supporting evidence, financial exposure and an owner;
+6. alerts the responsible operator;
+7. records every observation and investigation step in the immutable audit trail.
+
+This is not a new subsystem. It is scheduled watchers over data the platform already holds —
+statement ingestion and line matching (V32), the reconciliation worker, the evidence store — plus
+the taxonomy and the exception-ops upgrade (owner, exposure, deadline, activity history).
+
+### The Financial Operations Agents module
+
+Settlement Watch is the first of a family of continuous watchers:
+
+```text
+Financial Operations Agents
+├── Settlement Watcher          (missing / late / short settlements)
+├── Webhook Health Agent        (delivery gaps, duplicate rate, signature failures)
+├── Reconciliation Investigator (gathers the evidence for a break, proposes a cause)
+├── Fee and FX Monitor          (expected vs charged fees and rates)
+└── Evidence Pack Generator     (assembles the audit bundle for a case)
+```
+
+Rules that keep this a moat rather than a gimmick:
+
+* **Every agent action passes through the shared control plane** — identity (who is the agent
+  acting for), policy (what it may inspect and enforce), audit (what it observed and concluded),
+  observability (is it operating correctly), evidence (what proves the alert).
+* **Agents observe and propose; the deterministic engine decides.** The reconciliation engine —
+  never an agent, never an LLM — determines financial truth (§1.3). Agents watch, classify against
+  the closed taxonomy, and assemble evidence.
+* **The agent is replaceable. The governed financial history, policies, evidence and integrations
+  are not.** That is where the value accumulates.
+
+### The commercial ladder this unlocks
+
+Each step increases revenue on the same infrastructure — no throwaway consulting, no side products:
+
+```text
+manual reconciliation assessment
+→ read-only TrustLedger pilot
+→ continuous exception monitoring   (Settlement Watch — this increment)
+→ automated investigation
+→ human-approved remediation
+→ policy-controlled autonomous action
+```
+
+Every engagement compounds the same assets: provider connectors, reconciliation rules, exception
+taxonomy, financial policies, evidence schemas, audit history, operational benchmarks. Over time
+that data powers provider reliability scoring, anomaly detection, settlement-risk prediction and
+automated root-cause analysis — which is the §10 defensibility, not a separate AI product.
+
+**Explicitly not this:** a generic AI-agent platform, a chatbot attached to TrustLedger, a local-AI
+hardware product, an automation consultancy, or another repository. Those dilute the company.
+
+## 8.2 Provider certification system
 
 Automate the evidence required before a provider can move production money:
 
@@ -1027,7 +1141,7 @@ Automate the evidence required before a provider can move production money:
 * credential-rotation drills,
 * emergency-stop exercises.
 
-## 8.2 Certification evidence packs
+## 8.3 Certification evidence packs
 
 Generate a signed report containing:
 
@@ -1044,7 +1158,7 @@ Generate a signed report containing:
 * checksums,
 * unresolved risks.
 
-## 8.3 Additional payment providers
+## 8.4 Additional payment providers
 
 Potential providers:
 
@@ -1060,7 +1174,7 @@ Potential providers:
 
 Each new provider should use the existing adapter and governance contracts.
 
-## 8.4 Advanced reconciliation
+## 8.5 Advanced reconciliation
 
 * Statement ingestion
 * Automated matching
@@ -1071,7 +1185,7 @@ Each new provider should use the existing adapter and governance contracts.
 * Break investigation
 * Automated evidence generation
 
-## 8.5 Enterprise controls
+## 8.6 Enterprise controls
 
 * Maker-checker approval
 * Multi-stage approvals
@@ -1085,7 +1199,7 @@ Each new provider should use the existing adapter and governance contracts.
 * Data-residency controls
 * Legal-entity separation
 
-## 8.6 Reliability and scale
+## 8.7 Reliability and scale
 
 * Multi-region deployment
 * Disaster recovery
@@ -1104,52 +1218,50 @@ Each new provider should use the existing adapter and governance contracts.
 
 # 9. Commercial product positioning
 
-TrustLedger can be positioned as:
+Sell the reliability wedge, not the platform. Do not call the MVP a global financial control plane — that description is too broad and too early.
 
-> The financial control plane for safely orchestrating, accounting for and governing money movement across payment providers.
+> TrustLedger detects missing, delayed, duplicated and mismatched payments across your providers, bank settlements and internal ledger. It shows your team exactly what happened, what money is exposed and what must happen next.
 
-## Possible pricing model
+## Commercial packaging
 
-* Platform subscription
-* Per-transaction fee
-* Per-active-provider fee
-* Reconciliation module fee
-* Fraud module fee
-* Production-control module fee
-* Enterprise support
-* Compliance evidence package
-* Dedicated deployment
-* Data-residency premium
-* Custom provider integration
+**Paid discovery — £5,000–£15,000.** Payment-flow mapping, failure taxonomy, reconciliation assessment, data-access plan, estimated financial exposure, pilot architecture.
 
-## Defensible advantages
+**Read-only pilot — £15,000–£40,000 over 30–60 days.** Two integrations, transaction timeline, reconciliation, exception detection, weekly evidence report, quantified operational findings.
 
-* Ledger and provider orchestration in one platform
-* Strong money-safety invariants
-* Provider-neutral architecture
-* Production rollout governance
-* Reconciliation integrated into the payment lifecycle
-* Fraud and operational policy in one decision layer
-* Complete evidence generation
-* Safe support for ambiguous provider outcomes
-* Repeatable provider certification
+**Production contract.** Priced on some combination of base platform fee, payment volume observed, number of providers, legal entities and currencies, evidence-retention period, premium workflow modules and enterprise deployment requirements.
+
+An early annual contract target of **£30,000–£150,000** is a working assumption, not validated market pricing. Nothing here has been tested against a signed deal.
+
+## Defensibility
+
+The dashboard is not the moat. These are, in the order they accumulate:
+
+1. **Connector depth** — provider-specific failures, inconsistencies and settlement behaviour.
+2. **Canonical payment ontology** — a mature model over provider events, internal states, exceptions and resolutions.
+3. **Failure taxonomy** — which symptoms correspond to which operational causes.
+4. **Resolution dataset** — what action actually resolved each class of exception.
+5. **Workflow lock-in** — teams investigate, assign, approve and resolve inside TrustLedger.
+6. **Audit trust** — customers rely on TrustLedger records for disputes, audits and regulators.
+7. **Benchmark intelligence** — aggregated provider reliability by corridor, method and currency, subject to contractual and privacy constraints.
+
+Retained engineering advantages that support the above: strong money-safety invariants, provider-neutral architecture, reconciliation integrated into the payment lifecycle, complete evidence generation, safe handling of ambiguous provider outcomes, repeatable provider certification.
 
 ---
 
 # 10. Ultimate product vision
 
-The long-term vision is for TrustLedger to become the infrastructure businesses rely on whenever money changes state.
+Not a collection of fintech features, and not merely reconciliation software:
 
-A company should be able to integrate TrustLedger once and gain:
+> **A governed payment reliability network that understands how money moves, where it fails and how organisations recover it.**
+
+The expansion sequence — each rung earns the next, and none may be skipped:
 
 ```text
-One ledger
-One transfer lifecycle
-One fraud model
-One provider interface
-One reconciliation system
-One audit trail
-One production-control process
+account for money
+→ explain exceptions
+→ govern actions
+→ control movement
+→ optimise the network
 ```
 
-That turns TrustLedger from a collection of fintech features into a high-value financial infrastructure platform.
+The execution capabilities already in this repository (one ledger, one transfer lifecycle, one fraud model, one provider interface, one audit trail, one production-control process) are rungs four and five. They are built and tested; they are not what gets sold first.

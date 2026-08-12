@@ -106,7 +106,8 @@ public class ReconciliationController {
     }
 
     private static ReconciliationIssueView view(ReconciliationIssueEntity i) {
-        return new ReconciliationIssueView(i.getId(), i.getSeverity(), i.getType(), i.getEntityType(), i.getEntityId(),
+        return new ReconciliationIssueView(i.getId(), i.getSeverity(), i.getType(), i.getClassification(),
+            i.getEntityType(), i.getEntityId(),
             i.getExpectedState(), i.getActualState(), i.getEvidence(), i.getStatus(), i.getCreatedAt(), i.getResolvedAt());
     }
 }

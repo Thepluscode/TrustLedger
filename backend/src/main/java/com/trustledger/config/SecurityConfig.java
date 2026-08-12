@@ -30,7 +30,10 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter,
-                                           ApiKeyAuthFilter apiKeyAuthFilter) throws Exception {
+                                           ApiKeyAuthFilter apiKeyAuthFilter,
+                                           org.springframework.beans.factory.ObjectProvider<
+                                                   com.trustledger.security.OidcAuthFilter> oidcAuthFilter)
+            throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(Customizer.withDefaults()) // uses the corsConfigurationSource bean below
@@ -52,6 +55,11 @@ public class SecurityConfig {
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
             // API-key auth runs first; it ignores Bearer tokens, leaving those to the JWT filter.
             .addFilterBefore(apiKeyAuthFilter, JwtAuthFilter.class);
+
+        // Enterprise SSO, present only when trustledger.oidc.issuer-uri is configured. Deliberately
+        // AFTER the local JWT filter: it only looks at requests that filter left unauthenticated, so
+        // a misconfigured or hostile IdP cannot shadow an identity we issued ourselves.
+        oidcAuthFilter.ifAvailable(f -> http.addFilterAfter(f, JwtAuthFilter.class));
         return http.build();
     }
 
