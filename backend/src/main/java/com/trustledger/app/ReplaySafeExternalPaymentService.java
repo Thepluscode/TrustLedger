@@ -32,7 +32,7 @@ public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
                                             LedgerEntryRepository ledgerEntries,
                                             OutboxEventRepository outbox,
                                             AuditLogRepository auditLogs,
-                                            FraudCaseRepository fraudCases,
+                                            FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
                                             com.trustledger.core.fraud.FraudEngine fraudEngine,
                                             TenantPaymentRouteService routes,
                                             ProviderRecipientResolver recipientResolver,
@@ -40,7 +40,7 @@ public class ReplaySafeExternalPaymentService extends ExternalPaymentService {
                                             ObjectMapper json,
                                             PlatformTransactionManager transactionManager) {
         super(accounts, transfers, attempts, idempotencyKeys, ledgerTransactions, ledgerEntries, outbox,
-            auditLogs, fraudCases, fraudEngine, routes, recipientResolver, submissions, json, transactionManager);
+            auditLogs, fraudCases, fraudSignals, fraudEngine, routes, recipientResolver, submissions, json, transactionManager);
         this.idempotencyKeys = idempotencyKeys;
         this.json = json;
     }

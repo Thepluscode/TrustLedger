@@ -23,6 +23,10 @@ public class ReconciliationIssueEntity {
     @Column(nullable = false, length = 64)
     private String type;
 
+    /** Canonical closed-taxonomy code, derived from {@code type} — see ReconciliationClassification. */
+    @Column(nullable = false, length = 32)
+    private String classification;
+
     @Column(name = "entity_type", nullable = false, length = 64)
     private String entityType;
 
@@ -59,6 +63,8 @@ public class ReconciliationIssueEntity {
         this.tenantId = tenantId;
         this.severity = severity;
         this.type = type;
+        this.classification =
+            com.trustledger.core.reconciliation.ReconciliationClassification.forType(type).name();
         this.entityType = entityType;
         this.entityId = entityId;
         this.expectedState = expectedState;
@@ -69,6 +75,7 @@ public class ReconciliationIssueEntity {
 
     public UUID getId() { return id; }
     public String getType() { return type; }
+    public String getClassification() { return classification; }
     public String getSeverity() { return severity; }
     public UUID getEntityId() { return entityId; }
     public String getStatus() { return status; }

@@ -9,6 +9,7 @@ import com.trustledger.core.model.Direction;
 import com.trustledger.core.model.LedgerTransactionType;
 import com.trustledger.core.model.Money;
 import com.trustledger.core.transfer.TransferCommand;
+import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import java.math.BigDecimal;
@@ -17,8 +18,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.trustledger.security.ForbiddenException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -30,6 +34,8 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class PersistentTransferService {
 
+    private static final Logger log = LoggerFactory.getLogger(PersistentTransferService.class);
+
     private final AccountRepository accounts;
     private final LedgerTransactionRepository ledgerTransactions;
     private final LedgerEntryRepository ledgerEntries;
@@ -39,16 +45,19 @@ public class PersistentTransferService {
     private final TransferRepository transfers;
     private final FundReservationRepository reservations;
     private final FraudCaseRepository fraudCases;
+    private final FraudSignalRepository fraudSignals;
     private final FraudEngine fraudEngine;
     private final FraudCaseLinkingService caseLinking;
+    private final TransferMetrics metrics;
     private final ObjectMapper json;
 
     public PersistentTransferService(AccountRepository accounts, LedgerTransactionRepository ledgerTransactions,
                                      LedgerEntryRepository ledgerEntries, IdempotencyKeyRepository idempotencyKeys,
                                      OutboxEventRepository outbox, AuditLogRepository auditLogs,
                                      TransferRepository transfers, FundReservationRepository reservations,
-                                     FraudCaseRepository fraudCases, FraudEngine fraudEngine,
-                                     FraudCaseLinkingService caseLinking, ObjectMapper json) {
+                                     FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
+                                     FraudEngine fraudEngine,
+                                     FraudCaseLinkingService caseLinking, TransferMetrics metrics, ObjectMapper json) {
         this.accounts = accounts;
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
@@ -58,8 +67,10 @@ public class PersistentTransferService {
         this.transfers = transfers;
         this.reservations = reservations;
         this.fraudCases = fraudCases;
+        this.fraudSignals = fraudSignals;
         this.fraudEngine = fraudEngine;
         this.caseLinking = caseLinking;
+        this.metrics = metrics;
         this.json = json;
     }
 
@@ -104,15 +115,18 @@ public class PersistentTransferService {
             Map.of("riskScore", decision.riskScore(), "decision", decision.decision().name()));
 
         if (decision.rejects()) {
-            saveTransfer(req, transferId, "REJECTED", decision);
+            saveTransfer(req, transferId, "REJECTED", decision, "TRANSFER_REJECTED",
+                Map.of("reason", "fraud_controls", "riskScore", decision.riskScore()));
             return finish(idem, new PersistentTransferResponse(transferId, "REJECTED",
                 decision.riskScore(), decision.decision().name(), "Transfer rejected by fraud controls"));
         }
         boolean sourceFirst = req.sourceAccountId().compareTo(req.destinationAccountId()) < 0;
         UUID firstId = sourceFirst ? req.sourceAccountId() : req.destinationAccountId();
         UUID secondId = sourceFirst ? req.destinationAccountId() : req.sourceAccountId();
-        AccountEntity first = lock(firstId);
-        AccountEntity second = lock(secondId);
+        // Tenant predicate is in the lock query — prevents BOLA on user-supplied account ids while
+        // also serialising concurrent money-movement on both accounts atomically.
+        AccountEntity first = lock(firstId, req.tenantId());
+        AccountEntity second = lock(secondId, req.tenantId());
         AccountEntity source = sourceFirst ? first : second;
         AccountEntity destination = sourceFirst ? second : first;
 
@@ -130,14 +144,13 @@ public class PersistentTransferService {
             // MFA and manual-review both reserve funds and pause; an MFA transfer resumes on inline
             // step-up verification, a held transfer on analyst approval. Reservation TTL: 15m / 24h.
             boolean stepUp = decision.requiresMfa();
-            saveTransfer(req, transferId, stepUp ? "MFA_REQUIRED" : "HELD_FOR_REVIEW", decision);
+            saveTransfer(req, transferId, stepUp ? "MFA_REQUIRED" : "HELD_FOR_REVIEW", decision,
+                stepUp ? "TRANSFER_MFA_REQUIRED" : "TRANSFER_HELD_FOR_REVIEW", Map.of("amount", amount.toString()));
             reservations.save(new FundReservationEntity(UUID.randomUUID(), req.tenantId(), transferId,
                 source.getId(), amount.amount(), req.currency(), "ACTIVE",
                 Instant.now().plus(stepUp ? 15 : 1440, ChronoUnit.MINUTES)));
 
             if (stepUp) {
-                audit(req.tenantId(), "SYSTEM", null, "TRANSFER_MFA_REQUIRED", "TRANSFER", transferId,
-                    Map.of("amount", amount.toString()));
                 return finish(idem, new PersistentTransferResponse(transferId, "MFA_REQUIRED",
                     decision.riskScore(), decision.decision().name(), "Step-up verification required"));
             }
@@ -147,9 +160,13 @@ public class PersistentTransferService {
                 "OPEN", severityFor(decision.riskScore()), decision.riskScore(),
                 "Auto-opened for held transfer", writeJson(Map.of("signals", decision.signals(),
                     "riskScore", decision.riskScore(), "decision", decision.decision().name()))));
+            // Persist each signal as a first-class, queryable row (the fraud control graph), alongside
+            // the case's evidence JSON — so "why was this scored" and per-type analytics are SQL, not JSON.
+            for (var s : decision.signals()) {
+                fraudSignals.save(new FraudSignalEntity(s.id(), req.tenantId(), transferId, req.userId(),
+                    s.signalType(), s.scoreDelta(), s.severity().name(), s.reason(), writeJson(s.evidence())));
+            }
             caseLinking.linkNewCase(caseId); // link to other cases hitting the same recipient
-            audit(req.tenantId(), "SYSTEM", null, "TRANSFER_HELD_FOR_REVIEW", "TRANSFER", transferId,
-                Map.of("amount", amount.toString()));
             enqueue(req.tenantId(), "FRAUD_CASE", transferId, "FRAUD_CASE_CREATED",
                 Map.of("transactionId", transferId.toString()));
             return finish(idem, new PersistentTransferResponse(transferId, "HELD_FOR_REVIEW",
@@ -157,7 +174,7 @@ public class PersistentTransferService {
         }
 
         postBalancedTransfer(req.tenantId(), transferId, source, destination, amount, req.currency(), req.idempotencyKey());
-        saveTransfer(req, transferId, "COMPLETED", decision);
+        saveTransfer(req, transferId, "COMPLETED", decision, "TRANSFER_COMPLETED", Map.of());
         return finish(idem, new PersistentTransferResponse(transferId, "COMPLETED",
             decision.riskScore(), decision.decision().name(), "Transfer completed"));
     }
@@ -171,8 +188,8 @@ public class PersistentTransferService {
         Money amount = money(transfer.getAmount(), transfer.getCurrency());
 
         boolean sourceFirst = transfer.getSourceAccountId().compareTo(transfer.getDestinationAccountId()) < 0;
-        AccountEntity first = lock(sourceFirst ? transfer.getSourceAccountId() : transfer.getDestinationAccountId());
-        AccountEntity second = lock(sourceFirst ? transfer.getDestinationAccountId() : transfer.getSourceAccountId());
+        AccountEntity first = lock(sourceFirst ? transfer.getSourceAccountId() : transfer.getDestinationAccountId(), tenantId);
+        AccountEntity second = lock(sourceFirst ? transfer.getDestinationAccountId() : transfer.getSourceAccountId(), tenantId);
         AccountEntity source = sourceFirst ? first : second;
         AccountEntity destination = sourceFirst ? second : first;
 
@@ -186,9 +203,8 @@ public class PersistentTransferService {
             transfer.getIdempotencyKey() + ":approval", /*alreadyMovedBalances*/ true);
 
         reservation.setStatus("CONSUMED");
-        transfer.setStatus("COMPLETED");
+        transition(transfer, "COMPLETED", "ADMIN", null, "FRAUD_TRANSFER_APPROVED", Map.of("actor", actor));
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("APPROVED"));
-        audit(tenantId, "ADMIN", null, "FRAUD_TRANSFER_APPROVED", "TRANSFER", transferId, Map.of("actor", actor));
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_COMPLETED_AFTER_REVIEW", Map.of());
         return new PersistentTransferResponse(transferId, "COMPLETED", transfer.getRiskScore(),
             transfer.getFraudDecision(), "Held transfer approved and posted");
@@ -202,14 +218,13 @@ public class PersistentTransferService {
             .orElseThrow(() -> new IllegalStateException("No active reservation for transfer " + transferId));
         Money amount = money(transfer.getAmount(), transfer.getCurrency());
 
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), tenantId);
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
         source.setAvailableBalance(money(source.getAvailableBalance(), source.getCurrency()).plus(amount).amount());
 
         reservation.setStatus("RELEASED");
-        transfer.setStatus("REJECTED");
+        transition(transfer, "REJECTED", "ADMIN", null, "FRAUD_TRANSFER_REJECTED", Map.of("actor", actor));
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
-        audit(tenantId, "ADMIN", null, "FRAUD_TRANSFER_REJECTED", "TRANSFER", transferId, Map.of("actor", actor));
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_REJECTED_AFTER_REVIEW", Map.of());
         return new PersistentTransferResponse(transferId, "REJECTED", transfer.getRiskScore(),
             transfer.getFraudDecision(), "Held transfer rejected and reservation released");
@@ -245,7 +260,8 @@ public class PersistentTransferService {
         ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), tenantId, ledgerTxId, destination.getId(),
             "CREDIT", amount.amount(), currency, "PRINCIPAL"));
         audit(tenantId, "SYSTEM", null, "LEDGER_POSTED", "LEDGER_TRANSACTION", ledgerTxId,
-            Map.of("transferId", transferId.toString()));
+            Map.of("transferId", transferId.toString()),
+            AuditLogEntity.SUCCESS, "double_entry:balanced_posting_committed");
         enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_COMPLETED", Map.of("ledgerTransactionId", ledgerTxId.toString()));
     }
 
@@ -262,16 +278,62 @@ public class PersistentTransferService {
         return t;
     }
 
-    private void saveTransfer(PersistentTransferRequest req, UUID transferId, String status, FraudDecision decision) {
+    /**
+     * The single creation choke point for a transfer. Persisting a transfer means it enters {@code status}
+     * — a state transition — so the audit row is written here (invariant 7: every transition is audited).
+     * No creation path can persist a transfer at a status without leaving an audit trail.
+     */
+    private void saveTransfer(PersistentTransferRequest req, UUID transferId, String status, FraudDecision decision,
+                              String action, Map<String, Object> metadata) {
         TransferEntity t = new TransferEntity(transferId, req.tenantId(), req.userId(), req.sourceAccountId(),
             req.destinationAccountId(), req.beneficiaryId(), req.amount(), req.currency(), status,
             decision.riskScore(), decision.decision().name(), req.idempotencyKey(), req.reference());
         t.setDeviceId(req.deviceId());
         transfers.save(t);
+        audit(req.tenantId(), "SYSTEM", null, action, "TRANSFER", transferId, metadata,
+            outcomeOf(status), fraudPolicy(decision));
+        // Observability (Rule 8): the decision is counted and logged at the point it is made, so it is
+        // visible in Prometheus (rates) and in the log stream (why), not just the DB audit trail.
+        metrics.recordCreated();
+        metrics.recordOutcome(status);
+        log.info("transfer_decision tenant={} transfer={} status={} action={} riskScore={} decision={}",
+            req.tenantId(), transferId, status, action, decision.riskScore(), decision.decision().name());
     }
 
-    private AccountEntity lock(UUID id) {
-        return accounts.findByIdForUpdate(id).orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+    /**
+     * The single mutation choke point for an existing transfer's status. Same invariant: a status change
+     * is a state transition, so it is audited here — routing every {@code setStatus} through this makes it
+     * impossible to move a transfer between states without an audit row.
+     *
+     * <p>ponytail: the richer {@link com.trustledger.core.transfer.TransactionStateMachine} models a
+     * lifecycle (CREATED→VALIDATED→…→POSTED→COMPLETED) that the persistent path deliberately collapses
+     * — its graph forbids the direct HELD→COMPLETED this path performs on approval — so it is NOT used as
+     * a guard here. Reconciling the two status vocabularies is a separate slice; wiring it in as-is would
+     * reject legitimate money movement. This choke point enforces the audit invariant, which is the one at
+     * stake for invariant 7.
+     */
+    private void transition(TransferEntity t, String toStatus, String actorType, UUID actorId,
+                            String action, Map<String, Object> metadata) {
+        t.setStatus(toStatus);
+        // The action IS the rule here: an analyst approval, a rejection, or a verified step-up are
+        // different justifications for the same status change and must stay distinguishable.
+        audit(t.getTenantId(), actorType, actorId, action, "TRANSFER", t.getId(), metadata,
+            outcomeOf(toStatus), "transition:" + action);
+        // Observability (Rule 8): a post-review resolution reaches an outcome the create-transfer HTTP path
+        // never sees — count and log it here so approve/reject rates and reasons are observable too.
+        metrics.recordOutcome(toStatus);
+        log.info("transfer_transition tenant={} transfer={} status={} action={} actorType={} actor={}",
+            t.getTenantId(), t.getId(), toStatus, action, actorType, metadata.get("actor"));
+    }
+
+    private AccountEntity lock(UUID id, UUID tenantId) {
+        return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
+            .orElseThrow(() -> new ForbiddenException("Account not found or not accessible"));
+    }
+
+    private AccountEntity lockUnscoped(UUID id) {
+        return accounts.findByIdForUpdateUnscoped(id)
+            .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
     }
 
     private PersistentTransferResponse finish(IdempotencyKeyEntity idem, PersistentTransferResponse response) {
@@ -284,8 +346,36 @@ public class PersistentTransferService {
 
     private void audit(UUID tenant, String actorType, UUID actorId, String action, String resourceType,
                        UUID resourceId, Map<String, Object> metadata) {
+        audit(tenant, actorType, actorId, action, resourceType, resourceId, metadata, null, null);
+    }
+
+    private void audit(UUID tenant, String actorType, UUID actorId, String action, String resourceType,
+                       UUID resourceId, Map<String, Object> metadata, String result, String policyDecision) {
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenant, actorType, actorId, action,
-            resourceType, resourceId, writeJson(metadata)));
+            resourceType, resourceId, writeJson(metadata)).outcome(result, policyDecision));
+    }
+
+    /**
+     * Maps a transfer status to an outcome, and returns {@code null} where there genuinely is not one
+     * yet.
+     *
+     * <p>HELD_FOR_REVIEW and MFA_REQUIRED are neither success nor failure — the decision has not been
+     * taken. Forcing them into SUCCESS/FAILURE/DENIED to make every row look complete would put a
+     * false answer in the field an auditor trusts most, which is worse than the field being empty.
+     * The policy that produced the pause is still recorded, so the row says why it is waiting.
+     */
+    private static String outcomeOf(String status) {
+        return switch (status) {
+            case "COMPLETED" -> AuditLogEntity.SUCCESS;
+            case "REJECTED" -> AuditLogEntity.DENIED;
+            case "FAILED" -> AuditLogEntity.FAILURE;
+            default -> null;   // HELD_FOR_REVIEW, MFA_REQUIRED, PENDING_* — not yet decided
+        };
+    }
+
+    /** The rule that produced the outcome: which fraud band fired, and at what score. */
+    private static String fraudPolicy(FraudDecision decision) {
+        return "fraud:" + decision.decision().name() + "@" + decision.riskScore();
     }
 
     private void enqueue(UUID tenant, String aggregateType, UUID aggregateId, String eventType, Map<String, Object> payload) {
@@ -312,8 +402,10 @@ public class PersistentTransferService {
     }
 
     private static String canonicalPayload(PersistentTransferRequest r) {
+        // beneficiaryId is nullable (an internal account-to-account transfer has no payee) — keep it out of
+        // the request hash by canonicalising null to a stable token rather than NPEing on .toString().
         return String.join(":", r.tenantId().toString(), r.userId().toString(), r.sourceAccountId().toString(),
-            r.destinationAccountId().toString(), r.beneficiaryId().toString(), r.amount().toPlainString(), r.currency());
+            r.destinationAccountId().toString(), String.valueOf(r.beneficiaryId()), r.amount().toPlainString(), r.currency());
     }
 
     private String writeResponse(PersistentTransferResponse r) {

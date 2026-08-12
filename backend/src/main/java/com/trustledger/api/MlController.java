@@ -9,11 +9,13 @@ import com.trustledger.persistence.entity.MlFraudScoreEntity;
 import com.trustledger.persistence.entity.ModelMonitoringSnapshotEntity;
 import com.trustledger.persistence.entity.ModelRegistryEntity;
 import com.trustledger.security.CurrentUser;
+import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 /** ML fraud scores, model registry, and monitoring. ML is advisory (shadow / analyst-assist) only. */
@@ -25,13 +27,28 @@ public class MlController {
     private final ModelRegistryService registry;
     private final ModelMonitoringService monitoring;
     private final AccessControlService access;
+    private final boolean modelGovernanceEnabled;
 
     public MlController(MlFraudScoringService scoring, ModelRegistryService registry,
-                        ModelMonitoringService monitoring, AccessControlService access) {
+                        ModelMonitoringService monitoring, AccessControlService access,
+                        @Value("${trustledger.ml.model-governance-enabled:false}") boolean modelGovernanceEnabled) {
         this.scoring = scoring;
         this.registry = registry;
         this.monitoring = monitoring;
         this.access = access;
+        this.modelGovernanceEnabled = modelGovernanceEnabled;
+    }
+
+    /**
+     * The model registry is GLOBAL (not tenant-scoped), so a promote/rollback affects every tenant's
+     * advisory fraud signal. Until a dedicated platform-operator role exists, these mutations are OFF by
+     * default and enabled only in a controlled single-operator deployment — a per-tenant admin must not
+     * be able to change shared model state for everyone.
+     */
+    private void requireModelGovernance() {
+        if (!modelGovernanceEnabled) {
+            throw new ForbiddenException("Global model governance is disabled on this deployment");
+        }
     }
 
     public record MlScoreView(UUID transactionId, String modelName, String modelVersion, String featureSetVersion,
@@ -54,12 +71,14 @@ public class MlController {
     @PostMapping("/models/{modelId}/promote")
     public ModelView promote(@PathVariable UUID modelId) {
         access.require(Permission.TENANT_ADMIN);
+        requireModelGovernance();
         return modelView(registry.promote(modelId, CurrentUser.userId()));
     }
 
     @PostMapping("/models/{modelId}/rollback")
     public ModelView rollback(@PathVariable UUID modelId) {
         access.require(Permission.TENANT_ADMIN);
+        requireModelGovernance();
         return modelView(registry.rollback(modelId));
     }
 

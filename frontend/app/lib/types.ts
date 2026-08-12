@@ -46,6 +46,21 @@ export interface FraudCaseView {
   riskScore: number;
 }
 
+export interface FraudSignalFrequency {
+  signalType: string;
+  occurrences: number;
+  totalScoreDelta: number;
+}
+
+export interface FraudSignalDetail {
+  signalType: string;
+  scoreDelta: number;
+  severity: string;
+  reason: string;
+  evidence: string;
+  createdAt: string;
+}
+
 export interface DashboardSummary {
   accounts: number;
   transfersCompleted: number;
@@ -96,6 +111,8 @@ export interface AuditLogView {
   action: string;
   resourceType: string;
   resourceId: string | null;
+  /** Null for rows written off-request (workers, sweeps) — those have no request to correlate to. */
+  correlationId: string | null;
   createdAt: string;
 }
 
@@ -161,6 +178,42 @@ export interface UserProfile {
   lastPasswordChangeAt: string | null;
 }
 
+export interface SettlementStatement {
+  id: string;
+  provider: string;
+  currency: string;
+  statementRef: string;
+  periodStart: string;
+  periodEnd: string;
+  lineCount: number;
+  totalAmount: string;
+  totalFees: string;
+  ingestedAt: string;
+}
+
+export interface SettlementIngestResult {
+  statement: SettlementStatement;
+  alreadyIngested: boolean;
+  matched: number;
+  unmatched: number;
+  amountMismatch: number;
+  missing: number;
+}
+
+export interface SettlementLine {
+  providerReference: string;
+  amount: string;
+  fee: string;
+  status: string;
+  matchStatus: string;
+  matchedAttemptId: string | null;
+}
+
+export interface SettlementStatementDetail {
+  statement: SettlementStatement;
+  lines: SettlementLine[];
+}
+
 export interface ReconciliationIssue {
   id: string;
   severity: string;
@@ -175,11 +228,43 @@ export interface ReconciliationIssue {
   resolvedAt: string | null;
 }
 
+export interface ReconciliationAuditEntry {
+  action: string;
+  actorId: string | null;
+  at: string;
+  metadata: string;
+}
+
+export interface ReconciliationListSummary {
+  total: number;
+  open: number;
+  criticalOpen: number;
+  resolved: number;
+}
+
+export interface ReconciliationIssueList {
+  items: ReconciliationIssue[];
+  summary: ReconciliationListSummary;
+}
+
 export interface TeamMember {
   id: string;
   email: string;
   role: string;
   createdAt: string;
+}
+
+export interface OrgUnit {
+  id: string;
+  parentUnitId: string | null;
+  name: string;
+  type: string;
+}
+
+/** The signed-in user's own org-unit scope. `scoped: false` (empty units) = tenant-wide. */
+export interface MyScope {
+  scoped: boolean;
+  units: OrgUnit[];
 }
 
 export interface InvitedUser {
@@ -268,6 +353,8 @@ export interface WebhookHealth {
 export interface ReconciliationHealth {
   status: string;
   openIssues: number;
+  criticalOpen: number;
+  oldestOpenAgeSeconds: number | null;
   lastIssueAt: string | null;
 }
 
@@ -281,6 +368,14 @@ export interface LockHealth {
   waitingLocks: number;
 }
 
+export interface CertificationHealth {
+  status: string;
+  productionConfigs: number;
+  certified: number;
+  expiringSoon: number;
+  uncertified: number;
+}
+
 export interface MonitoringSnapshot {
   overallStatus: string;
   banner: string;
@@ -292,6 +387,7 @@ export interface MonitoringSnapshot {
   reconciliation: ReconciliationHealth;
   payments: PaymentsHealth;
   dbLockWait: LockHealth;
+  certifications: CertificationHealth;
 }
 
 export interface ProviderConfigView {
@@ -308,6 +404,27 @@ export interface ProviderConfigView {
   maximumAmount: number | null;
   credentialsConfigured: boolean;
   webhookSecretConfigured: boolean;
+}
+
+export interface DrillResultView {
+  drillId: string;
+  drillVersion: string;
+  status: string; // PASS | FAIL
+  detail: unknown; // { assertions: [...], observations: {...} } — never contains secrets
+}
+
+export interface CertificationRun {
+  id: string;
+  tenantProviderConfigId: string;
+  environment: string;
+  status: string; // RUNNING | PASSED | FAILED
+  catalogueVersion: string;
+  evidenceExportId: string | null;
+  signedOff: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  expiresAt: string | null;
+  drills: DrillResultView[];
 }
 
 export interface ProductionCanaryView {

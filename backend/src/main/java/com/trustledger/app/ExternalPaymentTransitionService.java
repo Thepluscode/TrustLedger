@@ -20,16 +20,19 @@ public class ExternalPaymentTransitionService {
     private final ExternalPaymentService externalPayments;
     private final ExternalPaymentReversalService reversals;
     private final ProductionCanaryService canaries;
+    private final PaymentDisputeService disputes;
 
     @Autowired
     public ExternalPaymentTransitionService(ExternalPaymentAttemptRepository attempts,
                                             ExternalPaymentService externalPayments,
                                             ExternalPaymentReversalService reversals,
-                                            ProductionCanaryService canaries) {
+                                            ProductionCanaryService canaries,
+                                            PaymentDisputeService disputes) {
         this.attempts = attempts;
         this.externalPayments = externalPayments;
         this.reversals = reversals;
         this.canaries = canaries;
+        this.disputes = disputes;
     }
 
     /** Test-only compatibility constructor. */
@@ -40,6 +43,7 @@ public class ExternalPaymentTransitionService {
         this.externalPayments = externalPayments;
         this.reversals = reversals;
         this.canaries = null;
+        this.disputes = null;
     }
 
     @Transactional
@@ -69,6 +73,42 @@ public class ExternalPaymentTransitionService {
         ExternalPaymentAttemptEntity attempt = lock(attemptId);
         reversals.reverse(attempt);
         safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.REVERSED);
+    }
+
+    /** A dispute/chargeback clawed the funds back: post the compensating CHARGEBACK
+     *  ledger transaction and land the attempt in REVERSED. Same row-lock + terminal
+     *  semantics as {@link #reverse}; the webhook inbox already dedupes replays. */
+    @Transactional
+    public void chargeback(UUID attemptId) {
+        ExternalPaymentAttemptEntity attempt = lock(attemptId);
+        reversals.chargeback(attempt);
+        safeRecordOutcome(attempt.getTransactionId(), ExternalPaymentStatus.REVERSED);
+    }
+
+    /** A dispute was opened: marker only. No balance, no attempt-status change — the provider has
+     *  not taken the money yet, and REVERSED is terminal so booking it now would be unrecoverable. */
+    @Transactional
+    public void disputeOpened(UUID attemptId) {
+        requireDisputes().opened(attemptId);
+    }
+
+    /** The dispute resolved in the merchant's favour: clear the marker, move no money. */
+    @Transactional
+    public void disputeWon(UUID attemptId, String providerEventId) {
+        requireDisputes().won(attemptId, providerEventId);
+    }
+
+    /** An unrecognised resolution: park it for an operator rather than infer an outcome. */
+    @Transactional
+    public void disputeNeedsReview(UUID attemptId, String providerEventId) {
+        requireDisputes().needsReview(attemptId, providerEventId);
+    }
+
+    private PaymentDisputeService requireDisputes() {
+        if (disputes == null) {
+            throw new IllegalStateException("Dispute tracking is unavailable on this transition service instance");
+        }
+        return disputes;
     }
 
     /** Applies provider progress only while the local attempt remains non-terminal. */
@@ -110,7 +150,7 @@ public class ExternalPaymentTransitionService {
     }
 
     private ExternalPaymentAttemptEntity lock(UUID attemptId) {
-        return attempts.findByIdForUpdate(attemptId)
+        return attempts.findByIdForUpdateUnscoped(attemptId)
             .orElseThrow(() -> new IllegalArgumentException("External payment attempt not found: " + attemptId));
     }
 

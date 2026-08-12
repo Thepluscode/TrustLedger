@@ -6,6 +6,7 @@ import com.trustledger.core.fraud.FraudContext;
 import com.trustledger.core.model.Money;
 import com.trustledger.persistence.entity.OpenBankingCallbackEventEntity;
 import com.trustledger.persistence.entity.PaymentConsentEntity;
+import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.OpenBankingCallbackEventRepository;
 import com.trustledger.persistence.repo.PaymentConsentRepository;
 import com.trustledger.rails.ConsentStatus;
@@ -40,17 +41,20 @@ public class ConsentService {
     private final OpenBankingCallbackEventRepository callbacks;
     private final OpenBankingSandboxAdapter adapter;
     private final ExternalPaymentService externalPayments;
+    private final AccountRepository accounts;
     private final List<String> redirectAllowlist;
     private final long consentTtlSeconds;
 
     public ConsentService(PaymentConsentRepository consents, OpenBankingCallbackEventRepository callbacks,
                           OpenBankingSandboxAdapter adapter, ExternalPaymentService externalPayments,
+                          AccountRepository accounts,
                           @Value("${trustledger.openbanking.redirect-allowlist:https://app.trustledger.local,http://localhost:3000}") String allowlist,
                           @Value("${trustledger.openbanking.consent-ttl-seconds:900}") long consentTtlSeconds) {
         this.consents = consents;
         this.callbacks = callbacks;
         this.adapter = adapter;
         this.externalPayments = externalPayments;
+        this.accounts = accounts;
         this.redirectAllowlist = Arrays.stream(allowlist.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
         this.consentTtlSeconds = consentTtlSeconds;
     }
@@ -61,6 +65,9 @@ public class ConsentService {
         if (redirectUrl == null || redirectAllowlist.stream().noneMatch(redirectUrl::startsWith)) {
             throw new IllegalArgumentException("redirect_url is not in the allowlist");
         }
+        // Reject a source account the caller does not own before the consent is ever persisted (BOLA).
+        accounts.findByIdAndTenantId(sourceAccountId, tenantId)
+            .orElseThrow(() -> new ForbiddenException("Source account does not belong to the caller's tenant"));
         String consentRef = adapter.registerDomesticPaymentConsent();
         String state = "st_" + UUID.randomUUID();
         String nonce = "nc_" + UUID.randomUUID();

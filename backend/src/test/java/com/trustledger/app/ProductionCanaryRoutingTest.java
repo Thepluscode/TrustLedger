@@ -87,7 +87,7 @@ class ProductionCanaryRoutingTest {
 
         PaymentRailRegistry registry = new PaymentRailRegistry(List.of(adapter));
         TenantPaymentRouteService service = new TenantPaymentRouteService(registry,
-            new PaymentRailRouter(registry), configs, canaries, true);
+            new PaymentRailRouter(registry), configs, canaries, null, true);
         return new Fixture(tenantId, configId, service, canaries);
     }
 

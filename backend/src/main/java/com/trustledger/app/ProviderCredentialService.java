@@ -167,13 +167,8 @@ public class ProviderCredentialService {
 
     private ProviderCredentialVersionEntity requireVersionForUpdate(UUID tenantId, UUID configId,
                                                                      UUID credentialId) {
-        ProviderCredentialVersionEntity credential = versions.findByIdForUpdate(credentialId)
+        return versions.findByIdAndTenantIdAndTenantProviderConfigIdForUpdate(credentialId, tenantId, configId)
             .orElseThrow(() -> new IllegalArgumentException("Credential version not found: " + credentialId));
-        if (!tenantId.equals(credential.getTenantId())
-                || !configId.equals(credential.getTenantProviderConfigId())) {
-            throw new IllegalArgumentException("Credential version does not belong to this tenant configuration");
-        }
-        return credential;
     }
 
     private void projectActiveReference(TenantProviderConfigEntity config,

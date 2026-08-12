@@ -1,9 +1,12 @@
 package com.trustledger.api;
 
 import com.trustledger.api.ApiViews.*;
+import com.trustledger.app.OrgScopeService;
 import com.trustledger.persistence.entity.AccountEntity;
+import com.trustledger.persistence.entity.OrganisationUnitEntity;
 import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
+import com.trustledger.persistence.repo.OrganisationUnitRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import java.math.BigDecimal;
@@ -17,10 +20,15 @@ public class AccountController {
 
     private final AccountRepository accounts;
     private final LedgerEntryRepository ledgerEntries;
+    private final OrgScopeService orgScope;
+    private final OrganisationUnitRepository orgUnits;
 
-    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries) {
+    public AccountController(AccountRepository accounts, LedgerEntryRepository ledgerEntries,
+                            OrgScopeService orgScope, OrganisationUnitRepository orgUnits) {
         this.accounts = accounts;
         this.ledgerEntries = ledgerEntries;
+        this.orgScope = orgScope;
+        this.orgUnits = orgUnits;
     }
 
     @PostMapping
@@ -28,14 +36,30 @@ public class AccountController {
         if (req.currency() == null || !req.currency().matches("[A-Z]{3}")) throw new IllegalArgumentException("currency must be a 3-letter code");
         BigDecimal opening = req.openingBalance() == null ? BigDecimal.ZERO : req.openingBalance();
         if (opening.signum() < 0) throw new IllegalArgumentException("openingBalance cannot be negative");
-        AccountEntity a = accounts.save(new AccountEntity(UUID.randomUUID(), CurrentUser.tenantId(),
-            CurrentUser.userId(), req.currency(), opening));
+        UUID orgUnitId = req.orgUnitId();
+        if (orgUnitId != null) {
+            OrganisationUnitEntity unit = orgUnits.findById(orgUnitId)
+                .orElseThrow(() -> new IllegalArgumentException("org unit not found: " + orgUnitId));
+            if (!CurrentUser.tenantId().equals(unit.getTenantId())) {
+                throw new ForbiddenException("org unit belongs to another tenant");
+            }
+        }
+        AccountEntity a = new AccountEntity(UUID.randomUUID(), CurrentUser.tenantId(),
+            CurrentUser.userId(), req.currency(), opening);
+        a.setOrgUnitId(orgUnitId);
+        a = accounts.save(a);
         return view(a);
     }
 
     @GetMapping
     public List<AccountView> list() {
-        return accounts.findByTenantId(CurrentUser.tenantId()).stream().map(AccountController::view).toList();
+        UUID tenant = CurrentUser.tenantId();
+        // Org-scoped visibility: a user restricted to an org-unit subtree sees only accounts in those units;
+        // a tenant-wide user (no org-unit assignment) sees all — unchanged behaviour.
+        List<AccountEntity> visible = orgScope.accessibleUnitIds(tenant, CurrentUser.userId())
+            .map(units -> accounts.findByTenantIdAndOrgUnitIdIn(tenant, units))
+            .orElseGet(() -> accounts.findByTenantId(tenant));
+        return visible.stream().map(AccountController::view).toList();
     }
 
     @GetMapping("/{id}")
@@ -60,6 +84,11 @@ public class AccountController {
     private AccountEntity require(UUID id) {
         AccountEntity a = accounts.findById(id).orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
         if (!a.getTenantId().equals(CurrentUser.tenantId())) throw new ForbiddenException("Account belongs to another tenant");
+        // Org scope: a unit-scoped user may only read accounts within their subtree (list already filters;
+        // this closes the by-id read paths — get / balance / ledger). Tenant-wide users are unaffected.
+        if (!orgScope.canAccessAccountUnit(CurrentUser.tenantId(), CurrentUser.userId(), a.getOrgUnitId())) {
+            throw new ForbiddenException("Account is outside your organisation-unit scope");
+        }
         return a;
     }
 

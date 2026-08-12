@@ -1,7 +1,9 @@
 package com.trustledger.app;
 
 import com.trustledger.persistence.entity.TenantProviderConfigEntity;
+import com.trustledger.persistence.repo.CertificationRunRepository;
 import com.trustledger.persistence.repo.TenantProviderConfigRepository;
+import java.time.Instant;
 import com.trustledger.rails.PaymentRailAdapter;
 import com.trustledger.rails.PaymentRailRegistry;
 import com.trustledger.rails.PaymentRailRouter;
@@ -30,28 +32,32 @@ public class TenantPaymentRouteService {
     private final PaymentRailRouter router;
     private final TenantProviderConfigRepository configs;
     private final ProductionCanaryService canaries;
+    private final CertificationRunRepository certificationRuns;
     private final boolean productionExecutionEnabled;
 
     @Autowired
     public TenantPaymentRouteService(PaymentRailRegistry registry, PaymentRailRouter router,
                                      TenantProviderConfigRepository configs,
                                      ProductionCanaryService canaries,
+                                     CertificationRunRepository certificationRuns,
                                      @Value("${trustledger.payment-rails.production-execution-enabled:false}")
                                      boolean productionExecutionEnabled) {
         this.registry = registry;
         this.router = router;
         this.configs = configs;
         this.canaries = canaries;
+        this.certificationRuns = certificationRuns;
         this.productionExecutionEnabled = productionExecutionEnabled;
     }
 
-    /** Test-only compatibility constructor; production wiring always supplies the canary service. */
+    /** Test-only compatibility constructor; production wiring always supplies the canary + certification collaborators. */
     TenantPaymentRouteService(PaymentRailRegistry registry, PaymentRailRouter router,
                               TenantProviderConfigRepository configs, boolean productionExecutionEnabled) {
         this.registry = registry;
         this.router = router;
         this.configs = configs;
         this.canaries = null;
+        this.certificationRuns = null;
         this.productionExecutionEnabled = productionExecutionEnabled;
     }
 
@@ -161,8 +167,8 @@ public class TenantPaymentRouteService {
         return filtered;
     }
 
-    private String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
-                                   BigDecimal amount, String currency, String destinationCountry) {
+    String rejectionReason(PaymentRailAdapter adapter, TenantProviderConfigEntity config,
+                           BigDecimal amount, String currency, String destinationCountry) {
         if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment()) && !productionExecutionEnabled) {
             return "production_execution_globally_disabled";
         }
@@ -175,6 +181,13 @@ public class TenantPaymentRouteService {
         if (adapter.requiresTenantConfiguration()) {
             if (blank(config.getCredentialsSecretRef())) return "tenant_provider_credentials_not_configured";
             if (blank(config.getWebhookSecretRef())) return "tenant_provider_webhook_secret_not_configured";
+        }
+        // Certification gates production activation: a live rail cannot move real money until it has a
+        // current, signed-off certification proving the integration survives the sandbox drill catalogue.
+        if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment()) && certificationRuns != null
+                && certificationRuns.findCurrentValid(
+                        config.getTenantId(), config.getId(), "PRODUCTION", Instant.now()).isEmpty()) {
+            return "production_not_certified";
         }
         if ("PRODUCTION".equalsIgnoreCase(config.getEnvironment()) && canaries != null) {
             String canaryRejection = canaries.rejectionReason(config.getTenantId(), config.getId(),

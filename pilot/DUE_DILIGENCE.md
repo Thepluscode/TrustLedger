@@ -45,7 +45,8 @@ every capability claim is backed by automated tests on green CI.
   `docs/SLOS_AND_ALERTS.md`, `deploy/README.md`.
 
 ## 8. Quality evidence
-- **107 backend tests** (unit + Testcontainers), **0 failures**, green on every commit.
+- **224 backend tests** (unit + Testcontainers), **0 failures** on the latest recorded full run;
+  `FEATURE_TRACKER.md` is the live evidence source.
 - CI: backend tests, frontend build, compose/repo validation, IaC validation (Helm+Terraform+manifests).
 - Supply chain: gitleaks (secret scan), Trivy (deps/fs), CycloneDX SBOM, Dependabot — `.github/workflows/security.yml`.
 

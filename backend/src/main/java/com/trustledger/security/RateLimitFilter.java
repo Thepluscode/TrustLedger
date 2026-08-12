@@ -20,8 +20,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * returns 429 + Retry-After when the limit is exceeded. In-memory (single instance); a Redis-backed
  * store is the horizontal-scale upgrade behind the same idea.
  */
+// One step back from the front so CorrelationIdFilter runs first: a 429 returned from here still
+// carries an X-Request-Id the caller can quote.
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private final int requestsPerMinute;
@@ -35,7 +37,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (path.startsWith("/api/v1/auth") || path.startsWith("/api/v1/transfers")) {
+        // Include the public, unauthenticated provider-webhook ingest: without a limit a single source
+        // can flood the durable inbox with distinct rows, each burning a worker verify cycle + storage.
+        if (path.startsWith("/api/v1/auth") || path.startsWith("/api/v1/transfers")
+                || path.startsWith("/api/v1/payment-rails/webhooks")) {
             String key = request.getRemoteAddr() + "|" + path + "|" + (Instant.now().getEpochSecond() / 60);
             int count = windows.computeIfAbsent(key, k -> new AtomicInteger()).incrementAndGet();
             if (count > requestsPerMinute) {

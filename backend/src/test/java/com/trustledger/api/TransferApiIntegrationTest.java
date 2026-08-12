@@ -50,6 +50,7 @@ class TransferApiIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired com.trustledger.app.PersistentTransferService transferService;
     @Autowired com.trustledger.persistence.repo.FraudCaseRepository fraudCases;
+    @Autowired com.trustledger.persistence.repo.FraudSignalRepository fraudSignals;
     @Autowired DeviceFingerprintRepository devices;
     @Autowired BeneficiaryRiskProfileRepository beneficiaryProfiles;
     @Autowired com.trustledger.app.TenantFraudPolicyService policyService;
@@ -280,12 +281,15 @@ class TransferApiIntegrationTest {
             "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION", "LEDGER_TRANSACTION", UUID.randomUUID(),
             "balanced", "off by 1.00", "{\"delta\":\"1.00\"}", "OPEN"));
 
-        List<Map<String, Object>> rows = json.readValue(get(s.token(), "/api/v1/reconciliation/issues").body(), List.class);
+        Map<String, Object> listBody = json.readValue(get(s.token(), "/api/v1/reconciliation/issues").body(), Map.class);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) listBody.get("items");
         assertTrue(rows.stream().anyMatch(r -> issueId.toString().equals(r.get("id"))), "list contains the issue");
         assertEquals("OPEN", json.readValue(get(s.token(), "/api/v1/reconciliation/issues/" + issueId).body(), Map.class).get("status"));
 
         HttpResponse<String> resolved = http.send(HttpRequest.newBuilder(uri("/api/v1/reconciliation/issues/" + issueId + "/resolve"))
-            .header("Authorization", "Bearer " + s.token()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            .header("Authorization", "Bearer " + s.token()).header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(
+                Map.of("outcome", "RECOVERED", "note", "ledger correction posted")))).build(),
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, resolved.statusCode(), resolved.body());
         Map<String, Object> rd = json.readValue(resolved.body(), Map.class);
@@ -386,6 +390,36 @@ class TransferApiIntegrationTest {
         AccountEntity dst = account(s.tenantId(), "0.0000");
         HttpResponse<String> res = postTransfer(null, src, dst, "10.00", "api-noauth");
         assertEquals(401, res.statusCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aHeldTransfersSignalsArePersistedAsRowsAndServedTenantScoped() throws Exception {
+        Session s = register();
+        AccountEntity src = account(s.tenantId(), "1000.0000");
+        AccountEntity dst = account(s.tenantId(), "0.0000");
+        UUID caseId = createHeldCase(s.tenantId(), src, dst, "idem-signals-hold");
+        UUID txnId = fraudCases.findById(caseId).orElseThrow().getTransactionId();
+
+        // The held case's signals are persisted as first-class, queryable rows (not only case JSON).
+        var rows = fraudSignals.findByTransactionIdOrderByScoreDeltaDesc(txnId);
+        assertFalse(rows.isEmpty(), "a held case must persist its fraud signals as rows");
+        assertTrue(rows.stream().allMatch(r -> s.tenantId().equals(r.getTenantId())));
+
+        // Served over HTTP, highest score-delta first.
+        HttpResponse<String> res = http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/signals"))
+            .header("Authorization", "Bearer " + s.token()).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, res.statusCode(), res.body());
+        List<Map<String, Object>> served = json.readValue(res.body(), List.class);
+        assertEquals(rows.size(), served.size());
+        assertTrue(((Number) served.get(0).get("scoreDelta")).intValue()
+                >= ((Number) served.get(served.size() - 1).get("scoreDelta")).intValue(), "ordered by score-delta desc");
+
+        // Another tenant cannot read this case's signals.
+        Session other = register();
+        assertEquals(403, http.send(HttpRequest.newBuilder(uri("/api/v1/fraud/cases/" + caseId + "/signals"))
+            .header("Authorization", "Bearer " + other.token()).GET().build(),
+            HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 
     @Test

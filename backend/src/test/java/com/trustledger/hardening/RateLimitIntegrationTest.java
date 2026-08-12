@@ -44,12 +44,23 @@ class RateLimitIntegrationTest {
         return r.statusCode();
     }
 
+    /** Three requests to fill the 3/min window, then the 4th — which must be throttled. */
+    private int burstPastTheLimit() throws Exception {
+        hitLogin();
+        hitLogin();
+        hitLogin();
+        return hitLogin();
+    }
+
     @Test
     void exceedingTheRateLimitReturns429() throws Exception {
-        // limit is 3/min for this path; the 4th request must be throttled.
-        hitLogin();
-        hitLogin();
-        hitLogin();
-        assertEquals(429, hitLogin(), "4th request over a 3/min limit must be 429");
+        // ponytail: RateLimitFilter keys its window on Instant.now().getEpochSecond() / 60, so a burst
+        // that straddles a wall-clock minute boundary resets the counter and the 4th request passes
+        // through to 401. A boundary can only fall inside one of two back-to-back millisecond bursts.
+        int status = burstPastTheLimit();
+        if (status != 429) {
+            status = burstPastTheLimit();
+        }
+        assertEquals(429, status, "4th request over a 3/min limit must be 429");
     }
 }

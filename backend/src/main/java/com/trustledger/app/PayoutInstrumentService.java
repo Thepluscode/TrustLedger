@@ -36,6 +36,8 @@ public class PayoutInstrumentService {
     private static final Pattern LONG_DIGIT_RUN = Pattern.compile("\\d{6,}");
     private static final Pattern RAW_NUMERIC_REFERENCE = Pattern.compile("/?\\d{8,}");
     private static final Pattern RECIPIENT_CODE = Pattern.compile("[A-Za-z0-9._:-]{3,160}");
+    /** IBAN prefix: two-letter country + two check digits. Mirrors chk_bank_instrument_code (V43). */
+    private static final Pattern IBAN_PREFIX = Pattern.compile("^[A-Z]{2}[0-9]{2}");
 
     public record CreateInstrumentCommand(String instrumentType, String country, String currency,
                                           String accountName, String bankCode, String maskedIdentifier,
@@ -77,10 +79,11 @@ public class PayoutInstrumentService {
         String currency = alphaCode(command.currency(), 3, "currency");
         String accountName = required(command.accountName(), "accountName", 200);
         String bankCode = optionalToken(command.bankCode(), "bankCode", 32);
-        if ("BANK_ACCOUNT".equals(type) && bankCode == null) {
-            throw new IllegalArgumentException("bankCode is required for bank-account instruments");
-        }
         String maskedIdentifier = masked(command.maskedIdentifier());
+        if ("BANK_ACCOUNT".equals(type) && bankCode == null && !IBAN_PREFIX.matcher(maskedIdentifier).find()) {
+            throw new IllegalArgumentException("bankCode is required for bank-account instruments unless "
+                + "maskedIdentifier is an IBAN, which encodes its own bank (e.g. DE89****3000)");
+        }
         String externalReference = externalReference(command.externalReference());
         if (instruments.existsByTenantIdAndExternalReference(tenantId, externalReference)) {
             throw new IllegalArgumentException("Payout instrument external reference already exists");

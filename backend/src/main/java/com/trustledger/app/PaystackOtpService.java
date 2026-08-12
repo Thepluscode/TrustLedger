@@ -96,7 +96,7 @@ public class PaystackOtpService {
     }
 
     private void persistTransferCode(UUID tenantId, UUID attemptId, String transferCode) {
-        ExternalPaymentAttemptEntity locked = attempts.findByIdForUpdate(attemptId)
+        ExternalPaymentAttemptEntity locked = attempts.findByIdAndTenantIdForUpdate(attemptId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("External payout attempt not found"));
         validateAttempt(tenantId, locked);
         if (locked.getProviderObjectId() != null && !locked.getProviderObjectId().equals(transferCode)) {

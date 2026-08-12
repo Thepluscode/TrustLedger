@@ -38,6 +38,7 @@ public class PaymentWebhookInboxService {
     private final PaymentWebhookInboxRepository inbox;
     private final PaymentRailRegistry registry;
     private final AuditLogRepository auditLogs;
+    private final WebhookEnvelopeRecorder envelopes;
     private final ObjectMapper json;
     private final int maxPayloadBytes;
 
@@ -45,6 +46,7 @@ public class PaymentWebhookInboxService {
                                       PaymentWebhookInboxRepository inbox,
                                       PaymentRailRegistry registry,
                                       AuditLogRepository auditLogs,
+                                      WebhookEnvelopeRecorder envelopes,
                                       ObjectMapper json,
                                       @Value("${trustledger.payment-rails.webhook-inbox.max-payload-bytes:262144}")
                                       int maxPayloadBytes) {
@@ -52,19 +54,27 @@ public class PaymentWebhookInboxService {
         this.inbox = inbox;
         this.registry = registry;
         this.auditLogs = auditLogs;
+        this.envelopes = envelopes;
         this.json = json;
         this.maxPayloadBytes = Math.max(1024, maxPayloadBytes);
     }
 
     /** Atomically inserts or increments an exact transport delivery without running provider business logic. */
     public Receipt receive(String providerOrAlias, String payload, String signature) {
-        PaymentRailAdapter adapter = registry.find(providerOrAlias)
-            .orElseThrow(() -> new IllegalArgumentException("Unsupported payment provider"));
-        if (payload == null || payload.isBlank()) throw new IllegalArgumentException("Webhook body is required");
+        // A refused delivery must still leave forensic evidence (invariant: raw evidence before parsing).
+        PaymentRailAdapter adapter = registry.find(providerOrAlias).orElseThrow(() -> {
+            envelopes.record(providerOrAlias, null, payload, "UNSUPPORTED_PROVIDER");
+            return new IllegalArgumentException("Unsupported payment provider");
+        });
+        String provider = adapter.rail().toUpperCase(Locale.ROOT);
+        if (payload == null || payload.isBlank()) {
+            envelopes.record(providerOrAlias, provider, payload, "EMPTY_BODY");
+            throw new IllegalArgumentException("Webhook body is required");
+        }
         if (payload.getBytes(StandardCharsets.UTF_8).length > maxPayloadBytes) {
+            envelopes.record(providerOrAlias, provider, payload, "PAYLOAD_TOO_LARGE");
             throw new PayloadTooLargeException();
         }
-        String provider = adapter.rail().toUpperCase(Locale.ROOT);
         String normalizedSignature = signature == null ? "" : signature.trim();
         String payloadHash = sha256(payload);
         String signatureHash = sha256(normalizedSignature);
@@ -108,9 +118,8 @@ public class PaymentWebhookInboxService {
 
     @Transactional
     public InboxView replay(UUID tenantId, UUID actorId, UUID inboxId) {
-        PaymentWebhookInboxEntity delivery = inbox.findByIdForUpdate(inboxId)
+        PaymentWebhookInboxEntity delivery = inbox.findByIdAndTenantIdForUpdate(inboxId, tenantId)
             .orElseThrow(() -> new IllegalArgumentException("Webhook inbox delivery not found"));
-        if (!tenantId.equals(delivery.getTenantId())) throw new IllegalArgumentException("Tenant mismatch");
         delivery.replay(Instant.now());
         inbox.save(delivery);
         auditReplay(tenantId, actorId, delivery);

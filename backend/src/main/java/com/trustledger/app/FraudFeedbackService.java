@@ -1,7 +1,10 @@
 package com.trustledger.app;
 
+import com.trustledger.persistence.entity.FraudCaseEntity;
 import com.trustledger.persistence.entity.FraudFeedbackEntity;
+import com.trustledger.persistence.repo.FraudCaseRepository;
 import com.trustledger.persistence.repo.FraudFeedbackRepository;
+import com.trustledger.security.ForbiddenException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -17,15 +20,24 @@ public class FraudFeedbackService {
         "CONFIRMED_FRAUD", "FALSE_POSITIVE", "LEGITIMATE", "CUSTOMER_VERIFIED", "INSUFFICIENT_EVIDENCE");
 
     private final FraudFeedbackRepository feedback;
+    private final FraudCaseRepository fraudCases;
 
-    public FraudFeedbackService(FraudFeedbackRepository feedback) {
+    public FraudFeedbackService(FraudFeedbackRepository feedback, FraudCaseRepository fraudCases) {
         this.feedback = feedback;
+        this.fraudCases = fraudCases;
     }
 
     @Transactional
     public FraudFeedbackEntity capture(UUID tenantId, UUID transactionId, UUID fraudCaseId, UUID analystId,
                                        String label, BigDecimal confidence, String reason) {
         if (!LABELS.contains(label)) throw new IllegalArgumentException("Unknown feedback label: " + label);
+        // The case must belong to the caller's tenant, and the labelled transaction must be that case's
+        // transaction — otherwise a caller could pollute the training set with cross-tenant/foreign refs.
+        FraudCaseEntity fraudCase = fraudCases.findByIdAndTenantId(fraudCaseId, tenantId)
+            .orElseThrow(() -> new ForbiddenException("Fraud case not found for this tenant"));
+        if (!fraudCase.getTransactionId().equals(transactionId)) {
+            throw new IllegalArgumentException("Feedback transaction does not match the fraud case");
+        }
         return feedback.save(new FraudFeedbackEntity(UUID.randomUUID(), tenantId, transactionId, fraudCaseId,
             analystId, label, confidence, reason));
     }

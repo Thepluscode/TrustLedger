@@ -11,20 +11,30 @@ import type {
   EvidenceExportView,
   ExternalPaymentResponse,
   BeneficiaryProfile,
+  CertificationRun,
   DeviceProfile,
   FraudCaseView,
+  FraudSignalFrequency,
+  FraudSignalDetail,
   FraudPolicy,
   PolicyImpact,
   InvitedUser,
   ProductionCanaryRequest,
   ProductionCanaryView,
   ProviderConfigView,
+  ReconciliationAuditEntry,
   ReconciliationIssue,
+  ReconciliationIssueList,
+  SettlementStatement,
+  SettlementStatementDetail,
+  SettlementIngestResult,
   TeamMember,
   UserProfile,
   WebhookEvent,
   LedgerEntryView,
   LedgerTransactionView,
+  MyScope,
+  OrgUnit,
   TransferDetail,
   TransferListItem,
   TransferResponse,
@@ -128,6 +138,19 @@ export const api = {
   changeUserRole: (id: string, role: string) =>
     request<TeamMember>(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
 
+  listOrgUnits: () => request<OrgUnit[]>("/api/v1/org-units"),
+  myScope: () => request<MyScope>("/api/v1/org-units/my-scope"),
+  createOrgUnit: (name: string, type: string, parentUnitId: string | null) =>
+    request<OrgUnit>("/api/v1/org-units", {
+      method: "POST",
+      body: JSON.stringify({ name, type, parentUnitId }),
+    }),
+  assignOrgUnitMember: (unitId: string, userId: string) =>
+    request<void>(`/api/v1/org-units/${unitId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
+
   listApiKeys: () => request<ApiKey[]>("/api/v1/developer/api-keys"),
   createApiKey: (name: string, scope: string) =>
     request<CreatedApiKey>("/api/v1/developer/api-keys", { method: "POST", body: JSON.stringify({ name, scope }) }),
@@ -140,10 +163,35 @@ export const api = {
 
   listWebhookEvents: () => request<WebhookEvent[]>("/api/v1/payment-rails/webhooks"),
 
-  listReconciliationIssues: () => request<ReconciliationIssue[]>("/api/v1/reconciliation/issues"),
+  listSettlementStatements: () => request<SettlementStatement[]>("/api/v1/tenant/reconciliation/statements"),
+  getSettlementStatement: (id: string) =>
+    request<SettlementStatementDetail>(`/api/v1/tenant/reconciliation/statements/${id}`),
+  ingestSettlementStatement: (body: Record<string, unknown>) =>
+    request<SettlementIngestResult>("/api/v1/tenant/reconciliation/statements", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ingestSettlementStatementCsv: (body: Record<string, unknown>) =>
+    request<SettlementIngestResult>("/api/v1/tenant/reconciliation/statements/csv", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listReconciliationIssues: (status?: string, severity?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    if (severity) q.set("severity", severity);
+    const qs = q.toString();
+    return request<ReconciliationIssueList>(`/api/v1/reconciliation/issues${qs ? `?${qs}` : ""}`);
+  },
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
-  resolveReconciliationIssue: (id: string) =>
-    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, { method: "POST" }),
+  reconciliationIssueAudit: (id: string) =>
+    request<ReconciliationAuditEntry[]>(`/api/v1/reconciliation/issues/${id}/audit`),
+  resolveReconciliationIssue: (id: string, outcome: string, note: string) =>
+    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ outcome, note }),
+    }),
 
   deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
   beneficiaryProfiles: () => request<BeneficiaryProfile[]>("/api/v1/fraud/risk-profiles/beneficiaries"),
@@ -185,6 +233,9 @@ export const api = {
     }),
 
   listFraudCases: () => request<FraudCaseView[]>("/api/v1/fraud/cases"),
+  fraudSignalSummary: () => request<FraudSignalFrequency[]>("/api/v1/fraud/signals/summary"),
+  fraudCaseSignals: (caseId: string) =>
+    request<FraudSignalDetail[]>(`/api/v1/fraud/cases/${caseId}/signals`),
 
   approveCase: (caseId: string) =>
     request<TransferResponse>(`/api/v1/fraud/cases/${caseId}/approve`, { method: "POST" }),
@@ -221,6 +272,19 @@ export const api = {
       "/api/v1/tenant/production-readiness",
     ),
   listProviderConfigs: () => request<ProviderConfigView[]>("/api/v1/tenant/provider-configs"),
+
+  listCertifications: () => request<CertificationRun[]>("/api/v1/tenant/certifications"),
+  getCertification: (id: string) => request<CertificationRun>(`/api/v1/tenant/certifications/${id}`),
+  runCertification: (tenantProviderConfigId: string) =>
+    request<CertificationRun>("/api/v1/tenant/certifications", {
+      method: "POST",
+      body: JSON.stringify({ tenantProviderConfigId }),
+    }),
+  signOffCertification: (id: string, note: string) =>
+    request<CertificationRun>(`/api/v1/tenant/certifications/${id}/sign-off`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
   listProductionCanaries: (configId: string) =>
     request<ProductionCanaryView[]>(`/api/v1/tenant/provider-configs/${configId}/production-canaries`),
   requestProductionCanary: (configId: string, body: ProductionCanaryRequest) =>

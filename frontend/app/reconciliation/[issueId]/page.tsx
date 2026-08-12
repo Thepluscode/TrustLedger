@@ -7,7 +7,7 @@ import { ConfirmModal, SeverityPill, StatusPill } from "../../components/ui";
 import Shell from "../../components/Shell";
 import { api } from "../../lib/api";
 import { dateTime, shortId } from "../../lib/format";
-import type { ReconciliationIssue } from "../../lib/types";
+import type { ReconciliationAuditEntry, ReconciliationIssue } from "../../lib/types";
 
 function pretty(json: string | null): string {
   if (!json) return "—";
@@ -18,6 +18,26 @@ function pretty(json: string | null): string {
   }
 }
 
+function resolutionFields(metadata: string): { outcome?: string; note?: string } {
+  try {
+    const m = JSON.parse(metadata) as { outcome?: string; note?: string };
+    return { outcome: m.outcome, note: m.note };
+  } catch {
+    return {};
+  }
+}
+
+/** The settlement statement a break came from, if any: the entity itself for a statement-level break,
+ *  else the statementId stamped into the evidence for a line/attempt break. */
+function sourceStatementId(issue: ReconciliationIssue): string | null {
+  if (issue.entityType === "SETTLEMENT_STATEMENT") return issue.entityId;
+  try {
+    return (JSON.parse(issue.evidence) as { statementId?: string })?.statementId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ReconciliationIssuePage() {
   const params = useParams<{ issueId: string }>();
   const id = params.issueId;
@@ -25,9 +45,17 @@ export default function ReconciliationIssuePage() {
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState("");
+  const [note, setNote] = useState("");
+  const [audit, setAudit] = useState<ReconciliationAuditEntry[]>([]);
+
+  function loadAudit() {
+    if (id) api.reconciliationIssueAudit(id).then(setAudit).catch(() => {});
+  }
 
   useEffect(() => {
     if (id) api.getReconciliationIssue(id).then(setIssue).catch((e) => setError((e as Error).message));
+    loadAudit();
   }, [id]);
 
   async function resolve() {
@@ -35,8 +63,9 @@ export default function ReconciliationIssuePage() {
     setBusy(true);
     setError(null);
     try {
-      setIssue(await api.resolveReconciliationIssue(id));
+      setIssue(await api.resolveReconciliationIssue(id, outcome, note));
       setConfirm(false);
+      loadAudit();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -65,12 +94,30 @@ export default function ReconciliationIssuePage() {
               </p>
               <div style={{ maxWidth: 560 }}>
                 <div className="entry"><span className="muted">Affected entity</span><span><span className="mono">{shortId(issue.entityId)}</span> {issue.entityType.replace(/_/g, " ").toLowerCase()}</span></div>
+                {sourceStatementId(issue) && (
+                  <div className="entry"><span className="muted">Source statement</span>
+                    <Link href={`/reconciliation/statements/${sourceStatementId(issue)}`}>view statement</Link></div>
+                )}
                 <div className="entry"><span className="muted">Created</span><span>{dateTime(issue.createdAt)}</span></div>
                 <div className="entry"><span className="muted">Resolved</span><span>{issue.resolvedAt ? dateTime(issue.resolvedAt) : "—"}</span></div>
               </div>
               {issue.status === "OPEN" && (
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button onClick={() => setConfirm(true)}>Resolve issue</button>
+                <div style={{ marginTop: 16, maxWidth: 480 }}>
+                  <label className="muted" style={{ display: "block", marginBottom: 6 }}>Resolution outcome</label>
+                  <select value={outcome} onChange={(e) => setOutcome(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
+                    <option value="">Select an outcome…</option>
+                    <option value="RECOVERED">Recovered — funds landed</option>
+                    <option value="WRITTEN_OFF">Written off — unrecoverable</option>
+                    <option value="FALSE_POSITIVE">False positive — no real break</option>
+                    <option value="PROVIDER_CORRECTED">Provider corrected</option>
+                    <option value="DUPLICATE">Duplicate of another issue</option>
+                  </select>
+                  <label className="muted" style={{ display: "block", marginBottom: 6 }}>Reason (recorded in the audit log)</label>
+                  <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} style={{ width: "100%" }}
+                    placeholder="What did you verify, and what fixed the underlying mismatch?" />
+                  <div className="row" style={{ marginTop: 12 }}>
+                    <button disabled={!outcome || !note.trim()} onClick={() => setConfirm(true)}>Resolve issue</button>
+                  </div>
                 </div>
               )}
             </div>
@@ -90,6 +137,30 @@ export default function ReconciliationIssuePage() {
               <pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: 12 }}>{pretty(issue.evidence)}</pre>
             </div>
           </section>
+
+          {audit.length > 0 && (
+            <section className="panel" style={{ marginTop: 18 }}>
+              <div className="panelHeader"><div><h2>Activity</h2><p className="sub">Every action on this issue, from the auditable record.</p></div></div>
+              <div className="panelBody">
+                {audit.map((a, i) => {
+                  const isResolution = a.action === "RECONCILIATION_ISSUE_RESOLVED";
+                  const { outcome: o, note: n } = isResolution ? resolutionFields(a.metadata) : {};
+                  return (
+                    <div key={i} className="entry" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
+                      <span>
+                        <b>{a.action.replace(/_/g, " ").toLowerCase()}</b>
+                        {o && <> — <span className="mono">{o.replace(/_/g, " ").toLowerCase()}</span></>}
+                      </span>
+                      {n && <span className="muted">{n}</span>}
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {dateTime(a.at)}{a.actorId ? ` · ${shortId(a.actorId)}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </>
       )}
 

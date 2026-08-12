@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.trustledger.security.ForbiddenException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ public class ExternalPaymentService {
     private final OutboxEventRepository outbox;
     private final AuditLogRepository auditLogs;
     private final FraudCaseRepository fraudCases;
+    private final FraudSignalRepository fraudSignals;
     private final FraudEngine fraudEngine;
     private final TenantPaymentRouteService routes;
     private final ProviderRecipientResolver recipientResolver;
@@ -53,7 +55,8 @@ public class ExternalPaymentService {
                                   ExternalPaymentAttemptRepository attempts, IdempotencyKeyRepository idempotencyKeys,
                                   LedgerTransactionRepository ledgerTransactions, LedgerEntryRepository ledgerEntries,
                                   OutboxEventRepository outbox, AuditLogRepository auditLogs,
-                                  FraudCaseRepository fraudCases, FraudEngine fraudEngine,
+                                  FraudCaseRepository fraudCases, FraudSignalRepository fraudSignals,
+                                  FraudEngine fraudEngine,
                                   TenantPaymentRouteService routes, ProviderRecipientResolver recipientResolver,
                                   ExternalRailSubmissionService submissions, ObjectMapper json,
                                   PlatformTransactionManager transactionManager) {
@@ -66,6 +69,7 @@ public class ExternalPaymentService {
         this.outbox = outbox;
         this.auditLogs = auditLogs;
         this.fraudCases = fraudCases;
+        this.fraudSignals = fraudSignals;
         this.fraudEngine = fraudEngine;
         this.routes = routes;
         this.recipientResolver = recipientResolver;
@@ -79,6 +83,19 @@ public class ExternalPaymentService {
                                           String reference, String idempotencyKey, String deviceId,
                                           String currentCountry, String destinationCountry,
                                           String preferredProvider, String preferredEnvironment, String scenario) {
+        /** Reject missing required fields at construction (a clean 400) rather than NPEing in initiate(). */
+        public ExternalTransferRequest {
+            if (sourceAccountId == null) throw new IllegalArgumentException("sourceAccountId is required");
+            if (amount == null) throw new IllegalArgumentException("amount is required");
+            if (currency == null || currency.isBlank()) throw new IllegalArgumentException("currency is required");
+            // The scored path re-checks positivity via TransferCommand, but initiate(req, decision)
+            // is public and skips it — a negative amount there would INCREASE the source balance.
+            if (amount.signum() <= 0) throw new IllegalArgumentException("amount must be positive");
+            // Fail before any funds are reserved: an amount the currency cannot express in minor
+            // units (e.g. 100.005 GBP, 100.5 JPY) is a calculation bug upstream, not a payout.
+            Money.of(amount.toPlainString(), currency).toMinorUnits();
+        }
+
         public ExternalTransferRequest(UUID tenantId, UUID userId, UUID sourceAccountId, UUID beneficiaryId,
                                        BigDecimal amount, String currency, String reference, String idempotencyKey,
                                        String deviceId, String currentCountry, String destinationCountry,
@@ -140,7 +157,7 @@ public class ExternalPaymentService {
         TenantPaymentRouteDecision route = routes.route(req.tenantId(), amount.amount(), req.currency(),
             req.destinationCountry(), req.preferredProvider(), req.preferredEnvironment());
         ResolvedProviderRecipient recipient = resolveRecipient(req, route);
-        reserve(req.sourceAccountId(), req.currency(), amount);
+        reserve(req.tenantId(), req.sourceAccountId(), req.currency(), amount);
         auditRouteDecision(req.tenantId(), transferId, route, recipient, req.destinationCountry());
 
         if (decision.requiresManualReview()) {
@@ -168,7 +185,7 @@ public class ExternalPaymentService {
 
     private UUID prepareHeldApproval(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
-        lock(transfer.getSourceAccountId());
+        lock(transfer.getSourceAccountId(), tenantId);
         TenantPaymentRouteDecision route = routes.revalidate(tenantId, transfer.getTenantProviderConfigId(),
             transfer.getSelectedProvider(), transfer.getAmount(), transfer.getCurrency(),
             transfer.getDestinationCountry());
@@ -188,7 +205,7 @@ public class ExternalPaymentService {
     @Transactional
     public PersistentTransferResponse rejectHeldExternal(UUID tenantId, UUID transferId, String actor) {
         TransferEntity transfer = requireHeldExternal(tenantId, transferId);
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), tenantId);
         releaseToAvailable(source, money(transfer.getAmount(), transfer.getCurrency()));
         transfer.setStatus("REJECTED");
         fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
@@ -207,7 +224,7 @@ public class ExternalPaymentService {
 
     private ExternalPaymentResponse completePreparedSubmissionInTransaction(
             ExternalRailSubmissionService.SubmissionResult result) {
-        ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdate(result.attemptId())
+        ExternalPaymentAttemptEntity attempt = attempts.findByIdForUpdateUnscoped(result.attemptId())
             .orElseThrow(() -> new IllegalStateException("Prepared payout attempt no longer exists"));
         TransferEntity transfer = transfers.findById(attempt.getTransactionId())
             .orElseThrow(() -> new IllegalStateException("Prepared payout transfer no longer exists"));
@@ -253,8 +270,8 @@ public class ExternalPaymentService {
             throw new IllegalStateException("Cannot settle attempt in status " + attempt.getStatus());
         }
         Money amount = money(attempt.getAmount(), attempt.getCurrency());
-        AccountEntity source = lock(transfer.getSourceAccountId());
-        AccountEntity clearing = lock(clearingAccountId(attempt.getTenantId(), attempt.getCurrency()));
+        AccountEntity source = lock(transfer.getSourceAccountId(), attempt.getTenantId());
+        AccountEntity clearing = lock(clearingAccountId(attempt.getTenantId(), attempt.getCurrency()), attempt.getTenantId());
         source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
         source.setPostedBalance(money(source.getPostedBalance(), source.getCurrency()).minus(amount).amount());
         clearing.setAvailableBalance(money(clearing.getAvailableBalance(), clearing.getCurrency()).plus(amount).amount());
@@ -298,7 +315,7 @@ public class ExternalPaymentService {
             throw new IllegalStateException("Cannot release attempt in status " + attempt.getStatus());
         }
         TransferEntity transfer = transfers.findById(attempt.getTransactionId()).orElseThrow();
-        AccountEntity source = lock(transfer.getSourceAccountId());
+        AccountEntity source = lock(transfer.getSourceAccountId(), attempt.getTenantId());
         releaseToAvailable(source, money(attempt.getAmount(), attempt.getCurrency()));
         attempt.setStatus(terminalStatus);
         attempts.save(attempt);
@@ -327,8 +344,9 @@ public class ExternalPaymentService {
             req.idempotencyKey(), hash, "PROCESSING"));
     }
 
-    private AccountEntity reserve(UUID sourceAccountId, String currency, Money amount) {
-        AccountEntity source = lock(sourceAccountId);
+    private AccountEntity reserve(UUID tenantId, UUID sourceAccountId, String currency, Money amount) {
+        // Tenant predicate is in the lock query — prevents BOLA on user-supplied sourceAccountId.
+        AccountEntity source = lock(sourceAccountId, tenantId);
         requireActive(source);
         requireCurrency(source, currency);
         Money available = money(source.getAvailableBalance(), source.getCurrency());
@@ -402,6 +420,12 @@ public class ExternalPaymentService {
         fraudCases.save(new FraudCaseEntity(UUID.randomUUID(), req.tenantId(), transferId, req.userId(), "OPEN",
             severityFor(decision.riskScore()), decision.riskScore(), "Auto-opened for held external payout",
             writeJson(evidence)));
+        // Persist each signal as a first-class, queryable row — the same fraud control graph the
+        // in-house held-transfer path records, so external-rail holds are equally explainable in SQL.
+        for (var sig : decision.signals()) {
+            fraudSignals.save(new FraudSignalEntity(sig.id(), req.tenantId(), transferId, req.userId(),
+                sig.signalType(), sig.scoreDelta(), sig.severity().name(), sig.reason(), writeJson(sig.evidence())));
+        }
         audit(req.tenantId(), "EXTERNAL_PAYMENT_HELD_FOR_REVIEW", "TRANSFER", transferId,
             Map.of("amount", req.amount().toPlainString(), "provider", route.provider(),
                 "providerEnvironment", route.providerEnvironment()));
@@ -518,8 +542,13 @@ public class ExternalPaymentService {
             value(req.preferredProvider()), value(req.preferredEnvironment()), value(req.scenario()), "EXTERNAL"));
     }
 
-    private AccountEntity lock(UUID id) {
-        return accounts.findByIdForUpdate(id)
+    private AccountEntity lock(UUID id, UUID tenantId) {
+        return accounts.findByIdAndTenantIdForUpdate(id, tenantId)
+            .orElseThrow(() -> new ForbiddenException("Account not found or not accessible"));
+    }
+
+    private AccountEntity lockUnscoped(UUID id) {
+        return accounts.findByIdForUpdateUnscoped(id)
             .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
     }
 

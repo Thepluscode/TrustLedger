@@ -14,6 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class EvidenceExportIntegrationTest {
     private final HttpClient http = HttpClient.newHttpClient();
     private URI uri(String p) { return URI.create("http://localhost:" + port + p); }
 
-    private record Session(String token, UUID tenantId) {}
+    private record Session(String token, UUID tenantId, UUID userId) {}
 
     private Session register() throws Exception {
         String body = json.writeValueAsString(Map.of("tenantName", "T-" + UUID.randomUUID(),
@@ -66,7 +67,7 @@ class EvidenceExportIntegrationTest {
             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
             HttpResponse.BodyHandlers.ofString());
         AuthResponse a = json.readValue(r.body(), AuthResponse.class);
-        return new Session(a.token(), a.tenantId());
+        return new Session(a.token(), a.tenantId(), a.userId());
     }
 
     private AccountEntity account(UUID tenant, String opening) {
@@ -123,7 +124,7 @@ class EvidenceExportIntegrationTest {
         assertTrue(dl.body().contains("\"signals\""), dl.body());
 
         // Checksum is verifiable against the downloaded bytes.
-        byte[] bytes = evidence.download(s.tenantId(), exportId);
+        byte[] bytes = evidence.download(s.tenantId(), s.userId(), exportId);
         assertEquals(checksum, Checksums.sha256(bytes));
         assertEquals(checksum, dl.headers().firstValue("X-Evidence-Checksum").orElse(""));
 
@@ -142,7 +143,7 @@ class EvidenceExportIntegrationTest {
         assertEquals(200, r.statusCode(), r.body());
         UUID exportId = UUID.fromString(json.readValue(r.body(), Map.class).get("id").toString());
 
-        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), exportId), Map.class);
+        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), s.userId(), exportId), Map.class);
         assertEquals(Boolean.TRUE, bundle.get("balanced"));
         assertEquals(bundle.get("totalDebits"), bundle.get("totalCredits"));
     }
@@ -162,6 +163,50 @@ class EvidenceExportIntegrationTest {
         assertEquals(204, methodWithToken("/api/v1/evidence/exports/" + exportId + "/legal-hold?on=false", "POST", s.token()));
         assertEquals(204, methodWithToken("/api/v1/evidence/exports/" + exportId, "DELETE", s.token()));
         assertTrue(exports.findById(exportId).isEmpty(), "deleted once hold released");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fraudEvidencePackIncludesAttributableAuditTrail() throws Exception {
+        Session s = register();
+        UUID caseId = heldCase(s.tenantId());
+        // Drive the transfer through a real analyst decision so the trail has a full lifecycle.
+        UUID transactionId = fraudCases.findById(caseId).orElseThrow().getTransactionId();
+        transferService.approveHeldTransfer(s.tenantId(), transactionId, "analyst");
+
+        UUID exportId = UUID.fromString(json.readValue(
+            postWithToken("/api/v1/evidence/fraud-cases/" + caseId, s.token()).body(), Map.class).get("id").toString());
+
+        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), s.userId(), exportId), Map.class);
+        List<Map<String, Object>> trail = (List<Map<String, Object>>) bundle.get("auditTrail");
+        assertNotNull(trail, "evidence pack must carry the transfer's audit trail");
+        List<Object> actions = trail.stream().map(row -> row.get("action")).toList();
+        // Invariant-7 transitions must all be attributable in the pack: scored → held → approved.
+        assertTrue(actions.contains("TRANSFER_RISK_SCORED"), actions.toString());
+        assertTrue(actions.contains("TRANSFER_HELD_FOR_REVIEW"), actions.toString());
+        assertTrue(actions.contains("FRAUD_TRANSFER_APPROVED"), actions.toString());
+        // Oldest-first timeline: the hold precedes the approval.
+        assertTrue(actions.indexOf("TRANSFER_HELD_FOR_REVIEW") < actions.indexOf("FRAUD_TRANSFER_APPROVED"),
+            "trail must read oldest-first: " + actions);
+        // Each row is attributable: it names who acted and when.
+        Map<String, Object> approval = trail.stream()
+            .filter(row -> "FRAUD_TRANSFER_APPROVED".equals(row.get("action"))).findFirst().orElseThrow();
+        assertEquals("ADMIN", approval.get("actorType"));
+        assertNotNull(approval.get("at"), "every audited action carries a timestamp");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ledgerEvidencePackIncludesAuditTrail() throws Exception {
+        Session s = register();
+        UUID ledgerTxId = completedLedgerTx(s.tenantId());
+        UUID exportId = UUID.fromString(json.readValue(
+            postWithToken("/api/v1/evidence/ledger/" + ledgerTxId, s.token()).body(), Map.class).get("id").toString());
+
+        Map<String, Object> bundle = json.readValue(evidence.download(s.tenantId(), s.userId(), exportId), Map.class);
+        List<Map<String, Object>> trail = (List<Map<String, Object>>) bundle.get("auditTrail");
+        assertNotNull(trail, "ledger evidence pack must carry the posting's audit trail");
+        assertTrue(trail.stream().anyMatch(row -> "LEDGER_POSTED".equals(row.get("action"))), trail.toString());
     }
 
     @Test

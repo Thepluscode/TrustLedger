@@ -24,6 +24,8 @@ public class AuthController {
     private final PasswordEncoder encoder;
     private final JwtService jwt;
     private final RefreshTokenService refreshTokens;
+    /** A real bcrypt hash used to equalize login timing when no user matches (anti user-enumeration). */
+    private final String dummyHash;
 
     public AuthController(TenantRepository tenants, UserRepository users, PasswordEncoder encoder,
                           JwtService jwt, RefreshTokenService refreshTokens) {
@@ -32,6 +34,7 @@ public class AuthController {
         this.encoder = encoder;
         this.jwt = jwt;
         this.refreshTokens = refreshTokens;
+        this.dummyHash = encoder.encode("login-timing-equalizer");
     }
 
     /** Creates a new tenant and its first OWNER, returning a JWT + refresh token. */
@@ -51,7 +54,13 @@ public class AuthController {
     public LoginResponse login(@RequestBody LoginRequest req) {
         if (req.tenantId() == null) throw new IllegalArgumentException("tenantId is required");
         UserEntity user = users.findByTenantIdAndEmail(req.tenantId(), req.email() == null ? "" : req.email().toLowerCase())
-            .orElseThrow(() -> new UnauthorizedException("Invalid credentials"));
+            .orElse(null);
+        if (user == null) {
+            // Do the same bcrypt work as a real check so response time can't reveal whether the
+            // (tenant, email) pair exists (user enumeration via timing).
+            encoder.matches(req.password() == null ? "" : req.password(), dummyHash);
+            throw new UnauthorizedException("Invalid credentials");
+        }
         if (!encoder.matches(req.password(), user.getPasswordHash())) {
             throw new UnauthorizedException("Invalid credentials");
         }

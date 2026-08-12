@@ -56,6 +56,7 @@ class ExternalPaymentIntegrationTest {
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired DeviceFingerprintRepository devices;
     @Autowired FraudCaseRepository fraudCases;
+    @Autowired com.trustledger.persistence.repo.FraudSignalRepository fraudSignals;
     @Autowired PaymentWebhookInboxWorker inboxWorker;
     @Autowired NamedParameterJdbcTemplate jdbc;
 
@@ -167,6 +168,8 @@ class ExternalPaymentIntegrationTest {
         assertEquals(0, pending(src.getId()).compareTo(new BigDecimal("200.0000")));
         UUID txn = UUID.fromString(res.get("transactionId").toString());
         assertEquals("OPEN", fraudCases.findByTransactionId(txn).orElseThrow().getStatus());
+        assertFalse(fraudSignals.findByTransactionIdOrderByScoreDeltaDesc(txn).isEmpty(),
+            "a held external payout must persist its fraud signals as first-class rows, not only case JSON");
     }
 
     /** Analyst approves a held external payout: it submits to the rail and then settles on webhook. */

@@ -11,7 +11,7 @@ public final class FraudEngine {
         List<FraudSignal> signals = new ArrayList<>();
 
         if (context.blockedRecipient()) {
-            signals.add(FraudSignal.of("BLOCKED_RECIPIENT", 100, FraudSeverity.CRITICAL, "Recipient is blocked by compliance/fraud controls", Map.of("beneficiaryId", command.beneficiaryId().toString())));
+            signals.add(FraudSignal.of("BLOCKED_RECIPIENT", 100, FraudSeverity.CRITICAL, "Recipient is blocked by compliance/fraud controls", Map.of("beneficiaryId", String.valueOf(command.beneficiaryId()))));
             return new FraudDecision(100, FraudDecisionType.REJECT, signals);
         }
 
@@ -27,7 +27,7 @@ public final class FraudEngine {
         }
 
         if (context.newBeneficiary()) {
-            signals.add(FraudSignal.of("NEW_BENEFICIARY", 20, FraudSeverity.MEDIUM, "Transfer is going to a new beneficiary", Map.of("beneficiaryId", command.beneficiaryId().toString())));
+            signals.add(FraudSignal.of("NEW_BENEFICIARY", 20, FraudSeverity.MEDIUM, "Transfer is going to a new beneficiary", Map.of("beneficiaryId", String.valueOf(command.beneficiaryId()))));
         }
         if (context.newDevice()) {
             signals.add(FraudSignal.of("NEW_DEVICE", 20, FraudSeverity.MEDIUM, "Transfer requested from an untrusted device", Map.of("deviceId", command.deviceId())));

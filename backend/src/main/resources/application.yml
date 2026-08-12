@@ -23,6 +23,13 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
 
+# Put the correlation id on every log line. Without this the id is stored on the audit row but the
+# log lines it should join to are unmarked, which is half a correlation id. Empty for off-request
+# work (workers, sweeps), which have no request bound to the thread.
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"
+
 management:
   endpoints:
     web:

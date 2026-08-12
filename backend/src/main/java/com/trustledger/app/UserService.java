@@ -46,8 +46,13 @@ public class UserService {
 
     /** Create a user with a one-time temp password (no invite-email infra — share it out-of-band). */
     @Transactional
-    public Invited invite(UUID tenantId, UUID actorId, String email, String role) {
+    public Invited invite(UUID tenantId, String actorRole, UUID actorId, String email, String role) {
         requireRole(role);
+        // Anti-escalation: only an OWNER may create an OWNER — mirrors changeRole, so the invite path
+        // cannot be used to mint a higher-privileged user than the actor holds (tenant takeover).
+        if ("OWNER".equals(role) && !"OWNER".equals(actorRole)) {
+            throw new ForbiddenException("Only an OWNER can grant the OWNER role");
+        }
         if (email == null || email.isBlank()) throw new IllegalArgumentException("email is required");
         String normalized = email.toLowerCase();
         if (users.findByTenantIdAndEmail(tenantId, normalized).isPresent()) {

@@ -2,17 +2,22 @@ package com.trustledger.app;
 
 import com.trustledger.api.MonitoringViews.*;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
+import com.trustledger.persistence.entity.TenantProviderConfigEntity;
+import com.trustledger.persistence.repo.CertificationRunRepository;
 import com.trustledger.persistence.repo.OutboxEventRepository;
 import com.trustledger.persistence.repo.PaymentWebhookEventRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.TenantProviderConfigRepository;
 import com.trustledger.persistence.repo.TransferRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +40,8 @@ public class MonitoringService {
     private static final String OK = "OK", WARN = "WARN", CRITICAL = "CRITICAL";
     private static final String OUTBOX_PENDING = "PENDING";
     private static final String RECON_OPEN = "OPEN";
+    private static final String RECON_CRITICAL = "CRITICAL";
+    private static final long RECON_AGE_CRITICAL_SECONDS = 86_400; // an open break unresolved > 24h is escalated
     private static final String TRANSFER_PENDING_UNKNOWN = "PENDING_UNKNOWN";
 
     private final JdbcTemplate jdbc;
@@ -43,16 +50,24 @@ public class MonitoringService {
     private final PaymentWebhookEventRepository webhooks;
     private final ReconciliationIssueRepository reconciliation;
     private final TransferRepository transfers;
+    private final TenantProviderConfigRepository providerConfigs;
+    private final CertificationRunRepository certificationRuns;
+    private final long certExpiryWarningDays;
 
     public MonitoringService(JdbcTemplate jdbc, MeterRegistry registry, OutboxEventRepository outbox,
                              PaymentWebhookEventRepository webhooks, ReconciliationIssueRepository reconciliation,
-                             TransferRepository transfers) {
+                             TransferRepository transfers, TenantProviderConfigRepository providerConfigs,
+                             CertificationRunRepository certificationRuns,
+                             @Value("${trustledger.certification.expiry-warning-days:14}") long certExpiryWarningDays) {
         this.jdbc = jdbc;
         this.registry = registry;
         this.outbox = outbox;
         this.webhooks = webhooks;
         this.reconciliation = reconciliation;
         this.transfers = transfers;
+        this.providerConfigs = providerConfigs;
+        this.certificationRuns = certificationRuns;
+        this.certExpiryWarningDays = certExpiryWarningDays;
     }
 
     @Transactional(readOnly = true)
@@ -65,10 +80,12 @@ public class MonitoringService {
         ReconciliationHealth reconHealth = reconciliation(tenantId);
         PaymentsHealth paymentsHealth = payments(tenantId);
         LockHealth lockHealth = locks();
+        CertificationHealth certHealth = certifications(tenantId);
 
         boolean critical = !database.up();
         boolean warn = anyWarn(transferLatency.status(), fraudLatency.status(), outboxHealth.status(),
-            webhookHealth.status(), reconHealth.status(), paymentsHealth.status(), lockHealth.status());
+            webhookHealth.status(), reconHealth.status(), paymentsHealth.status(), lockHealth.status(),
+            certHealth.status());
         String overall = critical ? CRITICAL : (warn ? WARN : OK);
         String banner = switch (overall) {
             case CRITICAL -> "Critical: database unreachable";
@@ -77,7 +94,31 @@ public class MonitoringService {
         };
 
         return new MonitoringSnapshot(overall, banner, database, transferLatency, fraudLatency,
-            outboxHealth, webhookHealth, reconHealth, paymentsHealth, lockHealth);
+            outboxHealth, webhookHealth, reconHealth, paymentsHealth, lockHealth, certHealth);
+    }
+
+    /**
+     * Production-certification coverage: how many production provider configs currently clear the gate,
+     * and how many are uncertified or expiring within the warning window. Purely tenant-scoped reads.
+     */
+    private CertificationHealth certifications(UUID tenantId) {
+        List<TenantProviderConfigEntity> prod = providerConfigs.findByTenantId(tenantId).stream()
+            .filter(c -> "PRODUCTION".equalsIgnoreCase(c.getEnvironment())).toList();
+        Instant now = Instant.now();
+        Instant warnBy = now.plus(certExpiryWarningDays, ChronoUnit.DAYS);
+        int certified = 0, expiring = 0, uncertified = 0;
+        for (TenantProviderConfigEntity c : prod) {
+            List<?> current = certificationRuns.findCurrentValid(tenantId, c.getId(), "PRODUCTION", now);
+            if (current.isEmpty()) {
+                uncertified++;
+                continue;
+            }
+            certified++;
+            var run = (com.trustledger.persistence.entity.CertificationRunEntity) current.get(0);
+            if (run.getExpiresAt() != null && run.getExpiresAt().isBefore(warnBy)) expiring++;
+        }
+        String status = (uncertified > 0 || expiring > 0) ? WARN : OK;
+        return new CertificationHealth(status, prod.size(), certified, expiring, uncertified);
     }
 
     private ComponentHealth probeDatabase() {
@@ -109,7 +150,7 @@ public class MonitoringService {
     private OutboxHealth outbox(UUID tenantId) {
         long pending = outbox.countByTenantIdAndStatus(tenantId, OUTBOX_PENDING);
         Instant oldest = pending > 0 ? outbox.oldestCreatedAt(tenantId, OUTBOX_PENDING) : null;
-        Long ageSeconds = oldest == null ? null : Duration.between(oldest, Instant.now()).toSeconds();
+        Long ageSeconds = oldest == null ? null : nonNegativeAgeSeconds(oldest);
         boolean warn = pending > OUTBOX_PENDING_WARN || (ageSeconds != null && ageSeconds > OUTBOX_AGE_WARN_SECONDS);
         return new OutboxHealth(warn ? WARN : OK, pending, ageSeconds);
     }
@@ -125,9 +166,30 @@ public class MonitoringService {
 
     private ReconciliationHealth reconciliation(UUID tenantId) {
         long open = reconciliation.countByTenantIdAndStatus(tenantId, RECON_OPEN);
-        List<ReconciliationIssueEntity> recent = reconciliation.findByTenantIdOrderByCreatedAtDesc(tenantId);
-        Instant last = recent.isEmpty() ? null : recent.get(0).getCreatedAt();
-        return new ReconciliationHealth(open > 0 ? WARN : OK, open, last);
+        long criticalOpen = reconciliation.countByTenantIdAndStatusAndSeverity(tenantId, RECON_OPEN, RECON_CRITICAL);
+        Instant oldestOpen = open > 0 ? reconciliation.oldestCreatedAtByStatus(tenantId, RECON_OPEN) : null;
+        Long oldestAge = oldestOpen == null ? null : nonNegativeAgeSeconds(oldestOpen);
+        Instant last = reconciliation.latestCreatedAt(tenantId);
+        // Severity/age-aware: any open break is a WARN, but a CRITICAL-severity break or one left open past
+        // the SLA escalates the card to CRITICAL so an urgent, unreconciled loss doesn't read like noise.
+        String status;
+        if (open == 0) {
+            status = OK;
+        } else if (criticalOpen > 0 || (oldestAge != null && oldestAge > RECON_AGE_CRITICAL_SECONDS)) {
+            status = CRITICAL;
+        } else {
+            status = WARN;
+        }
+        return new ReconciliationHealth(status, open, criticalOpen, oldestAge, last);
+    }
+
+    /**
+     * created_at is stamped by the database clock; the age is computed against the JVM clock.
+     * When the DB runs even tens of milliseconds ahead (VM guests, NTP catch-up), a just-written
+     * row's age truncates to -1. A negative age is always clock skew, never truth — floor at 0.
+     */
+    private long nonNegativeAgeSeconds(Instant createdAt) {
+        return Math.max(0, Duration.between(createdAt, Instant.now()).toSeconds());
     }
 
     private PaymentsHealth payments(UUID tenantId) {

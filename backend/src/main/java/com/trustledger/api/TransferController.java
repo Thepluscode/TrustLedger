@@ -1,11 +1,14 @@
 package com.trustledger.api;
 
+import com.trustledger.app.AccessControlService;
 import com.trustledger.app.IntelligentTransferGateway;
+import com.trustledger.app.OrgScopeService;
 import com.trustledger.app.PersistentTransferRequest;
 import com.trustledger.app.PersistentTransferResponse;
 import com.trustledger.app.UsageMeteringService;
-import com.trustledger.metrics.TransferMetrics;
 import com.trustledger.security.CurrentUser;
+import com.trustledger.security.ForbiddenException;
+import com.trustledger.security.Permission;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,19 +18,28 @@ import org.springframework.web.bind.annotation.*;
 public class TransferController {
 
     private final IntelligentTransferGateway gateway;
-    private final TransferMetrics metrics;
     private final UsageMeteringService usage;
+    private final AccessControlService access;
+    private final OrgScopeService orgScope;
 
-    public TransferController(IntelligentTransferGateway gateway, TransferMetrics metrics, UsageMeteringService usage) {
+    public TransferController(IntelligentTransferGateway gateway, UsageMeteringService usage,
+                             AccessControlService access, OrgScopeService orgScope) {
         this.gateway = gateway;
-        this.metrics = metrics;
         this.usage = usage;
+        this.access = access;
+        this.orgScope = orgScope;
     }
 
     @PostMapping
     public ResponseEntity<PersistentTransferResponse> createTransfer(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody TransferApiRequest body) {
+        access.require(Permission.TRANSFER_CREATE);
+        // Org scope: a unit-scoped user may only move money FROM a source account within their subtree —
+        // otherwise a scoped operator could initiate transfers out of a sibling unit's account.
+        if (!orgScope.canAccessAccount(CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId())) {
+            throw new ForbiddenException("Source account is outside your organisation-unit scope");
+        }
 
         PersistentTransferRequest request = new PersistentTransferRequest(
             CurrentUser.tenantId(), CurrentUser.userId(), body.sourceAccountId(), body.destinationAccountId(),
@@ -36,7 +48,6 @@ public class TransferController {
 
         // Live intelligence gate: behaviour/device/recipient scoring decides complete / hold / reject.
         PersistentTransferResponse result = gateway.submit(request);
-        metrics.record(result.status());
         usage.record(CurrentUser.tenantId(), UsageMeteringService.TRANSFERS_CREATED, 1);
 
         HttpStatus status = switch (result.status()) {

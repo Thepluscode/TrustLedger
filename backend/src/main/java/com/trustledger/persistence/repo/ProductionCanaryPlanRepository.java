@@ -34,9 +34,10 @@ public interface ProductionCanaryPlanRepository extends JpaRepository<Production
     Optional<ProductionCanaryPlanEntity> findByIdAndTenantIdForUpdate(
         @Param("id") UUID id, @Param("tenantId") UUID tenantId);
 
+    /** Unscoped row lock — for internal paths where the id is derived from tenant-scoped data. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from ProductionCanaryPlanEntity p where p.id = :id")
-    Optional<ProductionCanaryPlanEntity> findByIdForUpdate(@Param("id") UUID id);
+    Optional<ProductionCanaryPlanEntity> findByIdForUpdateUnscoped(@Param("id") UUID id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from ProductionCanaryPlanEntity p where p.tenantId = :tenantId "

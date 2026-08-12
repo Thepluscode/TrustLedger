@@ -9,7 +9,7 @@ import java.util.UUID;
 public final class ApiViews {
     private ApiViews() {}
 
-    public record CreateAccountRequest(String currency, BigDecimal openingBalance) {}
+    public record CreateAccountRequest(String currency, BigDecimal openingBalance, UUID orgUnitId) {}
     public record AccountView(UUID id, String currency, String status,
                               BigDecimal availableBalance, BigDecimal pendingBalance, BigDecimal postedBalance) {}
     public record BalanceView(UUID accountId, String currency,
@@ -26,7 +26,8 @@ public final class ApiViews {
     public record FraudCaseView(UUID id, UUID transactionId, String status, String severity, int riskScore) {}
 
     public record AuditLogView(UUID id, String actorType, UUID actorId, String action,
-                               String resourceType, UUID resourceId, Instant createdAt) {}
+                               String resourceType, UUID resourceId, String correlationId,
+                               Instant createdAt) {}
 
     public record DashboardSummary(long accounts, long transfersCompleted, long transfersHeld,
                                    long transfersRejected, long fraudCasesOpen, long reconciliationIssuesOpen) {}
@@ -49,7 +50,8 @@ public final class ApiViews {
                                   long transferCount, String riskLevel, Instant lastPasswordChangeAt) {}
 
     /** Reconciliation issue (§14): a financial/operational mismatch found by the worker. */
-    public record ReconciliationIssueView(UUID id, String severity, String type, String entityType, UUID entityId,
+    public record ReconciliationIssueView(UUID id, String severity, String type, String classification,
+                                          String entityType, UUID entityId,
                                           String expectedState, String actualState, String evidence, String status,
                                           Instant createdAt, Instant resolvedAt) {}
 
