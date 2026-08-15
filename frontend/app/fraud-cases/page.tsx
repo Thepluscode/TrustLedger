@@ -97,6 +97,14 @@ export default function FraudCasesPage() {
     },
   };
   const copy = pending ? modalCopy[pending.kind] : null;
+  const openCases = sorted.filter((c) => c.status === "OPEN");
+  const metricValues = [
+    ["Open cases", openCases.length],
+    ["Critical", openCases.filter((c) => c.severity === "CRITICAL").length],
+    ["High risk", openCases.filter((c) => c.riskScore >= 70).length],
+    ["Resolved", sorted.filter((c) => c.status !== "OPEN").length],
+  ] as const;
+  const maxSignalCount = Math.max(1, ...(summary ?? []).map((item) => item.occurrences));
 
   return (
     <Shell active="/fraud-cases">
@@ -110,15 +118,21 @@ export default function FraudCasesPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
+      <section className="fraud-metrics" aria-label="Case queue metrics">
+        {metricValues.map(([label, value]) => (
+          <article className="card" key={label}><span>{label}</span><strong>{value}</strong></article>
+        ))}
+      </section>
+
       {summary && summary.length > 0 && (
-        <section className="panel">
+        <section className="panel signal-frequency">
           <div className="panelHeader">
             <div>
               <h2>Signal frequency</h2>
               <p className="sub">Which fraud signals fire most across your tenant — the control graph as insight. Tune thresholds against what actually drives holds.</p>
             </div>
           </div>
-          <table>
+          <table className="desktop-table">
             <thead>
               <tr><th>Signal</th><th>Times fired</th><th>Total score contribution</th></tr>
             </thead>
@@ -132,11 +146,20 @@ export default function FraudCasesPage() {
               ))}
             </tbody>
           </table>
+          <div className="signal-bars">
+            {summary.map((item) => (
+              <div className="signal-bar" key={item.signalType}>
+                <span>{item.signalType.replace(/_/g, " ").toLowerCase()}</span>
+                <span className="bar-track"><span style={{ width: `${Math.max(8, item.occurrences / maxSignalCount * 100)}%` }} /></span>
+                <b>{item.occurrences}</b>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
       <section className="panel" style={{ marginTop: 18 }}>
-        <table>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>Severity</th>
@@ -197,6 +220,27 @@ export default function FraudCasesPage() {
             ))}
           </tbody>
         </table>
+        <div className="fraud-mobile-cards">
+          {sorted.map((c) => (
+            <article className="fraud-case-card" key={c.id}>
+              <div className="case-card-head"><SeverityPill value={c.severity} /><StatusPill value={c.status} /></div>
+              <div className="case-card-main">
+                <div><small>Transaction</small><strong className="mono">{shortId(c.transactionId)}</strong></div>
+                <RiskBadge score={c.riskScore} />
+              </div>
+              <p className="muted">Case <span className="mono">{shortId(c.id)}</span> · Evidence and explainable signals are available for analyst review.</p>
+              <button className="secondary" onClick={() => toggleSignals(c.id)}>{expanded === c.id ? "Hide evidence" : "Review evidence"}</button>
+              {expanded === c.id && (
+                <div className="case-signal-list">
+                  {caseSignals === null && <span className="muted">Loading signals…</span>}
+                  {caseSignals?.length === 0 && <span className="muted">No recorded signals.</span>}
+                  {caseSignals?.map((signal, index) => <div key={index}><b>{signal.signalType.replace(/_/g, " ").toLowerCase()}</b><small>+{signal.scoreDelta} · {signal.reason}</small></div>)}
+                </div>
+              )}
+              {c.status === "OPEN" && <div className="case-card-actions"><button onClick={() => setPending({ kind: "approve", caseId: c.id })}>Approve</button><button className="danger" onClick={() => setPending({ kind: "reject", caseId: c.id })}>Reject</button></div>}
+            </article>
+          ))}
+        </div>
         {cases !== null && sorted.length === 0 && (
           <EmptyState
             title="No fraud cases"

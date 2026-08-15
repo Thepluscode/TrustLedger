@@ -120,6 +120,7 @@ export default function TransferDetailPage() {
         <div>
           <p className="eyebrow"><Link href="/transfers">Transfers</Link> / detail</p>
           <h1>Transfer {shortId(id)}</h1>
+          <p className="sub">Complete operational history, financial posting and review evidence.</p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
@@ -127,27 +128,31 @@ export default function TransferDetailPage() {
 
       {t && (
         <>
-          <section className="panel">
+          <section className="panel transfer-overview">
             <div className="panelBody">
-              <p className="row" style={{ gap: 10, alignItems: "center" }}>
-                <StatusPill value={t.status} /> <RiskBadge score={t.riskScore} />
-                <span className="muted">decision {t.fraudDecision.replace(/_/g, " ").toLowerCase()}</span>
-                <span className="badge">{t.channel.toLowerCase()}</span>
-              </p>
-              <div className="statemachine" style={{ padding: "14px 0" }}>
+              <div className="transfer-summary-grid">
+                <article><small>Amount</small><strong>{money(t.amount, t.currency)}</strong></article>
+                <article><small>Status</small><StatusPill value={t.status} /></article>
+                <article><small>Risk assessment</small><RiskBadge score={t.riskScore} /></article>
+                <article><small>Decision</small><strong>{t.fraudDecision.replace(/_/g, " ").toLowerCase()}</strong></article>
+                <article><small>Channel</small><span className="badge">{t.channel.toLowerCase()}</span></article>
+                <article><small>Created</small><strong>{dateTime(t.createdAt)}</strong></article>
+              </div>
+              <div className="lifecycle-block">
+                <p className="eyebrow">Transfer lifecycle</p>
+                <div className="statemachine">
                 {lifecycle(t.status).map((s, i, arr) => (
                   <span key={i} style={{ display: "inline-flex", alignItems: "center" }}>
                     <span className={`state ${s.cls}`}>{s.label}</span>
                     {i < arr.length - 1 && <span className="arrow">→</span>}
                   </span>
                 ))}
+                </div>
               </div>
-              <div style={{ maxWidth: 520 }}>
-                <div className="entry"><span className="muted">Amount</span><span className="amt">{money(t.amount, t.currency)}</span></div>
+              <div className="transfer-identifiers">
                 <div className="entry"><span className="muted">From</span><span className="mono">{shortId(t.sourceAccountId)}</span></div>
                 <div className="entry"><span className="muted">To</span><span className="mono">{shortId(t.destinationAccountId)}</span></div>
                 <div className="entry"><span className="muted">Reference</span><span>{t.reference || "—"}</span></div>
-                <div className="entry"><span className="muted">Created</span><span>{dateTime(t.createdAt)}</span></div>
               </div>
             </div>
           </section>
@@ -191,13 +196,17 @@ export default function TransferDetailPage() {
           )}
 
           {data.fraudCase && (
-            <section className="panel" style={{ marginTop: 18 }}>
+            <section className="panel review-panel" style={{ marginTop: 18 }}>
               <div className="panelHeader">
-                <div><h2>Fraud case</h2></div>
+                <div><p className="eyebrow">Operator review</p><h2>Why this transfer is on hold</h2><p className="sub">The transfer remains controlled while an analyst reviews the recorded risk decision.</p></div>
                 <Link href="/fraud-cases">Case queue →</Link>
               </div>
               <div className="panelBody">
-                <p className="row" style={{ gap: 10, alignItems: "center" }}>
+                <div className="risk-explanation">
+                  <span className="risk-score-orb">{data.fraudCase.riskScore}<small>/100</small></span>
+                  <div><strong>Explainable review threshold reached</strong><p className="muted">The stored fraud decision opened case <span className="mono">{shortId(data.fraudCase.id)}</span>. Funds stay held until a permissioned operator records a decision.</p></div>
+                </div>
+                <p className="row" style={{ gap: 10, alignItems: "center", marginBottom: 0 }}>
                   <span className="mono">{shortId(data.fraudCase.id)}</span>
                   <StatusPill value={data.fraudCase.status} />
                   <RiskBadge score={data.fraudCase.riskScore} />
@@ -240,6 +249,7 @@ export default function TransferDetailPage() {
               )}
             </div>
           </section>
+          {data.fraudCase && <Link href="/fraud-cases" className="mobile-primary-action">Review fraud case</Link>}
         </>
       )}
     </Shell>

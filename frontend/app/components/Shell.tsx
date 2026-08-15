@@ -110,6 +110,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
   const [menuOpen, setMenuOpen] = useState(false);
   const [session, setSess] = useState<{ email: string; role: string; tenantId: string } | null>(null);
   const [scopeUnits, setScopeUnits] = useState<OrgUnit[]>([]);
+  const activeGroup = NAV.find((group) => group.links.some(([, href]) => href === active))?.label ?? "Overview";
+  const [expandedGroup, setExpandedGroup] = useState(activeGroup);
 
   useEffect(() => {
     if (!getToken()) {
@@ -129,8 +131,6 @@ export default function Shell({ children, active }: { children: ReactNode; activ
     router.replace("/login");
   }
 
-  const activeTitle = NAV.flatMap((g) => g.links).find(([, href]) => href === active)?.[0] ?? "TrustLedger";
-
   return (
     <div className="shell">
       <a href="#main" className="skip-link">Skip to content</a>
@@ -149,10 +149,21 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           </span>
         </div>
 
-        {NAV.map((group) => (
-          <div className="navgroup" key={group.label}>
-            <div className="navlabel">{group.label}</div>
-            <nav className="sidenav">
+        <div className="sidebar-nav">
+        {NAV.map((group) => {
+          const groupOpen = expandedGroup === group.label;
+          const groupActive = group.label === activeGroup;
+          return (
+          <div className={`navgroup${groupActive ? " active-group" : ""}`} key={group.label}>
+            <button
+              type="button"
+              className="navlabel"
+              aria-expanded={groupOpen}
+              onClick={() => setExpandedGroup(groupOpen ? "" : group.label)}
+            >
+              <span>{group.label}</span><span aria-hidden>{groupOpen ? "−" : "+"}</span>
+            </button>
+            <nav className={`sidenav${groupOpen ? " open" : ""}`}>
               {group.links.map(([label, href, icon]) => (
                 <Link
                   key={href}
@@ -167,7 +178,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
               ))}
             </nav>
           </div>
-        ))}
+        )})}
+        </div>
 
         <div className="sidebar-footer">
           <div className="userline">
@@ -184,30 +196,27 @@ export default function Shell({ children, active }: { children: ReactNode; activ
       <div className="content">
         <header className="topnav">
           <button className="ghost menu-btn" aria-label="Open navigation" onClick={() => setMenuOpen((v) => !v)}>☰</button>
-          <span className="topnav-title">
-            <span className="topnav-kicker">Operations workspace</span>
-            <span className="crumb">{activeTitle}</span>
-          </span>
-          <span className="spacer" />
+          <span className="mobile-brand"><span className="brand-mark"><Icon name="ledger" /></span><b>TrustLedger</b></span>
+          <span className={`envbadge ${ENVIRONMENT}`}>{ENVIRONMENT}</span>
           <div className="topnav-actions">
             <button className="cmdk-trigger" aria-label="Open command palette" onClick={() => window.dispatchEvent(new Event("trustledger:cmdk"))}>
-              Search <kbd>⌘K</kbd>
+              <span>Search transfers, cases and evidence</span> <kbd>⌘K</kbd>
             </button>
-            <span className={`envbadge ${ENVIRONMENT}`}>{ENVIRONMENT}</span>
             {scopeUnits.length > 0 && (
               <span className="tenantchip" title="You see only accounts, transfers, ledger and fraud cases within these organisation units">
                 Scope <b>{scopeUnits.map((u) => u.name).join(", ")}</b>
-              </span>
-            )}
-            {session && (
-              <span className="tenantchip" title={session.tenantId}>
-                Tenant <b className="mono">{session.tenantId.slice(0, 8)}…</b>
               </span>
             )}
             <Link href="/transfers/new" className="btn primary-action" style={{ textDecoration: "none" }}>
               <Icon name="plus" />
               <span className="action-label">Create transfer</span>
             </Link>
+            {session && (
+              <span className="topnav-user" title={`${session.email} · ${session.tenantId}`}>
+                <span className="avatar" aria-hidden>{session.email[0].toUpperCase()}</span>
+                <span><b>{session.email.split("@")[0]}</b><small>{session.role.toLowerCase()}</small></span>
+              </span>
+            )}
           </div>
         </header>
         <main className="page" id="main">
@@ -215,6 +224,14 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           {children}
         </main>
       </div>
+      <nav className="mobile-tabbar" aria-label="Mobile navigation">
+        {[["Overview", "/dashboard", "overview"], ["Money", "/transfers", "transfer"], ["Fraud", "/fraud-cases", "shield"]].map(([label, href, icon]) => (
+          <Link key={href} href={href} className={active === href || (label === "Money" && activeGroup === "Money") ? "active" : ""}>
+            <span className="nav-icon"><Icon name={icon as IconName} /></span><span>{label}</span>
+          </Link>
+        ))}
+        <button type="button" onClick={() => setMenuOpen(true)}><span className="nav-icon">•••</span><span>More</span></button>
+      </nav>
       <CommandPalette />
     </div>
   );

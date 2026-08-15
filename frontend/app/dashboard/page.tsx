@@ -57,7 +57,7 @@ export default function DashboardPage() {
 
   return (
     <Shell active="/dashboard">
-      <section className="dashboard-hero" aria-labelledby="dashboard-title">
+      <section className="dashboard-hero premise-hero" aria-labelledby="dashboard-title">
         <div className="hero-copy">
           <p className="eyebrow">Financial operations cockpit</p>
           <h1 id="dashboard-title">Money movement, risk and evidence—under control.</h1>
@@ -65,28 +65,6 @@ export default function DashboardPage() {
             A live operating view of tenant balances, transfer outcomes, fraud decisions and reconciliation exceptions.
             Every action remains ledger-backed, permissioned and auditable.
           </p>
-          <div className="hero-actions">
-            <Link href="/transfers/new" className="btn" style={{ textDecoration: "none" }}>Create transfer</Link>
-            <Link href="/fraud-cases" className="secondary-link">Review risk queue →</Link>
-          </div>
-        </div>
-
-        <div className="hero-signal-grid" aria-label="Current operating signals">
-          <article className="signal">
-            <span className="signal-label">Control posture</span>
-            <strong>{(s?.fraudCasesOpen ?? 0) + (s?.reconciliationIssuesOpen ?? 0) === 0 ? "Clear" : "Attention"}</strong>
-            <small>{(s?.fraudCasesOpen ?? 0) + (s?.reconciliationIssuesOpen ?? 0)} open fraud or reconciliation items</small>
-          </article>
-          <article className="signal">
-            <span className="signal-label">Completed</span>
-            <strong>{s?.transfersCompleted ?? "—"}</strong>
-            <small>Transfer outcomes</small>
-          </article>
-          <article className="signal">
-            <span className="signal-label">Under review</span>
-            <strong>{s?.transfersHeld ?? "—"}</strong>
-            <small>Held transfers</small>
-          </article>
         </div>
       </section>
 
@@ -127,7 +105,7 @@ export default function DashboardPage() {
             <Link href="/fraud-cases">All cases →</Link>
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <table className="desktop-table">
               <thead>
                 <tr>
                   <th>Severity</th>
@@ -150,6 +128,16 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="mobile-case-list">
+            {queue.map((c) => (
+              <article className="mobile-case" key={c.id}>
+                <div><SeverityPill value={c.severity} /><RiskBadge score={c.riskScore} /></div>
+                <strong>Transfer {shortId(c.transactionId)}</strong>
+                <small>Case <span className="mono">{shortId(c.id)}</span></small>
+                <Link href="/fraud-cases">Review case →</Link>
+              </article>
+            ))}
           </div>
           {cases !== null && queue.length === 0 && (
             <EmptyState title="No open fraud cases" hint="The current tenant has no fraud cases awaiting operator review." />
@@ -183,6 +171,7 @@ export default function DashboardPage() {
           </section>
         </aside>
       </section>
+      <Link href="/transfers/new" className="mobile-primary-action">＋ Create transfer</Link>
     </Shell>
   );
 }
