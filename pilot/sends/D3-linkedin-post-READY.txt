@@ -1,0 +1,9 @@
+I'm doing research on a specific, unglamorous problem: cross-provider payment reconciliation.
+
+If your company settles across two or more payment providers, banks or rails, I'd like 20 minutes.
+
+Not a pitch — I'm testing whether the pain is real and expensive, or whether existing tools cover it. A well-argued "this is a non-problem" is as useful to me as the opposite.
+
+Speaking to ~25 companies. I'll publish what I find, anonymised.
+
+Comment or DM, and please tag anyone who lives this.
