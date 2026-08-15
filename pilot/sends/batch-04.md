@@ -1,5 +1,24 @@
 # Batch 04 — follow-up wave for batches 01–02 (sends 30–49)
 
+> **HELD 2026-08-15 — do not send this wave as written.**
+>
+> This was drafted 2026-08-05 and due +5 working days after the 2026-08-04 wave, so it is overdue.
+> It is being held anyway, because of what the delivery column says: **of 19 sends, exactly 1 is
+> confirmed delivered.** 4 bounced and 14 are `SENT-UNCONFIRMED`.
+>
+> A follow-up to an address that was never confirmed to deliver does not test the follow-up — it
+> re-runs an experiment whose result was already ambiguous, and it spends the one follow-up this
+> contact is ever owed (see the two-total rule below) on an address that may not exist.
+>
+> Every address here was data-broker-inferred; `batch-01-recipients.md` says so in its own opening
+> paragraph. On 2026-08-15 five of the fourteen were checked against their own legal and imprint
+> pages: only **XTB** publishes usable addresses. Trustly, Swissquote, iBanFirst, Freetrade and
+> Trade Republic publish none. Large regulated fintechs do not publish inboxes.
+>
+> **Release condition:** send to a contact here only once that specific address is confirmed
+> delivered, or replaced by a company-published one. Until then `batch-05.md` Part A is the live
+> channel — it needs no address at all.
+
 **These are not new companies. They are the second touch to the 20 already contacted.**
 
 Batches 1–3 exhaust the evidenced list at 29 names. The booking maths needs ~150–200 sends. That gap
