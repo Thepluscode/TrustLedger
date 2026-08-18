@@ -5,8 +5,20 @@ import { useEffect, useState } from "react";
 import { EmptyState, SeverityPill, SkeletonRows, StatusPill } from "../components/ui";
 import Shell from "../components/Shell";
 import { api } from "../lib/api";
-import { dateTime, shortId } from "../lib/format";
-import type { ReconciliationIssueList } from "../lib/types";
+import { dateTime, money, shortId } from "../lib/format";
+import type { ReconciliationIssue, ReconciliationIssueList } from "../lib/types";
+
+/** "—" when the break carries no monetary value: absent is not zero, and 0 would claim nothing is at risk. */
+function exposure(issue: ReconciliationIssue): string {
+  return issue.exposureAmount && issue.exposureCurrency
+    ? money(issue.exposureAmount, issue.exposureCurrency)
+    : "—";
+}
+
+/** A resolved case is never late, however long it sat open before someone closed it. */
+function isOverdue(issue: ReconciliationIssue): boolean {
+  return issue.status === "OPEN" && new Date(issue.dueAt).getTime() < Date.now();
+}
 
 export default function ReconciliationPage() {
   const [data, setData] = useState<ReconciliationIssueList | null>(null);
@@ -20,10 +32,21 @@ export default function ReconciliationPage() {
   }, [status, severity]);
 
   const s = data?.summary;
-  const cards: { label: string; value: number; alert?: boolean }[] = s
+  // Exposure gets one card per currency. Adding them together would be arithmetic on incomparable
+  // units, and the resulting number is exactly the one someone would have acted on.
+  const exposureCards = s
+    ? Object.entries(s.openExposureByCurrency).map(([currency, amount]) => ({
+        label: `At risk · ${currency}`,
+        value: money(amount, currency),
+        alert: true,
+      }))
+    : [];
+  const cards: { label: string; value: string | number; alert?: boolean }[] = s
     ? [
         { label: "Open issues", value: s.open, alert: s.open > 0 },
         { label: "Critical (open)", value: s.criticalOpen, alert: s.criticalOpen > 0 },
+        { label: "Past deadline", value: s.overdueOpen, alert: s.overdueOpen > 0 },
+        ...exposureCards,
         { label: "Resolved", value: s.resolved },
         { label: "Total", value: s.total },
       ]
@@ -42,7 +65,7 @@ export default function ReconciliationPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="grid metrics">
+      <section className="grid metrics reconciliation-metrics">
         {cards.length === 0 && !error
           ? Array.from({ length: 4 }, (_, i) => (
               <article className="card" key={i}><div className="skeleton" style={{ width: "55%" }} /><div className="skeleton" style={{ width: "30%", minHeight: 26 }} /></article>
@@ -73,23 +96,42 @@ export default function ReconciliationPage() {
             </select>
           </div>
         </div>
-        <table>
+        <table className="desktop-table">
           <thead>
-            <tr><th>Severity</th><th>Type</th><th>Affected entity</th><th>Status</th><th>Created</th></tr>
+            <tr><th>Severity</th><th>Type</th><th>Affected entity</th><th>At risk</th><th>Due</th><th>Status</th><th>Created</th></tr>
           </thead>
           <tbody>
-            {items === null && <SkeletonRows cols={5} />}
+            {items === null && <SkeletonRows cols={7} />}
             {items?.map((i) => (
               <tr key={i.id}>
                 <td><SeverityPill value={i.severity} /></td>
                 <td><Link href={`/reconciliation/${i.id}`}>{i.type.replace(/_/g, " ").toLowerCase()}</Link></td>
                 <td className="muted"><span className="mono">{shortId(i.entityId)}</span> {i.entityType.replace(/_/g, " ").toLowerCase()}</td>
+                <td className="mono">{exposure(i)}</td>
+                <td className={isOverdue(i) ? "error" : "muted"} style={{ whiteSpace: "nowrap" }}>
+                  {dateTime(i.dueAt)}{isOverdue(i) ? " · overdue" : ""}
+                </td>
                 <td><StatusPill value={i.status} /></td>
                 <td className="muted" style={{ whiteSpace: "nowrap" }}>{dateTime(i.createdAt)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list reconciliation-record-list">
+          {items?.map((issue) => (
+            <article className={`mobile-record reconciliation-record ${issue.severity.toLowerCase()}`} key={issue.id}>
+              <div className="record-head"><SeverityPill value={issue.severity} /><StatusPill value={issue.status} /></div>
+              <div><small>Issue</small><h2>{issue.type.replace(/_/g, " ").toLowerCase()}</h2></div>
+              <p className="muted"><span className="mono">{shortId(issue.entityId)}</span> · {issue.entityType.replace(/_/g, " ").toLowerCase()}</p>
+              <p className={isOverdue(issue) ? "error" : "muted"}>
+                <span className="mono">{exposure(issue)}</span> at risk · due {dateTime(issue.dueAt)}
+                {isOverdue(issue) ? " · overdue" : ""}
+              </p>
+              <div className="record-foot"><small>Detected {dateTime(issue.createdAt)}</small><span className="mono">{shortId(issue.id)}</span></div>
+              <Link href={`/reconciliation/${issue.id}`} className="record-action">Investigate →</Link>
+            </article>
+          ))}
+        </div>
         {items !== null && items.length === 0 && (
           <EmptyState
             title={status || severity ? "No issues match this filter" : "No reconciliation issues"}
@@ -99,6 +141,7 @@ export default function ReconciliationPage() {
           />
         )}
       </section>
+      <div className="notice reconciliation-principle"><b>Why mismatches remain visible</b> — issues stay open until a permissioned operator explicitly resolves the underlying difference. This preserves a complete audit trail.</div>
     </Shell>
   );
 }

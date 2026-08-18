@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { ConfirmModal, SeverityPill, StatusPill } from "../../components/ui";
 import Shell from "../../components/Shell";
 import { api } from "../../lib/api";
-import { dateTime, shortId } from "../../lib/format";
+import { dateTime, money, shortId } from "../../lib/format";
 import type { ReconciliationAuditEntry, ReconciliationIssue } from "../../lib/types";
 
 function pretty(json: string | null): string {
@@ -27,6 +27,16 @@ function resolutionFields(metadata: string): { outcome?: string; note?: string }
   }
 }
 
+/** The owner an assignment event moved the case to; "null" is the string the API writes when unassigning. */
+function assignedTo(metadata: string): string | null {
+  try {
+    const m = JSON.parse(metadata) as { ownerEmail?: string };
+    return m.ownerEmail && m.ownerEmail !== "null" ? m.ownerEmail : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The settlement statement a break came from, if any: the entity itself for a statement-level break,
  *  else the statementId stamped into the evidence for a line/attempt break. */
 function sourceStatementId(issue: ReconciliationIssue): string | null {
@@ -36,6 +46,11 @@ function sourceStatementId(issue: ReconciliationIssue): string | null {
   } catch {
     return null;
   }
+}
+
+/** A resolved case is never late, however long it sat open before someone closed it. */
+function overdue(issue: ReconciliationIssue): boolean {
+  return issue.status === "OPEN" && new Date(issue.dueAt).getTime() < Date.now();
 }
 
 export default function ReconciliationIssuePage() {
@@ -86,23 +101,35 @@ export default function ReconciliationIssuePage() {
 
       {issue && (
         <>
-          <section className="panel">
+          <section className="panel reconciliation-issue-hero">
             <div className="panelBody">
               <p className="row" style={{ gap: 10, alignItems: "center" }}>
                 <SeverityPill value={issue.severity} /> <StatusPill value={issue.status} />
                 <span className="muted">{issue.type.replace(/_/g, " ").toLowerCase()}</span>
               </p>
-              <div style={{ maxWidth: 560 }}>
+              <div className="issue-facts">
                 <div className="entry"><span className="muted">Affected entity</span><span><span className="mono">{shortId(issue.entityId)}</span> {issue.entityType.replace(/_/g, " ").toLowerCase()}</span></div>
                 {sourceStatementId(issue) && (
                   <div className="entry"><span className="muted">Source statement</span>
                     <Link href={`/reconciliation/statements/${sourceStatementId(issue)}`}>view statement</Link></div>
                 )}
+                <div className="entry"><span className="muted">Money at risk</span>
+                  <span className="mono">
+                    {issue.exposureAmount && issue.exposureCurrency
+                      ? money(issue.exposureAmount, issue.exposureCurrency)
+                      : "— no amount applies"}
+                  </span></div>
+                <div className="entry"><span className="muted">Owner</span>
+                  <span>{issue.ownerUserId ? <span className="mono">{shortId(issue.ownerUserId)}</span> : "unassigned"}</span></div>
+                <div className="entry"><span className="muted">Due</span>
+                  <span className={overdue(issue) ? "error" : undefined}>
+                    {dateTime(issue.dueAt)}{overdue(issue) ? " · overdue" : ""}
+                  </span></div>
                 <div className="entry"><span className="muted">Created</span><span>{dateTime(issue.createdAt)}</span></div>
                 <div className="entry"><span className="muted">Resolved</span><span>{issue.resolvedAt ? dateTime(issue.resolvedAt) : "—"}</span></div>
               </div>
               {issue.status === "OPEN" && (
-                <div style={{ marginTop: 16, maxWidth: 480 }}>
+                <div className="resolution-form">
                   <label className="muted" style={{ display: "block", marginBottom: 6 }}>Resolution outcome</label>
                   <select value={outcome} onChange={(e) => setOutcome(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
                     <option value="">Select an outcome…</option>
@@ -123,7 +150,7 @@ export default function ReconciliationIssuePage() {
             </div>
           </section>
 
-          <section className="panel" style={{ marginTop: 18 }}>
+          <section className="panel expected-actual-panel" style={{ marginTop: 18 }}>
             <div className="panelHeader"><div><h2>Expected vs actual</h2></div></div>
             <div className="split">
               <div><h3>Expected</h3><pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{issue.expectedState ?? "—"}</pre></div>
@@ -131,7 +158,7 @@ export default function ReconciliationIssuePage() {
             </div>
           </section>
 
-          <section className="panel" style={{ marginTop: 18 }}>
+          <section className="panel evidence-panel" style={{ marginTop: 18 }}>
             <div className="panelHeader"><div><h2>Evidence</h2><p className="sub">The data the worker captured when it raised this issue.</p></div></div>
             <div className="panelBody">
               <pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: 12 }}>{pretty(issue.evidence)}</pre>
@@ -139,17 +166,19 @@ export default function ReconciliationIssuePage() {
           </section>
 
           {audit.length > 0 && (
-            <section className="panel" style={{ marginTop: 18 }}>
+            <section className="panel activity-panel" style={{ marginTop: 18 }}>
               <div className="panelHeader"><div><h2>Activity</h2><p className="sub">Every action on this issue, from the auditable record.</p></div></div>
               <div className="panelBody">
                 {audit.map((a, i) => {
                   const isResolution = a.action === "RECONCILIATION_ISSUE_RESOLVED";
                   const { outcome: o, note: n } = isResolution ? resolutionFields(a.metadata) : {};
+                  const owner = a.action === "RECONCILIATION_ISSUE_ASSIGNED" ? assignedTo(a.metadata) : null;
                   return (
                     <div key={i} className="entry" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
                       <span>
                         <b>{a.action.replace(/_/g, " ").toLowerCase()}</b>
                         {o && <> — <span className="mono">{o.replace(/_/g, " ").toLowerCase()}</span></>}
+                        {owner && <> — <span className="mono">{owner}</span></>}
                       </span>
                       {n && <span className="muted">{n}</span>}
                       <span className="muted" style={{ fontSize: 12 }}>
@@ -161,6 +190,9 @@ export default function ReconciliationIssuePage() {
               </div>
             </section>
           )}
+          {issue.status === "OPEN" && <button className="mobile-primary-action" onClick={() => {
+            document.querySelector<HTMLElement>(".resolution-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}>Review resolution</button>}
         </>
       )}
 

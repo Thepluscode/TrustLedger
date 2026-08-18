@@ -226,6 +226,11 @@ export interface ReconciliationIssue {
   status: string;
   createdAt: string;
   resolvedAt: string | null;
+  ownerUserId: string | null;
+  /** Money at risk. null means this break type carries no amount — render "—", never 0. */
+  exposureAmount: string | null;
+  exposureCurrency: string | null;
+  dueAt: string;
 }
 
 export interface ReconciliationAuditEntry {
@@ -240,6 +245,9 @@ export interface ReconciliationListSummary {
   open: number;
   criticalOpen: number;
   resolved: number;
+  overdueOpen: number;
+  /** Keyed by currency and never totalled: one sum across currencies would be meaningless. */
+  openExposureByCurrency: Record<string, string>;
 }
 
 export interface ReconciliationIssueList {
