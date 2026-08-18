@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -17,8 +16,9 @@ import org.springframework.stereotype.Service;
 /**
  * Pushes a reconciliation break that has outlived its SLA, once.
  *
- * <p>The breach was already <i>detectable</i> — {@code MonitoringService} escalates the card past the
- * same threshold — but detection on a dashboard requires someone to be looking at it. Money can sit
+ * <p>The breach was already <i>detectable</i> — {@code MonitoringService} escalates the card once the
+ * oldest open break passes its age threshold — but detection on a dashboard requires someone to be
+ * looking at it. Money can sit
  * unreconciled for a day and nothing tells anyone. This closes that.
  *
  * <p><b>Once</b> is the load-bearing word. A scheduled notifier with no memory re-alerts on every
@@ -26,6 +26,10 @@ import org.springframework.stereotype.Service;
  * costs more than the silence it replaced. The uniqueness constraint on
  * {@code reconciliation_sla_alerts.reconciliation_issue_id} enforces it at the database, not here,
  * because two instances of this worker can overlap after a restart.
+ *
+ * <p>Lateness is read from the issue's own {@code due_at} (V49), set from its severity when it was
+ * raised — not from a single global window. A CRITICAL break is late in hours; a MEDIUM one has the
+ * working day. One deadline per case, and it is the same one the operator queue sorts by.
  *
  * <p><b>Nothing leaves the building.</b> The alert is persisted and emitted as a structured WARN.
  * Wiring it to email, Slack or PagerDuty is an external action and needs an explicit human decision
@@ -40,14 +44,11 @@ public class ReconciliationSlaNotifier {
 
     private final ReconciliationIssueRepository issues;
     private final ReconciliationSlaAlertRepository alerts;
-    private final long slaSeconds;
 
     public ReconciliationSlaNotifier(ReconciliationIssueRepository issues,
-                                     ReconciliationSlaAlertRepository alerts,
-                                     @Value("${trustledger.reconciliation.sla-seconds:86400}") long slaSeconds) {
+                                     ReconciliationSlaAlertRepository alerts) {
         this.issues = issues;
         this.alerts = alerts;
-        this.slaSeconds = slaSeconds;
     }
 
     @Scheduled(fixedDelayString = "${trustledger.reconciliation.sla-scan-ms:60000}")
@@ -64,13 +65,15 @@ public class ReconciliationSlaNotifier {
         int alerted = 0;
         for (ReconciliationIssueEntity issue : issues.findByStatus(OPEN)) {
             Instant createdAt = issue.getCreatedAt();
-            if (createdAt == null) {
+            if (createdAt == null || issue.getDueAt() == null) {
                 continue; // not yet flushed; the next pass will see it
             }
-            long ageSeconds = Duration.between(createdAt, now).toSeconds();
-            if (ageSeconds < slaSeconds) {
+            if (now.isBefore(issue.getDueAt())) {
                 continue;
             }
+            // The recorded number is how long the break has been open, not how long past its deadline:
+            // "unreconciled for 31 hours" is what an operator acts on.
+            long ageSeconds = Math.max(1, Duration.between(createdAt, now).toSeconds());
             if (recordAlert(issue, ageSeconds)) {
                 alerted++;
             }
@@ -101,8 +104,9 @@ public class ReconciliationSlaNotifier {
             // Another pass won the race. The operator has been told; that is the desired end state.
             return false;
         }
-        log.warn("Reconciliation break past SLA: issue={} tenant={} type={} severity={} openFor={}s sla={}s",
-                issue.getId(), issue.getTenantId(), issue.getType(), issue.getSeverity(), ageSeconds, slaSeconds);
+        log.warn("Reconciliation break past SLA: issue={} tenant={} type={} severity={} openFor={}s dueAt={}",
+                issue.getId(), issue.getTenantId(), issue.getType(), issue.getSeverity(), ageSeconds,
+                issue.getDueAt());
         return true;
     }
 }

@@ -133,7 +133,9 @@ public class SettlementReconciliationService {
                         "each provider reference appears once per statement",
                         "provider_reference " + li.providerReference() + " appears more than once",
                         Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
-                                "amount", li.amount().toPlainString(), "statementId", stmtId.toString()));
+                                "amount", li.amount().toPlainString(), "statementId", stmtId.toString()),
+                        // A double-settled reference exposes the whole line, not a difference.
+                        li.amount(), in.currency());
             } else {
                 Optional<ExternalPaymentAttemptEntity> attempt = attempts
                         .findByTenantIdAndProviderAndProviderReference(tenantId, in.provider(), li.providerReference());
@@ -144,7 +146,9 @@ public class SettlementReconciliationService {
                             UUID.nameUUIDFromBytes((stmtId + ":" + li.providerReference()).getBytes()),
                             "a matching payout attempt", "no attempt for provider_reference " + li.providerReference(),
                             Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
-                                    "amount", li.amount().toPlainString(), "statementId", stmtId.toString()));
+                                    "amount", li.amount().toPlainString(), "statementId", stmtId.toString()),
+                            // Nothing internal to net against: the whole settled line is unexplained.
+                            li.amount(), in.currency());
                 } else {
                     ExternalPaymentAttemptEntity a = attempt.get();
                     matchedId = a.getId();
@@ -157,7 +161,10 @@ public class SettlementReconciliationService {
                                 li.amount().toPlainString() + " " + in.currency(),
                                 Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
                                         "ledgerCurrency", a.getCurrency(), "statementCurrency", in.currency(),
-                                        "statementId", stmtId.toString()));
+                                        "statementId", stmtId.toString()),
+                                // Priced in the STATEMENT's currency: the two amounts are not comparable,
+                                // so a difference cannot be computed and the settled line is what is at risk.
+                                li.amount(), in.currency());
                     } else if (li.amount().compareTo(a.getAmount()) != 0) {
                         matchStatus = AMOUNT_MISMATCH;
                         mismatch++;
@@ -166,7 +173,9 @@ public class SettlementReconciliationService {
                                 li.amount().toPlainString() + " " + in.currency(),
                                 Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
                                         "ledgerAmount", a.getAmount().toPlainString(),
-                                        "statementAmount", li.amount().toPlainString(), "statementId", stmtId.toString()));
+                                        "statementAmount", li.amount().toPlainString(), "statementId", stmtId.toString()),
+                                // Same currency by construction (checked above), so the gap is the exposure.
+                                li.amount().subtract(a.getAmount()), in.currency());
                     } else {
                         matchStatus = MATCHED;
                         matched++;
@@ -213,7 +222,8 @@ public class SettlementReconciliationService {
                         "direction", overcharged ? "OVERCHARGE" : "UNDERCHARGE",
                         "scheduleId", schedule.getId().toString(),
                         "scheduleEffectiveFrom", schedule.getEffectiveFrom().toString(),
-                        "statementId", stmtId.toString()));
+                        "statementId", stmtId.toString()),
+                delta, in.currency());
         return true;
     }
 
@@ -236,7 +246,8 @@ public class SettlementReconciliationService {
                         + " on amount " + li.amount().toPlainString(),
                 Map.of("statementRef", in.statementRef(), "providerReference", li.providerReference(),
                         "amount", li.amount().toPlainString(), "fee", fee.toPlainString(),
-                        "statementId", stmtId.toString()));
+                        "statementId", stmtId.toString()),
+                fee, in.currency());
     }
 
     /** Raises SETTLEMENT_TOTAL_MISMATCH if a declared batch total disagrees with the sum of the lines. */
@@ -253,7 +264,10 @@ public class SettlementReconciliationService {
                         + " but lines sum to amount=" + computedAmount.toPlainString() + " fees=" + computedFees.toPlainString(),
                 Map.of("statementRef", in.statementRef(),
                         "declaredAmount", declared(in.declaredTotalAmount()), "computedAmount", computedAmount.toPlainString(),
-                        "declaredFees", declared(in.declaredTotalFees()), "computedFees", computedFees.toPlainString()));
+                        "declaredFees", declared(in.declaredTotalFees()), "computedFees", computedFees.toPlainString()),
+                // The gap in whichever total is wrong; the amount gap dominates when both are.
+                amountOff ? in.declaredTotalAmount().subtract(computedAmount)
+                          : in.declaredTotalFees().subtract(computedFees), in.currency());
         return true;
     }
 
@@ -270,7 +284,9 @@ public class SettlementReconciliationService {
                     "present in the provider settlement statement",
                     "settled locally but absent from statement " + in.statementRef(),
                     Map.of("statementRef", in.statementRef(), "providerReference", a.getProviderReference(),
-                            "amount", a.getAmount().toPlainString(), "statementId", stmtId.toString()));
+                            "amount", a.getAmount().toPlainString(), "statementId", stmtId.toString()),
+                    // We believe this settled and the provider's statement does not mention it at all.
+                    a.getAmount(), a.getCurrency());
         }
         return missing.size();
     }
@@ -345,12 +361,19 @@ public class SettlementReconciliationService {
                 missing, false, 0, 0);
     }
 
+    /**
+     * Raises a break carrying money at risk. Every settlement break has an amount — the difference where
+     * there is one, the whole line where a record is missing or duplicated — and pricing it at the raise
+     * site is the only place the detector still knows which number is the exposed one.
+     */
     private void raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
-                       String expected, String actual, Map<String, Object> evidence) {
+                       String expected, String actual, Map<String, Object> evidence,
+                       BigDecimal exposure, String currency) {
         // Dedup only against an OPEN issue: a resolved-then-recurring break must re-raise, not stay silent.
         if (issues.existsByTypeAndEntityIdAndStatus(type, entityId, "OPEN")) return;
         issues.save(new ReconciliationIssueEntity(UUID.randomUUID(), tenantId, severity, type, entityType,
-                entityId, expected, actual, json.writeValueAsString(evidence), "OPEN"));
+                entityId, expected, actual, json.writeValueAsString(evidence), "OPEN",
+                exposure == null ? null : exposure.abs(), exposure == null ? null : currency));
     }
 
     private void audit(UUID tenantId, UUID actorId, SettlementStatementEntity stmt,

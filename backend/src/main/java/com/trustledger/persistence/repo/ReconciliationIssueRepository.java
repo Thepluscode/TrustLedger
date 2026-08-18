@@ -46,6 +46,19 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
     @Query("select min(i.createdAt) from ReconciliationIssueEntity i where i.tenantId = :tenantId and i.status = :status")
     Instant oldestCreatedAtByStatus(@Param("tenantId") UUID tenantId, @Param("status") String status);
 
+    /** Open cases already past their deadline — the number that says whether ops is keeping up. */
+    long countByTenantIdAndStatusAndDueAtBefore(UUID tenantId, String status, Instant before);
+
+    /**
+     * Money at risk, grouped by currency. Grouped and never summed: a single total across currencies is
+     * a meaningless number, and the one an operator would act on. Rows are {@code [currency, sum]};
+     * breaks with no monetary value are excluded rather than counted as zero.
+     */
+    @Query("select i.exposureCurrency, sum(i.exposureAmount) from ReconciliationIssueEntity i "
+        + "where i.tenantId = :tenantId and i.status = :status and i.exposureAmount is not null "
+        + "group by i.exposureCurrency")
+    List<Object[]> exposureByCurrency(@Param("tenantId") UUID tenantId, @Param("status") String status);
+
     /** Most recent break's timestamp for this tenant (any status). */
     @Query("select max(i.createdAt) from ReconciliationIssueEntity i where i.tenantId = :tenantId")
     Instant latestCreatedAt(@Param("tenantId") UUID tenantId);

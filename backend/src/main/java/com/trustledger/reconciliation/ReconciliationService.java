@@ -199,7 +199,9 @@ public class ReconciliationService {
                 "LEDGER_TRANSACTION", transaction.getId(), "debits == credits",
                 "debits=" + debits + " credits=" + credits, Map.of(
                     "debits", debits.toPlainString(), "credits", credits.toPlainString(),
-                    "entryCount", entries.size()));
+                    "entryCount", entries.size()),
+                // The unbalanced remainder is the money the journal cannot account for.
+                debits.subtract(credits), transaction.getCurrency());
         }
         return 0;
     }
@@ -210,7 +212,9 @@ public class ReconciliationService {
             created += raise(reservation.getTenantId(), "HIGH", "EXPIRED_RESERVATION", "FUND_RESERVATION",
                 reservation.getId(), "consumed or released before expiry", "still ACTIVE after expiry",
                 Map.of("amount", reservation.getAmount().toPlainString(),
-                    "expiresAt", String.valueOf(reservation.getExpiresAt())));
+                    "expiresAt", String.valueOf(reservation.getExpiresAt())),
+                // Funds still held against a reservation nobody will consume.
+                reservation.getAmount(), reservation.getCurrency());
         }
         return created;
     }
@@ -232,15 +236,26 @@ public class ReconciliationService {
                 "provider", attempt.getProvider(),
                 "providerReference", attempt.getProviderReference(),
                 "tenantProviderConfigId", String.valueOf(attempt.getTenantProviderConfigId()),
-                "providerEnvironment", String.valueOf(attempt.getProviderEnvironment())));
+                "providerEnvironment", String.valueOf(attempt.getProviderEnvironment())),
+            // The payment's own amount: while local and provider state disagree, all of it is in question.
+            attempt.getAmount(), attempt.getCurrency());
     }
 
+    /** A break with no monetary value — a stuck event has none, and a 0 would misreport it as £0 at risk. */
     private int raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
                       String expected, String actual, Map<String, Object> evidence) {
+        return raise(tenantId, severity, type, entityType, entityId, expected, actual, evidence, null, null);
+    }
+
+    /** @param exposure money at risk — the gap where there is one, the whole amount where none can be netted. */
+    private int raise(UUID tenantId, String severity, String type, String entityType, UUID entityId,
+                      String expected, String actual, Map<String, Object> evidence,
+                      BigDecimal exposure, String currency) {
         // Dedup only against an OPEN issue: a resolved-then-recurring break must re-raise, not stay silent.
         if (issues.existsByTypeAndEntityIdAndStatus(type, entityId, "OPEN")) return 0;
         issues.save(new ReconciliationIssueEntity(UUID.randomUUID(), tenantId, severity, type, entityType,
-            entityId, expected, actual, writeJson(evidence), "OPEN"));
+            entityId, expected, actual, writeJson(evidence), "OPEN",
+            exposure == null ? null : exposure.abs(), exposure == null ? null : currency));
         log.warn("Reconciliation issue {} on {} {}: {}", type, entityType, entityId, actual);
         return 1;
     }

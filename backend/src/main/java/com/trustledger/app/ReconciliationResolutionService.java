@@ -4,6 +4,7 @@ import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.UserRepository;
 import com.trustledger.security.ConflictException;
 import java.time.Instant;
 import java.util.Map;
@@ -14,7 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Resolving a reconciliation issue is a controlled, atomic OPEN → RESOLVED transition. It takes a row
+ * The two operator actions on a reconciliation case: assigning it an owner, and resolving it. Both
+ * take the same row lock and both leave an audit row, which is what makes the case history real rather
+ * than reconstructed.
+ *
+ * <p>Resolving a reconciliation issue is a controlled, atomic OPEN → RESOLVED transition. It takes a row
  * lock (SELECT ... FOR UPDATE) so two concurrent resolves cannot both pass the OPEN guard and write
  * contradictory audit events; it requires an outcome classification + a reason; and it records who,
  * what outcome, and why in the audit trail (the evidence store) — never an empty {}.
@@ -28,13 +33,52 @@ public class ReconciliationResolutionService {
 
     private final ReconciliationIssueRepository issues;
     private final AuditLogRepository auditLogs;
+    private final UserRepository users;
     private final ObjectMapper json;
 
     public ReconciliationResolutionService(ReconciliationIssueRepository issues, AuditLogRepository auditLogs,
-                                           ObjectMapper json) {
+                                           UserRepository users, ObjectMapper json) {
         this.issues = issues;
         this.auditLogs = auditLogs;
+        this.users = users;
         this.json = json;
+    }
+
+    /**
+     * Gives a case an owner, or takes it away ({@code ownerUserId} null = unassign). A break with no
+     * owner is a report; a break with one is somebody's job.
+     *
+     * <p>The owner must be a user of the SAME tenant, looked up with the tenant in the query — otherwise
+     * a caller could park its exceptions on a stranger's user id and, worse, leak that the id exists.
+     * An already-resolved case cannot be reassigned: its history is closed.
+     */
+    @Transactional
+    public ReconciliationIssueEntity assign(UUID tenantId, UUID actorId, UUID issueId, UUID ownerUserId) {
+        // Same row lock as resolve: an assign racing a resolve must not write an owner onto a closed case.
+        ReconciliationIssueEntity issue = issues.findByIdAndTenantIdForUpdate(issueId, tenantId)
+            .orElseThrow(() -> new IllegalArgumentException("Reconciliation issue not found: " + issueId));
+        if (!"OPEN".equals(issue.getStatus())) {
+            throw new ConflictException("issue is not OPEN (current status: " + issue.getStatus() + ")");
+        }
+        String ownerEmail = null;
+        if (ownerUserId != null) {
+            ownerEmail = users.findByIdAndTenantId(ownerUserId, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Owner is not a user of this tenant: " + ownerUserId))
+                .getEmail();
+        }
+        UUID previousOwner = issue.getOwnerUserId();
+        issue.setOwnerUserId(ownerUserId);
+        issues.save(issue);
+        // The history entry records who changed it, to whom, and from whom — a bare "assigned" cannot
+        // answer "who dropped this case" three weeks later.
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId,
+            ownerUserId == null ? "RECONCILIATION_ISSUE_UNASSIGNED" : "RECONCILIATION_ISSUE_ASSIGNED",
+            "RECONCILIATION_ISSUE", issueId,
+            json.writeValueAsString(Map.of(
+                "ownerUserId", String.valueOf(ownerUserId),
+                "ownerEmail", String.valueOf(ownerEmail),
+                "previousOwnerUserId", String.valueOf(previousOwner)))));
+        return issue;
     }
 
     /** Actor + tenant come from the authenticated caller — never a client-supplied value. */

@@ -10,8 +10,11 @@ import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.ForbiddenException;
 import com.trustledger.security.Permission;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -19,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Reconciliation issues (design.md §14): the financial/operational mismatches the worker raises.
- * Read-only list/detail plus a Resolve action; tenant-scoped, and the resolution is audited.
+ * Read-only list/detail plus Assign and Resolve; tenant-scoped, and both actions are audited.
  */
 @RestController
 @RequestMapping("/api/v1/reconciliation/issues")
@@ -28,8 +31,18 @@ public class ReconciliationController {
     /** Body for resolving an issue: an outcome classification and a free-text reason — both required. */
     public record ResolveRequest(String outcome, String note) {}
 
-    /** Tenant-wide counts for the overview cards — independent of any active list filter. */
-    public record ListSummary(long total, long open, long criticalOpen, long resolved) {}
+    /** Body for assigning a case. A null {@code userId} unassigns it. */
+    public record AssignRequest(UUID userId) {}
+
+    /**
+     * Tenant-wide counts for the overview cards — independent of any active list filter.
+     *
+     * @param overdueOpen open cases already past their deadline.
+     * @param openExposureByCurrency money at risk on open cases, keyed by currency. Keyed and not
+     *     totalled on purpose: one number across currencies would be arithmetic on incomparable units.
+     */
+    public record ListSummary(long total, long open, long criticalOpen, long resolved, long overdueOpen,
+                              Map<String, BigDecimal> openExposureByCurrency) {}
 
     /** Bounded, filtered issue list plus the tenant-wide summary. */
     public record IssueList(List<ReconciliationIssueView> items, ListSummary summary) {}
@@ -64,8 +77,19 @@ public class ReconciliationController {
             issues.countByTenantId(tenant),
             issues.countByTenantIdAndStatus(tenant, "OPEN"),
             issues.countByTenantIdAndStatusAndSeverity(tenant, "OPEN", "CRITICAL"),
-            issues.countByTenantIdAndStatus(tenant, "RESOLVED"));
+            issues.countByTenantIdAndStatus(tenant, "RESOLVED"),
+            issues.countByTenantIdAndStatusAndDueAtBefore(tenant, "OPEN", Instant.now()),
+            openExposure(tenant));
         return new IssueList(items, summary);
+    }
+
+    /** {@code [currency, sum]} rows from the grouped aggregate, in a stable order for the client. */
+    private Map<String, BigDecimal> openExposure(UUID tenant) {
+        Map<String, BigDecimal> byCurrency = new LinkedHashMap<>();
+        for (Object[] row : issues.exposureByCurrency(tenant, "OPEN")) {
+            byCurrency.put((String) row[0], (BigDecimal) row[1]);
+        }
+        return byCurrency;
     }
 
     private static String blankToNull(String s) {
@@ -77,7 +101,7 @@ public class ReconciliationController {
         return view(require(id));
     }
 
-    /** The issue's audit trail (raise → resolve) — surfaces who resolved it, the outcome, and the reason. */
+    /** The issue's activity history (assign / reassign / resolve) — surfaces who resolved it, the outcome, and the reason. */
     @GetMapping("/{id}/audit")
     public List<IssueAuditView> audit(@PathVariable UUID id) {
         require(id); // tenant-scopes: 404 if unknown, 403 if another tenant's, before reading its audit
@@ -96,6 +120,17 @@ public class ReconciliationController {
         return view(resolution.resolve(CurrentUser.tenantId(), CurrentUser.userId(), id, outcome, note));
     }
 
+    /**
+     * Assigns an owner (or unassigns, with a null userId). TENANT_ADMIN, like resolve: deciding who owns
+     * a money break is an accountability decision, not a viewer action.
+     */
+    @PostMapping("/{id}/assign")
+    public ReconciliationIssueView assign(@PathVariable UUID id, @RequestBody(required = false) AssignRequest body) {
+        access.require(Permission.TENANT_ADMIN);
+        return view(resolution.assign(CurrentUser.tenantId(), CurrentUser.userId(), id,
+            body == null ? null : body.userId()));
+    }
+
     private ReconciliationIssueEntity require(UUID id) {
         ReconciliationIssueEntity issue = issues.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Reconciliation issue not found: " + id));
@@ -108,6 +143,7 @@ public class ReconciliationController {
     private static ReconciliationIssueView view(ReconciliationIssueEntity i) {
         return new ReconciliationIssueView(i.getId(), i.getSeverity(), i.getType(), i.getClassification(),
             i.getEntityType(), i.getEntityId(),
-            i.getExpectedState(), i.getActualState(), i.getEvidence(), i.getStatus(), i.getCreatedAt(), i.getResolvedAt());
+            i.getExpectedState(), i.getActualState(), i.getEvidence(), i.getStatus(), i.getCreatedAt(),
+            i.getResolvedAt(), i.getOwnerUserId(), i.getExposureAmount(), i.getExposureCurrency(), i.getDueAt());
     }
 }

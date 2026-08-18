@@ -50,10 +50,17 @@ public final class ApiViews {
                                   long transferCount, String riskLevel, Instant lastPasswordChangeAt) {}
 
     /** Reconciliation issue (§14): a financial/operational mismatch found by the worker. */
+    /**
+     * @param exposureAmount money at risk, or null when this break type carries no amount — absent is not
+     *     zero, and the client must render it as "—" rather than "0.00".
+     * @param dueAt when the case becomes late (per-issue, from its severity).
+     */
     public record ReconciliationIssueView(UUID id, String severity, String type, String classification,
                                           String entityType, UUID entityId,
                                           String expectedState, String actualState, String evidence, String status,
-                                          Instant createdAt, Instant resolvedAt) {}
+                                          Instant createdAt, Instant resolvedAt,
+                                          UUID ownerUserId, java.math.BigDecimal exposureAmount,
+                                          String exposureCurrency, Instant dueAt) {}
 
     /** Inbound provider webhook event (§13.5). Deduped by (provider, eventId); duplicates never persist. */
     public record WebhookEventView(UUID id, String provider, String providerReference, String eventId,

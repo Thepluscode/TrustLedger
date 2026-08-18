@@ -83,6 +83,61 @@ class SettlementReconciliationIntegrationTest {
         return new LineInput(ref, new BigDecimal(amount), new BigDecimal("1.00"), "SETTLED");
     }
 
+    /**
+     * Every settlement break carries the money at risk, priced where the detector still knows which
+     * number is the exposed one: the GAP on a mismatch, the WHOLE line where nothing can be netted.
+     *
+     * <p>This is the difference between "we found 3 breaks" and "3 breaks, 255 NGN in dispute" — the
+     * second is the number an operator triages on, and getting it wrong is worse than not having it.
+     */
+    @Test
+    void everySettlementBreakIsPricedWithTheMoneyActuallyAtRisk() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-mismatch", "50.0000");
+        settledAttempt(tenant, "ref-missing", "77.0000");
+
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-EXP", List.of(
+                line("ref-mismatch", "55.0000"),   // AMOUNT_MISMATCH: the 5.0000 gap is the exposure
+                line("ref-orphan", "200.0000"))));  // UNMATCHED: all 200.0000 is unexplained
+
+        var byType = issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .collect(java.util.stream.Collectors.toMap(i -> i.getType(), i -> i));
+
+        var mismatch = byType.get("SETTLEMENT_AMOUNT_MISMATCH");
+        assertEquals(0, new BigDecimal("5.0000").compareTo(mismatch.getExposureAmount()),
+                "a mismatch exposes the difference, not either side's whole amount: " + mismatch.getExposureAmount());
+        assertEquals("NGN", mismatch.getExposureCurrency());
+
+        var unmatched = byType.get("SETTLEMENT_LINE_UNMATCHED");
+        assertEquals(0, new BigDecimal("200.0000").compareTo(unmatched.getExposureAmount()),
+                "with no internal record to net against, the whole line is at risk");
+
+        var missing = byType.get("SETTLEMENT_MISSING");
+        assertEquals(0, new BigDecimal("77.0000").compareTo(missing.getExposureAmount()),
+                "a settlement the provider never mentions exposes the full attempt");
+        assertEquals("NGN", missing.getExposureCurrency());
+    }
+
+    /** A CRITICAL break must be due sooner than a HIGH one — the deadline is derived, not defaulted. */
+    @Test
+    void aRaisedBreakCarriesADeadlineDerivedFromItsSeverity() {
+        UUID tenant = UUID.randomUUID();
+        settledAttempt(tenant, "ref-dup", "10.0000");
+
+        // A duplicated reference is CRITICAL; an unmatched line is HIGH.
+        settlements.ingest(tenant, UUID.randomUUID(), statement("STMT-DUE", List.of(
+                line("ref-dup", "10.0000"), line("ref-dup", "10.0000"), line("ref-orphan-2", "20.0000"))));
+
+        var byType = issues.findByTenantIdOrderByCreatedAtDesc(tenant).stream()
+                .collect(java.util.stream.Collectors.toMap(i -> i.getType(), i -> i));
+        Instant critical = byType.get("SETTLEMENT_LINE_DUPLICATE").getDueAt();
+        Instant high = byType.get("SETTLEMENT_LINE_UNMATCHED").getDueAt();
+
+        assertNotNull(critical);
+        assertTrue(critical.isBefore(high),
+                "a CRITICAL break cannot have the same deadline as a HIGH one: " + critical + " vs " + high);
+    }
+
     @Test
     void matchingRaisesTheRightBreaksAndCleanLinesMatch() {
         UUID tenant = UUID.randomUUID();
