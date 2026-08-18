@@ -124,7 +124,9 @@ export default function ReconciliationPage() {
               <div><small>Issue</small><h2>{issue.type.replace(/_/g, " ").toLowerCase()}</h2></div>
               <p className="muted"><span className="mono">{shortId(issue.entityId)}</span> · {issue.entityType.replace(/_/g, " ").toLowerCase()}</p>
               <p className={isOverdue(issue) ? "error" : "muted"}>
-                <span className="mono">{exposure(issue)}</span> at risk · due {dateTime(issue.dueAt)}
+                {issue.exposureAmount && issue.exposureCurrency
+                  ? <><span className="mono">{exposure(issue)}</span> at risk</>
+                  : "No monetary amount"} · due {dateTime(issue.dueAt)}
                 {isOverdue(issue) ? " · overdue" : ""}
               </p>
               <div className="record-foot"><small>Detected {dateTime(issue.createdAt)}</small><span className="mono">{shortId(issue.id)}</span></div>
