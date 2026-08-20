@@ -1,7 +1,9 @@
 # Interview #1 Target — PalmPay
 
-Status: **INMAIL SENT 2026-08-14; AWAITING REPLY; CONVERSATION NOT BOOKED.** Public evidence and a
-sent message are sourcing signals only and must not be entered as interview evidence.
+Status: **FOLLOW-UP SENT 2026-08-20; AWAITING REPLY; CONVERSATION NOT BOOKED.** The one
+follow-up the plan allowed is now spent — if this draws nothing by 2026-08-24, this path is
+dead and the fallback below fires. Public evidence and sent messages are sourcing signals
+only and must not be entered as interview evidence.
 
 ## Why PalmPay is first
 
@@ -56,10 +58,16 @@ said it was not a product demo or sales call. Follow up once on 2026-08-20 if no
 This exact draft was sent through the founder-controlled Sales Navigator account on 2026-08-14.
 Do not send it again unless the first delivery is proven to have failed.
 
-## Follow-up draft — Friday Ogungbemi (READY TO SEND; the plan above dates it 2026-08-20)
+## Follow-up — Friday Ogungbemi (SENT 2026-08-20)
 
-Reply **in the existing InMail thread** (no new credit). One question instead of a meeting
-request; an answer or a name both count.
+Sent 2026-08-20 08:04 BST through the founder-controlled Sales Navigator account, in the
+existing thread, subject `one question on reconciliation`. Evidence: thread shows
+TODAY / You / 8:04 AM with the message rendered, and the InMail credit balance moved
+**39 → 38** — the draft's "no new credit" assumption was wrong; a follow-up to an
+unanswered InMail costs a credit (LinkedIn only grants free replies once the recipient
+replies). Composer verified against the Friday Ogungbemi thread header before typing —
+an earlier search miss had left the Austin Hughes thread focused, which would have sent
+this to the wrong person.
 
 > Hi Friday — following up once, with one question instead of a meeting request:
 >
