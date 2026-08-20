@@ -9,6 +9,10 @@
 > (verify with `python3 pilot/score_kill_test.py`, never by reading this line — it goes stale). This gate decides
 > whether the commercial thesis under it is real.
 
+This is the **market gate**. It precedes the six-week product gate in
+[`PILOT_CHECKLIST.md`](PILOT_CHECKLIST.md); investigation-speed results cannot compensate for a
+market that will not grant data access or pay.
+
 ---
 
 ## The single premise
@@ -69,31 +73,48 @@ interviews against **three** bars, all of which must clear. The change is delibe
 specific way: it separates *saying yes* from *paying*, because those are different facts and only one
 of them is evidence.
 
-Score each interview against all three:
+Score each interview against four bars:
 
 - **Pain bar** — reports EITHER ≥1 finance/ops **day per week** on exceptions, OR a
   **quantifiable quarterly leakage** they cannot currently see with provider dashboards.
 - **Data bar** — will **grant read-access** to settlement data under a pilot/NDA.
 - **Money bar** — commits to **paid discovery or a paid pilot**. Not "we'd be interested." A number
   and a person who signs it.
+- **Recurrence bar** — the pain-confirming company experiences the failure monthly or more often,
+  or can quantify sufficiently material financial exposure when it occurs. Added 2026-08-12 while
+  the completed-interview count was still zero, so no observed result influenced the threshold.
 
-| Bar | Threshold (of 25) | Why this number |
+| Bar | Company threshold | Why this number |
 |---|---|---|
-| Same problem described unprompted | **≥ 6** | Below six, you are hearing individual company dysfunction, not a market |
-| Grants sample data or integration access | **≥ 3** | The gate most reconciliation plays actually die at |
-| Commits to paid discovery or paid pilot | **≥ 2** | The only bar that cannot be politeness |
+| Companies describing the same problem unprompted | **≥ 6** | Below six, you are hearing individual company dysfunction, not a market |
+| Companies granting sample data or integration access | **≥ 3** | The gate most reconciliation plays actually die at |
+| Companies committing to paid discovery or paid pilot | **≥ 2** | The only bar that cannot be politeness |
+| Pain-confirming companies with recurring or materially exposed failures | **≥ 4** | Proves this can become a retained operating workflow rather than episodic consulting |
+
+Thresholds count distinct companies, not interview rows. Multiple completed interviews at one
+company improve understanding but cannot inflate any company bar. The target sample remains 25
+qualified completed interviews across at least three sub-segments. A completed conversation that
+fails the operating qualification remains evidence but does not count toward 25.
 
 **Verdict:**
 
 | Result | Verdict |
 |---|---|
-| **All three thresholds met** | **GO** — premise holds; proceed to a paid design-partner pilot. |
-| **Pain ≥6 but data <3 or paid <2** | **MURKY** — the pain is real and the trust or the budget is not. Re-cut to the sharpest sub-segment and re-test; **do not build**. |
+| **All four thresholds met** | **GO** — premise holds; analyse the incidents, then proceed to a paid design-partner pilot around the dominant workflow. |
+| **Pain ≥6 but recurrence <4, data <3 or paid <2** | **MURKY** — the pain is real and recurrence, trust or budget is not. Re-cut to the sharpest sub-segment and re-test; **do not build**. |
 | **Pain < 6** | **STOP** — premise failed. Do not add infrastructure. |
 
-**Why all three and not a weighted score.** Pain without data access is a problem you cannot see.
+**Why all four and not a weighted score.** Pain without recurrence may not retain; pain without data access is a problem you cannot see.
 Data access without budget is a science project. Budget without pain is a favour, and it does not
-renew. Any two of the three is a reason to keep talking, not a reason to build.
+renew. A partial pass is a reason to keep talking, not a reason to build.
+
+## First milestone — three conversations
+
+The 25 interviews are the sample for the market decision, not the first operating target. Complete
+three qualified conversations first to test whether the interview and recruitment motion work.
+Each must reconstruct one actual incident and populate the expanded evidence fields in
+`kill-test-tracker.csv`. Use `FIRST_THREE_CONVERSATIONS.md`; PalmPay is Interview #1 target via
+`INTERVIEW_01_PALMPAY.md`.
 
 **Hard kill signal (overrides the count):** if the dominant answer is *"our provider
 dashboard plus a spreadsheet handles this fine,"* the premise is false regardless of

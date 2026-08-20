@@ -114,21 +114,20 @@ export default function AdminPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="grid metrics">
-        <article className="card">
-          <span>Transfers created (this month)</span>
-          <strong>{transfers ?? "—"}</strong>
-        </article>
+      <section className="operations-strip tenant-strip" aria-label="Tenant usage summary">
+        <article><small>Transfers this month</small><strong>{transfers ?? "—"}</strong><span>Tenant-scoped usage</span></article>
         {quota &&
           Object.entries(quota).map(([k, v]) => (
-            <article className="card" key={k}>
-              <span>Quota · {k.replace(/_/g, " ")}</span>
-              <strong>{v}</strong>
+            <article key={k}>
+              <small>Quota · {k.replace(/_/g, " ")}</small>
+              <strong>{v}</strong><span>Current plan allowance</span>
             </article>
           ))}
       </section>
 
-      <section className="panel">
+      <div className="admin-workspace">
+      <div className="admin-side">
+      <section className="panel plan-panel">
         <div className="panelHeader">
           <div>
             <h2>Plan</h2>
@@ -152,7 +151,24 @@ export default function AdminPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel provider-config-panel">
+        <div className="panelHeader">
+          <div>
+            <h2>Payment provider configs</h2>
+            <p className="sub">Secrets are write-only — never returned by the API after creation.</p>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Provider</th><th>Environment</th><th>Status</th></tr></thead>
+          <tbody>
+            {configs.map((c, i) => <tr key={i}><td>{c.provider}</td><td className="muted">{c.environment}</td><td><StatusPill value={c.enabled ? "ACTIVE" : "DISABLED"} /></td></tr>)}
+            {configs.length === 0 && <tr><td colSpan={3} className="muted">No provider configs. The sandbox rail does not require one.</td></tr>}
+          </tbody>
+        </table>
+      </section>
+      </div>
+
+      <section className="panel fraud-policy-panel">
         <div className="panelHeader">
           <div>
             <h2>Fraud policy</h2>
@@ -166,7 +182,7 @@ export default function AdminPage() {
             <div className="skeleton" style={{ maxWidth: 420, minHeight: 22 }} />
           ) : (
             <>
-              <div className="row" style={{ gap: 18, flexWrap: "wrap" }}>
+              <div className="policy-thresholds">
                 {POLICY_FIELDS.map((f) => (
                   <div key={f.key} style={{ minWidth: 130 }}>
                     <label htmlFor={f.key} style={{ marginTop: 0 }}>{f.label}</label>
@@ -261,38 +277,7 @@ export default function AdminPage() {
           )}
         </div>
       </section>
-
-      <section className="panel" style={{ marginTop: 18 }}>
-        <div className="panelHeader">
-          <div>
-            <h2>Payment provider configs</h2>
-            <p className="sub">Secrets are write-only — never returned by the API after creation.</p>
-          </div>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Environment</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {configs.map((c, i) => (
-              <tr key={i}>
-                <td>{c.provider}</td>
-                <td className="muted">{c.environment}</td>
-                <td><StatusPill value={c.enabled ? "ACTIVE" : "DISABLED"} /></td>
-              </tr>
-            ))}
-            {configs.length === 0 && (
-              <tr>
-                <td colSpan={3} className="muted">No provider configs yet — the sandbox rail works without one.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+      </div>
 
       <ConfirmModal
         open={confirmPlan}

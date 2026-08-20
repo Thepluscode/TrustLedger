@@ -19,3 +19,7 @@ dist/
 # OS / editor
 .DS_Store
 *.log
+
+# tool/session artifacts
+.playwright-mcp/
+council-out/

@@ -204,21 +204,21 @@ export default function ProductionReadinessPage() {
         </div>
       </header>
 
-      <div className="notice" style={{ marginBottom: 18 }}>
-        <b>Fail-closed boundary:</b> an approved canary does not enable production by itself. The platform-wide
-        production execution switch remains a separate server-side control.
+      <div className="safety-boundary production-boundary">
+        <strong>Controlled exposure only</strong>
+        <span>An approved canary does not enable production by itself. The server-side execution switch remains a separate fail-closed control.</span>
       </div>
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <section className="panel provider-readiness-panel">
         <div className="panelHeader">
           <div>
             <h2>Provider readiness</h2>
             <p className="sub">Select the exact production provider configuration being certified.</p>
           </div>
         </div>
-        <div className="panelBody">
+        <div className="panelBody readiness-provider-body">
           {productionConfigs.length === 0 ? (
             <p className="muted">No production provider configuration exists. Create and approve one in Tenant Admin first.</p>
           ) : (
@@ -238,14 +238,17 @@ export default function ProductionReadinessPage() {
               </select>
 
               {selectedConfig && (
-                <div className="grid metrics" style={{ marginTop: 18 }}>
-                  {checks.map((check) => (
-                    <article className="card" key={check.label}>
-                      <span>{check.label}</span>
-                      <strong style={{ fontSize: 18 }}>{check.ready ? "Ready" : "Blocked"}</strong>
-                      <StatusPill value={check.ready ? "ACTIVE" : "FAILED"} />
-                    </article>
-                  ))}
+                <div className="readiness-register">
+                  <div className="readiness-register-head">
+                    <div><span>Selected provider</span><strong>{selectedConfig.provider}</strong></div>
+                    <div><span>Controls passed</span><strong>{checks.filter((check) => check.ready).length} / {checks.length}</strong></div>
+                    <StatusPill value={providerReady ? "READY" : "BLOCKED"} />
+                  </div>
+                  <div className="readiness-checklist">
+                    {checks.map((check) => (
+                      <div key={check.label}><span>{check.label}</span><strong className={check.ready ? "ready" : "blocked"}>{check.ready ? "Ready" : "Blocked"}</strong></div>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
@@ -254,7 +257,7 @@ export default function ProductionReadinessPage() {
       </section>
 
       {selectedConfig && (
-        <section className="panel" style={{ marginTop: 18 }}>
+        <section className="panel exposure-request-panel" id="controlled-exposure-request" style={{ marginTop: 18 }}>
           <div className="panelHeader">
             <div>
               <h2>Request controlled exposure</h2>
@@ -262,8 +265,8 @@ export default function ProductionReadinessPage() {
             </div>
             <StatusPill value={providerReady ? "READY" : "BLOCKED"} />
           </div>
-          <form className="panelBody" onSubmit={requestCanary}>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
+          <form className="panelBody exposure-form" onSubmit={requestCanary}>
+            <div className="exposure-fields">
               <div>
                 <label htmlFor="startsAt" style={{ marginTop: 0 }}>Starts</label>
                 <input id="startsAt" type="datetime-local" value={form.startsAt} onChange={(e) => updateForm("startsAt", e.target.value)} required />
@@ -286,8 +289,9 @@ export default function ProductionReadinessPage() {
               </div>
             </div>
 
-            <h3 style={{ marginTop: 22 }}>Automatic abort thresholds</h3>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
+            <h3>Automatic abort thresholds</h3>
+            <p className="sub threshold-explanation">The first authoritative failure, ambiguous outcome, or reversal pauses new routing with the current defaults.</p>
+            <div className="threshold-fields">
               <div>
                 <label htmlFor="failureThreshold" style={{ marginTop: 0 }}>Authoritative failures</label>
                 <input id="failureThreshold" type="number" min="1" step="1" value={form.failurePauseThreshold} onChange={(e) => updateForm("failurePauseThreshold", e.target.value)} required />
@@ -302,7 +306,7 @@ export default function ProductionReadinessPage() {
               </div>
             </div>
 
-            <button style={{ marginTop: 18 }} disabled={busy || !providerReady} type="submit">
+            <button className="request-exposure-button" disabled={busy || !providerReady} type="submit">
               {busy ? "Submitting…" : "Request production canary"}
             </button>
             {!providerReady && <p className="hint">Resolve every provider-readiness blocker before requesting production exposure.</p>}
@@ -310,7 +314,7 @@ export default function ProductionReadinessPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel rollout-history-panel" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Rollout history</h2>
@@ -323,14 +327,14 @@ export default function ProductionReadinessPage() {
         <div className="panelBody">
           {loading && <div className="skeleton" style={{ minHeight: 24, maxWidth: 500 }} />}
           {!loading && canaries.length === 0 && <p className="muted">No canary plan exists for this provider configuration.</p>}
-          <div style={{ display: "grid", gap: 16 }}>
+          <div className="rollout-list">
             {canaries.map((plan) => {
               const countPct = percent(plan.reservedTransactions, plan.maxTransactions);
               const valuePct = percent(plan.reservedAmount, plan.maxCumulativeAmount);
               const actionablePause = plan.status === "ACTIVE" || plan.status === "EXHAUSTED";
               return (
-                <article className="card" key={plan.id} style={{ padding: 18 }}>
-                  <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <article className="rollout-record" key={plan.id}>
+                  <div className="rollout-record-head">
                     <div>
                       <div className="row" style={{ alignItems: "center", gap: 8 }}>
                         <strong className="mono">{plan.id.slice(0, 8)}</strong>
@@ -340,7 +344,7 @@ export default function ProductionReadinessPage() {
                         {displayDate(plan.startsAt)} → {displayDate(plan.expiresAt)}
                       </p>
                     </div>
-                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <div className="rollout-actions">
                       {plan.status === "PENDING_APPROVAL" && canApprove && (
                         <button onClick={() => setConfirmAction({ kind: "approve", plan })}>Approve</button>
                       )}
@@ -362,20 +366,16 @@ export default function ProductionReadinessPage() {
                   )}
                   {plan.pauseReason && <p className="error" style={{ marginTop: 12 }}>Pause reason: {plan.pauseReason.replace(/_/g, " ")}</p>}
 
-                  <div className="split" style={{ marginTop: 14 }}>
-                    <div>
+                  <div className="rollout-measures">
+                    <div className="exposure-measures">
                       <h3>Exposure</h3>
                       <p>{plan.reservedTransactions} / {plan.maxTransactions} payouts</p>
-                      <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
-                        <div style={{ width: `${countPct}%`, height: "100%", background: "var(--accent)" }} />
-                      </div>
+                      <div className="measure-track"><span style={{ width: `${countPct}%` }} /></div>
                       <p style={{ marginTop: 10 }}>{number(plan.reservedAmount)} / {number(plan.maxCumulativeAmount)} cumulative value</p>
-                      <div style={{ height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
-                        <div style={{ width: `${valuePct}%`, height: "100%", background: "var(--accent)" }} />
-                      </div>
+                      <div className="measure-track"><span style={{ width: `${valuePct}%` }} /></div>
                       <p className="hint">Maximum per payout: {number(plan.maxTransactionAmount)}</p>
                     </div>
-                    <div>
+                    <div className="outcome-register">
                       <h3>Observed outcomes</h3>
                       <div className="entry"><span className="muted">Settled</span><b>{plan.settledTransactions}</b></div>
                       <div className="entry"><span className="muted">Failed</span><b>{plan.failedTransactions}</b></div>
@@ -423,6 +423,8 @@ export default function ProductionReadinessPage() {
           </div>
         </div>
       </section>
+
+      {selectedConfig && <button className="mobile-primary-action" onClick={() => document.getElementById("controlled-exposure-request")?.scrollIntoView({ behavior: "smooth" })}>Request controlled exposure</button>}
 
       <ConfirmModal
         open={confirmAction !== null}

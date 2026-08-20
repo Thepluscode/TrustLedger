@@ -52,7 +52,13 @@ export default function TransfersListPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <div className="mobile-filter-chips" aria-label="Quick status filters">
+        {["all", "HELD_FOR_REVIEW", "COMPLETED", "PENDING_UNKNOWN"].map((value) => (
+          <button key={value} className={status === value ? "active" : ""} onClick={() => setStatus(value)}>{value === "all" ? "All" : value.replace(/_/g, " ").toLowerCase()}</button>
+        ))}
+      </div>
+
+      <section className="panel transfer-list-panel">
         <div className="panelHeader">
           <div className="row" style={{ gap: 12 }}>
             <div>
@@ -77,7 +83,7 @@ export default function TransfersListPage() {
             </div>
           </div>
         </div>
-        <table>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>Status</th>
@@ -104,6 +110,17 @@ export default function TransfersListPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list transfer-record-list">
+          {filtered.map((transfer) => (
+            <Link href={`/transfers/${transfer.id}`} className={`mobile-record transfer-record ${bandOf(transfer.riskScore)}`} key={transfer.id}>
+              <div className="record-head"><div><small>Transfer</small><strong className="mono">{shortId(transfer.id)}</strong></div><strong className="record-amount">{money(transfer.amount, transfer.currency)}</strong></div>
+              <div className="record-route"><span className="mono">{shortId(transfer.sourceAccountId)}</span><span>→</span><span className="mono">{shortId(transfer.destinationAccountId)}</span></div>
+              <div className="record-foot"><StatusPill value={transfer.status} /><RiskBadge score={transfer.riskScore} /><small>{dateTime(transfer.createdAt)}</small></div>
+              {transfer.status === "PENDING_UNKNOWN" && <p className="record-safety">Provider status is unknown. TrustLedger will reconcile before any further action.</p>}
+              {transfer.status === "HELD_FOR_REVIEW" && <p className="record-safety">Funds are held while a permissioned analyst reviews the recorded risk decision.</p>}
+            </Link>
+          ))}
+        </div>
         {transfers !== null && filtered.length === 0 && (
           <EmptyState
             title={transfers.length === 0 ? "No transfers yet" : "No transfers match these filters"}
@@ -111,6 +128,7 @@ export default function TransfersListPage() {
           />
         )}
       </section>
+      <Link href="/transfers/new" className="mobile-primary-action">＋ Create transfer</Link>
     </Shell>
   );
 }

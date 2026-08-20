@@ -69,6 +69,8 @@ is created per run, so re-running IS the reset.
 - [ ] `GET /api/health` → 200
 - [ ] `GET /actuator/health/readiness` → UP
 - [ ] Log in with the seeded owner; Dashboard + Accounts load with the seeded data
+- [ ] `/showcase` loads the £50,000 fee-overcharge replay with the synthetic/no-money boundary visible
+- [ ] Replay advances the evidence counter and all six scenario tabs produce a supported conclusion
 - [ ] Transfers page shows the completed transfers
 - [ ] Fraud Cases shows an OPEN case (the seed's £900 held transfer, score 75) — approve/reject works
 - [ ] The seed printed a risk assessment with `decision` + `signals` (e.g. HOLD_FOR_REVIEW, NEW_BENEFICIARY)

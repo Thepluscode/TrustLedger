@@ -1,8 +1,23 @@
 # TrustLedger — Project Goal and Detailed Feature Blueprint
 
+> **Canonical framing:** [`CANONICAL_PRODUCT_DOCTRINE.md`](CANONICAL_PRODUCT_DOCTRINE.md) defines
+> the current problem statement, role model and market/product gates. This blueprint must not be
+> interpreted to bypass those gates.
+
 ## 1. Project goal
 
 **TrustLedger is the Payment Reliability OS: a payment-operations control system for companies running money across multiple payment providers, bank accounts, internal ledgers and settlement processes.**
+
+The primary customer question is:
+
+> **What actually happened to the money?**
+
+Canonical problem statement:
+
+> Payment teams need a fast, defensible way to determine what happened to money when provider,
+> bank, settlement, webhook and internal records disagree, because today they reconstruct the truth
+> manually across fragmented systems, delaying recovery and leaving financial exposure difficult
+> to explain.
 
 Its job, stated in one sentence:
 
@@ -1063,7 +1078,7 @@ The current TrustLedger implementation already includes major components of this
 Sequenced around the wedge. §8.1 is the named next increment; everything after it is retained
 capability work that must not jump the queue.
 
-## 8.1 TrustLedger Settlement Watch — the immediate increment
+## 8.1 TrustLedger Settlement Watch — the first post-gate increment
 
 TrustLedger should not merely record financial truth. It should continuously defend it. Settlement
 Watch is the first expression of that: a **read-only** service that
@@ -1079,6 +1094,35 @@ Watch is the first expression of that: a **read-only** service that
 This is not a new subsystem. It is scheduled watchers over data the platform already holds —
 statement ingestion and line matching (V32), the reconciliation worker, the evidence store — plus
 the taxonomy and the exception-ops upgrade (owner, exposure, deadline, activity history).
+
+The current market gate is still unvalidated, so this section is the implementation order after
+market `GO` and a passed read-only product pilot—not authority to expand the platform now.
+
+### Exception-operations contract after both gates pass
+
+Extend `reconciliation_issues`; do not create a parallel case system:
+
+- fields: named owner, decimal financial exposure plus currency, priority, deadline, lifecycle
+  status, queryable resolution outcome and resolution timestamp;
+- lifecycle: `OPEN → IN_PROGRESS → BLOCKED/ESCALATED → RESOLVED`;
+- append-only tenant-scoped activity: assignment, notes, evidence, escalation, transitions,
+  resolution proposals, approvals and closure;
+- filters: status, owner, severity, classification, exposure and overdue state;
+- views: operator queue, engineering evidence/escalation and management exposure/SLA;
+- permissions: `RECONCILIATION_VIEW`, `RECONCILIATION_INVESTIGATE`,
+  `RECONCILIATION_ASSIGN`, `RECONCILIATION_RESOLVE` and `RECONCILIATION_WRITE_OFF`.
+
+Finance operators may claim, investigate and resolve non-write-off outcomes; engineers may add
+technical evidence but not make financial resolutions; owners/admins may assign, reprioritise,
+configure SLAs and approve write-offs; auditors remain read-only. Tenant-scoped APIs take actor
+identity only from authentication and support claim/assign, activity, escalation, resolution
+proposal, write-off approval and pilot-measurement export.
+
+Before release, prove tenant isolation at every repository read/lock/mutation; deterministic
+concurrent claim/assignment/escalation/resolution; append-only attribution; decimal and currency-safe
+exposure; controlled-clock SLA calculations; unknown preservation; suggestion non-authority;
+write-off elevation; and duplicate/delayed-input idempotency on desktop and mobile. Financial
+remediation remains a separate human-authority and safety gate.
 
 ### The Financial Operations Agents module
 

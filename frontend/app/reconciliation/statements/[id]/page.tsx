@@ -21,6 +21,8 @@ export default function SettlementStatementDetailPage() {
 
   const s = detail?.statement;
   const lines = detail?.lines ?? null;
+  const matchedLines = lines?.filter((line) => line.matchStatus === "MATCHED").length ?? 0;
+  const breakLines = lines?.filter((line) => line.matchStatus !== "MATCHED").length ?? 0;
 
   return (
     <Shell active="/reconciliation/statements">
@@ -35,9 +37,9 @@ export default function SettlementStatementDetailPage() {
 
       {s && (
         <>
-          <section className="panel">
+          <section className="panel statement-detail-hero">
             <div className="panelBody">
-              <div style={{ maxWidth: 560 }}>
+              <div className="statement-detail-facts">
                 <div className="entry"><span className="muted">Provider</span><span>{s.provider}</span></div>
                 <div className="entry"><span className="muted">Currency</span><span>{s.currency}</span></div>
                 <div className="entry"><span className="muted">Period</span><span>{dateTime(s.periodStart)} — {dateTime(s.periodEnd)}</span></div>
@@ -49,11 +51,19 @@ export default function SettlementStatementDetailPage() {
             </div>
           </section>
 
+          <section className="statement-detail-summary" aria-label="Statement reconciliation summary">
+            <article><small>Total lines</small><strong>{s.lineCount}</strong></article>
+            <article><small>Matched</small><strong className="ok">{matchedLines}</strong></article>
+            <article><small>Breaks</small><strong className={breakLines > 0 ? "bad" : "ok"}>{breakLines}</strong></article>
+            <article><small>Gross amount</small><strong>{s.totalAmount} {s.currency}</strong></article>
+            <article><small>Fees</small><strong>{s.totalFees} {s.currency}</strong></article>
+          </section>
+
           <section className="panel" style={{ marginTop: 18 }}>
             <div className="panelHeader">
               <div><h2>Lines</h2><p className="sub">Each line matched against our payment attempts. Breaks are raised as reconciliation issues.</p></div>
             </div>
-            <table>
+            <table className="desktop-table">
               <thead>
                 <tr><th>Provider reference</th><th>Amount</th><th>Fee</th><th>Provider status</th><th>Match</th><th>Matched attempt</th></tr>
               </thead>
@@ -71,6 +81,15 @@ export default function SettlementStatementDetailPage() {
                 ))}
               </tbody>
             </table>
+            <div className="mobile-record-list statement-line-list">
+              {lines?.map((line, index) => (
+                <article className={`mobile-record statement-line ${line.matchStatus === "MATCHED" ? "matched" : "break"}`} key={index}>
+                  <div className="record-head"><strong className="mono">{line.providerReference}</strong><StatusPill value={line.matchStatus} /></div>
+                  <div className="record-stats"><span><small>Amount</small><b>{line.amount} {s.currency}</b></span><span><small>Fee</small><b>{line.fee}</b></span><span><small>Provider</small><b>{line.status}</b></span></div>
+                  <small>Matched attempt <span className="mono">{line.matchedAttemptId ? shortId(line.matchedAttemptId) : "—"}</span></small>
+                </article>
+              ))}
+            </div>
             {lines !== null && lines.length === 0 && (
               <EmptyState title="No lines" hint="This statement has no lines." />
             )}

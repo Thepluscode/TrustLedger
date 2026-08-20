@@ -78,7 +78,8 @@ export default function ApiKeysPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <div className="api-key-workspace">
+      <section className="panel api-key-create">
         <div className="panelHeader">
           <div>
             <h2>Create a key</h2>
@@ -86,7 +87,7 @@ export default function ApiKeysPage() {
           </div>
         </div>
         <div className="panelBody">
-          <form className="row" onSubmit={create}>
+          <form className="form" onSubmit={create}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <label htmlFor="key-name" style={{ marginTop: 0 }}>Name</label>
               <input id="key-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="CI deploy bot" />
@@ -97,12 +98,13 @@ export default function ApiKeysPage() {
                 {SCOPES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ").toLowerCase()}</option>)}
               </select>
             </div>
-            <button type="submit" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create key"}</button>
+            <button type="submit" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create API key"}</button>
           </form>
           {secret && (
-            <div className="notice warn" style={{ marginTop: 12 }}>
-              <b>{secret.name}</b> — copy this secret now, it won&apos;t be shown again:{" "}
-              <span className="mono">{secret.value}</span>
+            <div className="one-time-secret" role="status">
+              <small>Shown once</small><b>{secret.name}</b>
+              <span className="mono secret-value">{secret.value}</span>
+              <p>Copy this value now. TrustLedger stores only its hash and cannot show it again.</p>
               <div style={{ marginTop: 8 }}>
                 <button className="secondary" onClick={() => setSecret(null)}>Dismiss</button>
               </div>
@@ -111,8 +113,9 @@ export default function ApiKeysPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
-        <table>
+      <section className="panel api-key-register">
+        <div className="panelHeader"><div><h2>Key register</h2><p className="sub">Rotate or revoke access without exposing stored secrets.</p></div><span className="muted">{keys?.filter((k) => !k.revoked).length ?? 0} active</span></div>
+        <table className="desktop-table">
           <thead>
             <tr><th>Name</th><th>Key</th><th>Scope</th><th>Last used</th><th>Created</th><th>Status</th><th></th></tr>
           </thead>
@@ -138,10 +141,20 @@ export default function ApiKeysPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {keys?.map((k) => (
+            <article className="mobile-record api-key-record" key={k.id}>
+              <div className="record-head"><div><small className="mono">tlk_{k.keyPrefix}…</small><b>{k.name}</b></div><StatusPill value={k.revoked ? "REVOKED" : "ACTIVE"} /></div>
+              <div className="record-stats"><span><small>Scope</small><b>{k.scope.replace(/_/g, " ").toLowerCase()}</b></span><span><small>Last used</small><b>{k.lastUsedAt ? dateTime(k.lastUsedAt) : "Never"}</b></span><span><small>Created</small><b>{dateTime(k.createdAt)}</b></span></div>
+              {!k.revoked && <div className="record-actions"><button className="secondary" onClick={() => setPending({ kind: "rotate", key: k })}>Rotate</button><button className="danger" onClick={() => setPending({ kind: "revoke", key: k })}>Revoke</button></div>}
+            </article>
+          ))}
+        </div>
         {keys !== null && keys.length === 0 && (
           <EmptyState title="No API keys yet" hint="Create one above to call the API outside the console." />
         )}
       </section>
+      </div>
 
       <ConfirmModal
         open={pending !== null}

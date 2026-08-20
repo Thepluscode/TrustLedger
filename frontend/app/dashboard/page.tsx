@@ -59,11 +59,11 @@ export default function DashboardPage() {
     <Shell active="/dashboard">
       <section className="dashboard-hero premise-hero" aria-labelledby="dashboard-title">
         <div className="hero-copy">
-          <p className="eyebrow">Financial operations cockpit</p>
-          <h1 id="dashboard-title">Money movement, risk and evidence—under control.</h1>
+          <p className="eyebrow">Current operating position</p>
+          <h1 id="dashboard-title">What actually happened to the money?</h1>
           <p className="sub">
-            A live operating view of tenant balances, transfer outcomes, fraud decisions and reconciliation exceptions.
-            Every action remains ledger-backed, permissioned and auditable.
+            Reconstruct payment state across provider, settlement and internal records. Keep every
+            disagreement visible until its evidence supports an accountable resolution.
           </p>
         </div>
       </section>

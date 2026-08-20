@@ -112,7 +112,18 @@ export default function OrgUnitsPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <div className="org-workspace">
+      <section className="panel org-tree-panel">
+        <div className="panelHeader"><div><h2>Organisation hierarchy</h2><p className="sub">Parent-first structure used to derive member visibility.</p></div></div>
+        <div className="org-tree" role="tree">
+          {units === null && <div className="panelBody"><div className="skeleton" style={{ minHeight: 120 }} /></div>}
+          {rows.map(({ unit, depth }) => <div className="org-tree-row" role="treeitem" aria-level={depth + 1} key={unit.id} style={{ paddingLeft: 16 + depth * 28 }}><span className="org-node" aria-hidden>⌞</span><div><b>{unit.name}</b><small>{unit.type.replace(/_/g, " ").toLowerCase()}</small></div></div>)}
+          {units !== null && units.length === 0 && <EmptyState title="No org units yet" hint="Create a top-level unit to begin scoping access." />}
+        </div>
+      </section>
+
+      <div className="org-controls">
+      <section className="panel org-create-panel">
         <div className="panelHeader">
           <div>
             <h2>Create a unit</h2>
@@ -120,7 +131,7 @@ export default function OrgUnitsPage() {
           </div>
         </div>
         <div className="panelBody">
-          <form className="row" onSubmit={create}>
+          <form className="form" onSubmit={create}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <label htmlFor="ou-name" style={{ marginTop: 0 }}>Name</label>
               <input id="ou-name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="EU Operations" />
@@ -145,7 +156,7 @@ export default function OrgUnitsPage() {
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel org-assign-panel">
         <div className="panelHeader">
           <div>
             <h2>Assign a member</h2>
@@ -153,7 +164,7 @@ export default function OrgUnitsPage() {
           </div>
         </div>
         <div className="panelBody">
-          <form className="row" onSubmit={assign}>
+          <form className="form" onSubmit={assign}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <label htmlFor="as-user" style={{ marginTop: 0 }}>Member</label>
               <select id="as-user" value={assignUser} onChange={(e) => setAssignUser(e.target.value)} required style={{ width: "100%" }}>
@@ -174,8 +185,11 @@ export default function OrgUnitsPage() {
           </form>
         </div>
       </section>
+      </div>
+      </div>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel org-register">
+        <div className="panelHeader"><div><h2>Unit register</h2><p className="sub">Indented rows preserve the parent-child relationship.</p></div><span className="muted">{units?.length ?? 0} units</span></div>
         <table>
           <thead>
             <tr><th>Unit</th><th>Type</th></tr>

@@ -46,31 +46,31 @@ export default function LoginPage() {
             </span>
             <span className="auth-brand-copy" style={{ display: "grid", gap: 1, color: "inherit", fontSize: "inherit" }}>
               <strong style={{ color: "var(--text)", fontSize: 18 }}>TrustLedger</strong>
-              <span style={{ color: "var(--muted)", fontSize: 11 }}>Financial control plane</span>
+              <span style={{ color: "var(--muted)", fontSize: 11 }}>Payment reliability operations</span>
             </span>
           </div>
 
           <div className="auth-message">
-            <p className="eyebrow">Governed money movement</p>
-            <h1>Operate every payment with confidence.</h1>
+            <p className="eyebrow">Payment reliability operations</p>
+            <h1>Find the break.<br />Preserve the proof.</h1>
             <p>
-              One calm workspace for ledger-backed transfers, fraud decisions, payment-provider controls,
-              reconciliation and audit evidence.
+              Reconcile provider events with internal records, keep exceptions visible, and give operators
+              the evidence needed to resolve them.
             </p>
           </div>
 
           <div className="auth-proof" aria-label="Platform principles">
             <article className="proof-item">
               <strong>Ledger first</strong>
-              <span>Balanced, immutable financial records</span>
+              <span>Internal records remain the source of truth</span>
             </article>
             <article className="proof-item">
               <strong>Fail closed</strong>
-              <span>Unsafe payment paths remain blocked</span>
+              <span>Unknown outcomes never become confirmed success</span>
             </article>
             <article className="proof-item">
               <strong>Evidence built in</strong>
-              <span>Every sensitive action is attributable</span>
+              <span>Sensitive actions stay attributable</span>
             </article>
           </div>
         </section>

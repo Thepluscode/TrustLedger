@@ -50,25 +50,16 @@ export default function CertificationsPage() {
   }
 
   const all = runs ?? [];
-  const cards = runs
-    ? [
-        { label: "Runs", value: all.length },
-        { label: "Passed", value: all.filter((r) => r.status === "PASSED").length },
-        { label: "Certified configs", value: prodConfigs.filter((c) => isCertified(all, c.id)).length },
-        {
-          label: "Awaiting sign-off",
-          value: all.filter((r) => r.status === "PASSED" && !r.signedOff).length,
-          alert: all.some((r) => r.status === "PASSED" && !r.signedOff),
-        },
-      ]
-    : [];
+  const passedRuns = all.filter((run) => run.status === "PASSED").length;
+  const certifiedConfigs = prodConfigs.filter((config) => isCertified(all, config.id)).length;
+  const awaitingSignOff = all.filter((run) => run.status === "PASSED" && !run.signedOff).length;
 
   return (
     <Shell active="/certifications">
       <header className="topbar">
         <div>
           <p className="eyebrow">Payment Rails</p>
-          <h1>Provider Certification</h1>
+          <h1>Provider certification</h1>
           <p className="sub">
             A provider integration must pass the drill catalogue and get a dual-control sign-off before it can move
             money in production. Runs execute against the deterministic sandbox rail — no real funds are touched.
@@ -77,29 +68,20 @@ export default function CertificationsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="grid metrics">
-        {cards.length === 0 && !error
-          ? Array.from({ length: 4 }, (_, i) => (
-              <article className="card" key={i}>
-                <div className="skeleton" style={{ width: "55%" }} />
-                <div className="skeleton" style={{ width: "30%", minHeight: 26 }} />
-              </article>
-            ))
-          : cards.map((c) => (
-              <article className={`card${c.alert ? " alert" : ""}`} key={c.label}>
-                <span>{c.label}</span>
-                <strong>{c.value}</strong>
-              </article>
-            ))}
+      <section className="operations-strip" aria-label="Certification summary">
+        <div><span>Production configs</span><strong>{configs.length === 0 && runs === null ? "—" : prodConfigs.length}</strong></div>
+        <div><span>Certified</span><strong>{runs ? certifiedConfigs : "—"}</strong></div>
+        <div><span>Passed runs</span><strong>{runs ? passedRuns : "—"}</strong></div>
+        <div className={awaitingSignOff > 0 ? "attention" : ""}><span>Awaiting sign-off</span><strong>{runs ? awaitingSignOff : "—"}</strong></div>
       </section>
 
-      <section className="panel">
+      <section className="panel certification-readiness">
         <div className="panelHeader">
           <div>
-            <h2>Production readiness</h2>
-            <p className="sub">Whether each production provider config currently clears the certification gate.</p>
+            <h2>Production configuration gate</h2>
+            <p className="sub">A passed run is not sufficient until another authorised operator signs it off.</p>
           </div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="certification-run-control">
             <select value={selected} onChange={(e) => setSelected(e.target.value)} aria-label="Provider config to certify">
               <option value="">Select a production config…</option>
               {prodConfigs.map((c) => (
@@ -109,32 +91,34 @@ export default function CertificationsPage() {
               ))}
             </select>
             <button onClick={run} disabled={!selected || busy}>
-              {busy ? "Running…" : "Run certification"}
+              {busy ? "Running…" : "Start drill run"}
             </button>
           </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Config</th>
-              <th>Gate</th>
-            </tr>
-          </thead>
+        <table className="desktop-table">
+          <thead><tr><th>Provider</th><th>Configuration</th><th>Environment</th><th>Certification gate</th></tr></thead>
           <tbody>
-            {prodConfigs.map((c) => (
-              <tr key={c.id}>
-                <td>{c.provider}</td>
+            {prodConfigs.map((config) => (
+              <tr key={config.id}>
+                <td>{config.provider}</td>
                 <td className="muted">
-                  <span className="mono">{shortId(c.id)}</span>
+                  <span className="mono">{shortId(config.id)}</span>
                 </td>
-                <td>
-                  <StatusPill value={isCertified(all, c.id) ? "CERTIFIED" : "NOT_CERTIFIED"} />
-                </td>
+                <td>{config.environment.toLowerCase()}</td>
+                <td><StatusPill value={isCertified(all, config.id) ? "CERTIFIED" : "NOT_CERTIFIED"} /></td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {prodConfigs.map((config) => (
+            <article className="mobile-record certification-config-record" key={config.id}>
+              <div className="record-head"><div><small>Provider</small><strong>{config.provider}</strong></div><StatusPill value={isCertified(all, config.id) ? "CERTIFIED" : "NOT_CERTIFIED"} /></div>
+              <small className="mono">{config.id}</small>
+              <div className="record-foot"><span>{config.environment.toLowerCase()}</span><span>{config.operationalStatus.toLowerCase()}</span></div>
+            </article>
+          ))}
+        </div>
         {runs !== null && prodConfigs.length === 0 && (
           <EmptyState
             title="No production provider configs"
@@ -143,13 +127,13 @@ export default function CertificationsPage() {
         )}
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel certification-history" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>Certification runs</h2>
           </div>
         </div>
-        <table>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>Run</th>
@@ -180,6 +164,15 @@ export default function CertificationsPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {all.map((run) => (
+            <Link className="mobile-record certification-run-record" href={`/certifications/${run.id}`} key={run.id}>
+              <div className="record-head"><div><small>Run</small><strong className="mono">{shortId(run.id)}</strong></div><StatusPill value={run.status} /></div>
+              <div className="record-stats"><span><small>Sign-off</small><b>{run.signedOff ? "Complete" : "Required"}</b></span><span><small>Completed</small><b>{run.completedAt ? dateTime(run.completedAt) : "—"}</b></span></div>
+              <small>Configuration {shortId(run.tenantProviderConfigId)} · valid until {run.expiresAt ? dateTime(run.expiresAt) : "—"}</small>
+            </Link>
+          ))}
+        </div>
         {runs !== null && all.length === 0 && (
           <EmptyState
             title="No certifications yet"
@@ -187,6 +180,7 @@ export default function CertificationsPage() {
           />
         )}
       </section>
+      {prodConfigs.length > 0 && <button className="mobile-primary-action" onClick={run} disabled={!selected || busy}>{busy ? "Running…" : "Start certification"}</button>}
     </Shell>
   );
 }

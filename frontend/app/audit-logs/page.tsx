@@ -31,6 +31,9 @@ export default function AuditLogsPage() {
     );
   }, [logs, filter]);
 
+  const humanActors = logs?.filter((l) => l.actorType === "USER").length ?? 0;
+  const correlated = logs?.filter((l) => l.correlationId).length ?? 0;
+
   return (
     <Shell active="/audit-logs">
       <header className="topbar">
@@ -51,8 +54,15 @@ export default function AuditLogsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
-        <table>
+      <section className="operations-strip compliance-strip" aria-label="Audit register summary">
+        <article><small>Entries loaded</small><strong>{logs?.length ?? "—"}</strong><span>Latest tenant events</span></article>
+        <article><small>User actions</small><strong>{logs ? humanActors : "—"}</strong><span>Actor-attributed records</span></article>
+        <article><small>Request-linked</small><strong>{logs ? correlated : "—"}</strong><span>Correlation ID available</span></article>
+      </section>
+
+      <section className="panel audit-register">
+        <div className="panelHeader"><div><h2>Activity register</h2><p className="sub">Newest first. IDs remain available for incident and support correlation.</p></div><span className="muted">{filtered?.length ?? 0} shown</span></div>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>When</th>
@@ -83,6 +93,18 @@ export default function AuditLogsPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {filtered?.map((l) => (
+            <article className="mobile-record audit-record" key={l.id}>
+              <div className="record-head"><div><small>{dateTime(l.createdAt)}</small><b>{l.action.replace(/_/g, " ").toLowerCase()}</b></div><span className="pill info">{l.actorType}</span></div>
+              <div className="record-stats">
+                <span><small>Resource</small><b>{l.resourceType.replace(/_/g, " ").toLowerCase()}</b></span>
+                <span><small>Resource ID</small><b className="mono">{l.resourceId ? shortId(l.resourceId) : "—"}</b></span>
+                <span><small>Request ID</small><b className="mono">{l.correlationId ? shortId(l.correlationId) : "—"}</b></span>
+              </div>
+            </article>
+          ))}
+        </div>
         {filtered !== null && filtered.length === 0 && (
           <EmptyState
             title={filter ? "No entries match that filter" : "No audit entries yet"}

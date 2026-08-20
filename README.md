@@ -1,10 +1,17 @@
 # TrustLedger v3.0
 
-TrustLedger is a **ledger-first** secure transaction and fraud-monitoring platform: every money
-movement is double-entry, every risky transfer is scored, every suspicious one becomes a reviewable
-case, and every sensitive action is auditable. **v2.2** added an external payment-rail sandbox; **v2.3** adds fraud intelligence (behaviour/device/beneficiary risk, case linking, dual approval) on top of internal ledger transfers; **v2.4** adds checksummed evidence packs, ledger-balance proofs, retention + legal hold; **v2.5** adds hardening (rate limiting, secure headers, metrics, backup/restore, CI scans, SLOs); **v2.6** adds an Open Banking-shaped sandbox (payment consent + secure callback + provider reconciliation); **v2.7** makes it multi-tenant SaaS (tenant RBAC, per-tenant fraud/provider/retention policy, quotas, usage metering, billing hooks); **v2.8** adds ML-assisted fraud scoring in shadow mode (explainable logistic model, feature store, model registry, analyst feedback, monitoring) that never moves money; **v2.9** adds deployment automation (Helm chart, Kustomize, Terraform, blue/green + rollback, secret-manager + multi-region docs); **v3.0** adds the pilot/customer package (one-pager, due-diligence, answered security questionnaire, pilot checklist, demo script + seed, pricing, sample evidence) on top of
-webhook settlement, `PENDING_UNKNOWN` timeout handling, duplicate-callback protection, and provider
-reconciliation.
+TrustLedger is a payment-reliability and reconciliation control system for companies operating
+across multiple providers, banks, currencies and countries. Its primary customer question is:
+
+> **What actually happened to the money?**
+
+The first sale is a read-only layer that reconstructs the payment lifecycle, detects disagreement
+between provider, settlement and internal records, creates an operational exception and preserves
+the evidence behind its resolution. The repository also contains a tested execution engine—ledger,
+fraud gate and external-rail controls—but those capabilities remain outside the first pilot.
+
+Canonical product framing and validation gates:
+[`docs/CANONICAL_PRODUCT_DOCTRINE.md`](docs/CANONICAL_PRODUCT_DOCTRINE.md).
 
 ## What's runnable today
 
@@ -15,7 +22,7 @@ reconciliation.
 - **Infra** — Docker Compose for Postgres, Redis, Redpanda, OpenSearch, MinIO, Prometheus, Grafana.
 - **CI** — GitHub Actions: backend `mvn test`, frontend build, compose-config + repo validation.
 
-## Product spine
+## Retained execution spine
 
 ```text
 POST /transfers -> idempotency guard -> lock source/dest (SELECT FOR UPDATE) -> fraud score
@@ -80,7 +87,6 @@ FEATURE_TRACKER.md   live VERIFIED-vs-PLANNED status (the source of truth for "w
 
 ## Scope boundary
 
-Not a regulated bank, card issuer, or production payment processor. It is an engineering baseline
-that gets the ledger + fraud spine correct and tested first. External payment rails (v2.2),
-behavioural fraud intelligence (v2.3), and evidence/compliance packs (v2.4) come next — see
-`docs/TRUSTLEDGER_V2_DESIGN.md`.
+Not a regulated bank, card issuer, payment gateway, custody product or autonomous financial
+decision-maker. The commercial premise is still unvalidated; check it with
+`python3 pilot/score_kill_test.py`. The six-week product gate cannot begin until that returns `GO`.

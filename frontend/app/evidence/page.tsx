@@ -28,8 +28,17 @@ export default function EvidencePage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
-        <table>
+      <section className="operations-strip compliance-strip" aria-label="Evidence export summary">
+        <article><small>Exports generated</small><strong>{items?.length ?? "—"}</strong><span>Tenant-scoped packs</span></article>
+        <article><small>Integrity method</small><strong>SHA-256</strong><span>Checksum stored at generation</span></article>
+        <article><small>Source workflow</small><strong>Fraud cases</strong><span>Exports remain attributable and audited</span></article>
+      </section>
+
+      <section className="panel evidence-register">
+        <div className="panelHeader">
+          <div><h2>Export register</h2><p className="sub">Downloadable point-in-time records with their original integrity checksum.</p></div>
+        </div>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>Export</th>
@@ -61,6 +70,20 @@ export default function EvidencePage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {items?.map((e) => (
+            <article className="mobile-record evidence-record" key={e.id}>
+              <div className="record-head"><div><small>Export</small><b className="mono">{shortId(e.id)}</b></div><StatusPill value={e.format} /></div>
+              <div className="record-stats">
+                <span><small>Resource</small><b>{e.resourceType.replace(/_/g, " ").toLowerCase()}</b></span>
+                <span><small>Resource ID</small><b className="mono">{shortId(e.resourceId)}</b></span>
+                <span><small>Size</small><b>{bytes(e.byteSize)}</b></span>
+              </div>
+              <div className="checksum-line"><small>SHA-256</small><span className="mono" title={e.checksum}>{e.checksum}</span></div>
+              <button className="secondary" onClick={() => api.downloadEvidence(e.id)}>Download evidence</button>
+            </article>
+          ))}
+        </div>
         {items !== null && items.length === 0 && (
           <EmptyState
             title="No evidence exported yet"

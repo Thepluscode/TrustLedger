@@ -146,9 +146,11 @@ export default function TransfersPage() {
         </div>
       </header>
 
+      <div className="transfer-create-layout">
+      <div>
       {/* §22.1 success screen */}
       {result ? (
-        <section className="panel">
+        <section className="panel transfer-create-panel">
           <div className="panelBody">
             <h2>
               {result.status === "COMPLETED"
@@ -211,7 +213,7 @@ export default function TransfersPage() {
       ) : (
         <section className="panel">
           <div className="panelBody">
-            <div className="steps" aria-label="Transfer steps">
+            <div className="steps transfer-steps" aria-label="Transfer steps">
               {STEPS.map((s, i) => (
                 <span key={s} className={`step${i === step ? " current" : i < step ? " done" : ""}`}>
                   {i + 1}. {s}
@@ -221,7 +223,7 @@ export default function TransfersPage() {
 
             {step === 0 && (
               <form
-                className="form"
+                className="form transfer-form"
                 onSubmit={(e) => {
                   e.preventDefault();
                   toRiskPreview();
@@ -348,7 +350,26 @@ export default function TransfersPage() {
         </section>
       )}
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      </div>
+      <aside className="transfer-guidance">
+        <section className="panel">
+          <div className="panelBody">
+            <h2>What happens next?</h2>
+            <ol className="guidance-steps">
+              <li><b>Risk assessment</b><span>Explainable controls evaluate the transfer before submission.</span></li>
+              <li><b>Review and confirm</b><span>You see the estimated outcome before any funds can move.</span></li>
+              <li><b>Ledger-first posting</b><span>Completed transfers post as a balanced debit and credit pair.</span></li>
+            </ol>
+          </div>
+        </section>
+        <section className="control-note">
+          <strong>Duplicate processing is prevented.</strong>
+          <p>Submission uses a unique idempotency key. Network retries cannot create a second transfer.</p>
+        </section>
+      </aside>
+      </div>
+
+      <section className="panel external-rail-panel" style={{ marginTop: 18 }}>
         <div className="panelHeader">
           <div>
             <h2>External payment (sandbox rail)</h2>

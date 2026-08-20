@@ -1,28 +1,23 @@
-# Pricing Model
+# Commercial Engagement Assumptions
 
-Aligned to the in-product plans (v2.7: `FREE_SANDBOX / PILOT / PROFESSIONAL / ENTERPRISE / INTERNAL`).
-Indicative SaaS pricing for the pilot conversation — finalise per deployment model + volume.
+Pricing is unvalidated until the market gate produces signed evidence. Do not present the figures
+below as a published SaaS tariff or imply that an in-product plan proves willingness to pay.
 
-| Plan | Who | Price (indicative) | Limits (tenant quotas) | Support |
-|------|-----|--------------------|------------------------|---------|
-| **Free Sandbox** | Evaluators | £0 | 5 users, 1k transfers/mo, sandbox providers only | Community |
-| **Pilot** | 4–6 week pilots | £2,500 one-off (credited if you convert) | 25 users, 100k transfers/mo, 1 region | Pilot eng. support |
-| **Professional** | Production fintech teams | from £3,500/mo | 100 users, 1M transfers/mo, HPA scaling | Business hours, SLA |
-| **Enterprise** | Multi-BU / regulated paths | Custom | Custom quotas, multi-region pattern, dedicated config | 24×7, named CSM |
-| **Internal** | Operator's own teams | n/a | Unmetered | Internal |
+| Stage | Working range | Customer outcome |
+|---|---:|---|
+| **Paid discovery** | £5,000–£15,000 | Map flows, failure classes, current exposure, data access and the measurable pilot baseline. |
+| **Six-week read-only pilot** | £15,000–£40,000 | Benchmark labelled exceptions, run two parallel weeks and four TrustLedger-primary weeks, then issue a reproducible gate decision. |
+| **Production contract** | Unpriced until validation | Continuous reliability workflow only after both gates pass; scope depends on providers, entities, currencies, retention and deployment policy. |
 
-## What drives price
-- **Volume**: transfers/month + ledger postings (metered via `usage_records`).
-- **Scale/HA**: replicas/HPA, multi-AZ Postgres, multi-region pattern.
-- **Evidence/retention**: storage + retention duration + legal-hold volume.
-- **Support tier + SLA**.
+The pilot price is for evidence and operational learning, not transaction initiation or financial
+remediation. Customer-hosted processing, security review and unusual integration work may change the
+range and must be scoped explicitly.
 
-## Pricing principles
-- **Usage is metered, not guessed** — `usage_records` already tracks transfers + evidence exports per tenant.
-- **Quotas hard-block only non-critical resources** — fraud/security actions are never blocked by a quota.
-- **Billing is separate from the money ledger** — billing events feed Stripe/Chargebee later; they never
-  touch financial truth.
+## Commercial gate
 
-## Not included (be explicit)
-Regulatory authorisation/licensing for live payment initiation, third-party pen test, and
-production-grade SLAs on the sandbox tier. These are scoped per engagement.
+The current market gate requires at least two paid-discovery or paid-pilot commitments. A product
+pilot is not considered passed merely because it ran: one paid pilot must be signed and every safety,
+accuracy, recall, speed, evidence and adoption bar in `PILOT_CHECKLIST.md` must clear.
+
+The blueprint's £30,000–£150,000 annual-contract range remains a hypothesis, not a claim supported by
+customer evidence.

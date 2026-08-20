@@ -3,8 +3,8 @@ import "./aesthetic.css";
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "TrustLedger — Financial Control Plane",
-  description: "Ledger-first payment operations, fraud controls, reconciliation and production governance",
+  title: "TrustLedger — Payment Reliability Operations",
+  description: "Cross-provider reconciliation, exception management and operational evidence",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

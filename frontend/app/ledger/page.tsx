@@ -87,7 +87,8 @@ export default function LedgerPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel" aria-label="Ledger entries">
+      <div className={`ledger-workspace${tx || txLoading ? " has-detail" : ""}`}>
+      <section className="panel ledger-list-panel" aria-label="Ledger entries">
         <div className="panelHeader">
           <div>
             <h2>Entries</h2>
@@ -98,7 +99,7 @@ export default function LedgerPage() {
             </p>
           </div>
         </div>
-        <table>
+        <table className="desktop-table">
           <thead>
             <tr>
               <th>Direction</th>
@@ -130,6 +131,15 @@ export default function LedgerPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list ledger-record-list">
+          {entries?.map((entry) => (
+            <button className="mobile-record ledger-record" key={entry.id} onClick={() => openTransaction(entry.ledgerTransactionId)}>
+              <span className="record-icon">⇄</span>
+              <span><small>{entry.entryType.replace(/_/g, " ").toLowerCase()}</small><strong className="mono">{shortId(entry.ledgerTransactionId)}</strong></span>
+              <span><span className={`pill ${entry.direction === "DEBIT" ? "bad" : "ok"}`}>{entry.direction}</span><strong>{entry.direction === "DEBIT" ? "−" : "+"}{money(entry.amount, entry.currency)}</strong></span>
+            </button>
+          ))}
+        </div>
         {entries !== null && entries.length === 0 && (
           <EmptyState
             title="No ledger entries for this account"
@@ -139,7 +149,7 @@ export default function LedgerPage() {
       </section>
 
       {(txLoading || tx) && (
-        <section className="panel" style={{ marginTop: 18 }} aria-label="Ledger transaction detail">
+        <section className="panel ledger-detail-panel" aria-label="Ledger transaction detail">
           <div className="panelHeader">
             <div>
               <h2>Ledger transaction {tx ? shortId(tx.id) : ""}</h2>
@@ -202,6 +212,7 @@ export default function LedgerPage() {
           )}
         </section>
       )}
+      </div>
     </Shell>
   );
 }

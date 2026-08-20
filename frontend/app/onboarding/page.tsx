@@ -7,33 +7,27 @@ import { api } from "../lib/api";
 
 type Step = { title: string; detail: string; done: boolean; href: string; cta: string; core: boolean };
 
-const DEFAULT_POLICY = { monitor: 25, mfa: 45, hold: 65, reject: 85, deviceTrustAfter: 3, autoFreezeEnabled: false };
-
 export default function OnboardingPage() {
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
-      api.listAccounts().catch(() => []),
-      api.listTransfers().catch(() => []),
-      api.getFraudPolicy().catch(() => null),
+      api.listSettlementStatements().catch(() => []),
+      api.listReconciliationIssues().catch(() => null),
+      api.listAuditLogs().catch(() => []),
       api.listEvidence().catch(() => []),
       api.listProviderConfigs().catch(() => []),
     ])
-      .then(([accounts, transfers, policy, evidence, providers]) => {
-        const policyCustomised =
-          !!policy &&
-          (["monitor", "mfa", "hold", "reject", "deviceTrustAfter"] as const).some(
-            (k) => policy[k] !== DEFAULT_POLICY[k],
-          ) || (policy?.autoFreezeEnabled ?? false) !== DEFAULT_POLICY.autoFreezeEnabled;
+      .then(([statements, issues, auditLogs, evidence, providers]) => {
+        const hasReconciliationResult = statements.length > 0 || (issues?.summary.total ?? 0) > 0;
         setSteps([
-          { title: "Organisation created", detail: "Your tenant is live and isolated.", done: true, href: "/dashboard", cta: "Open dashboard", core: true },
-          { title: "Open a funded account", detail: "You need at least one account to move money.", done: accounts.length > 0, href: "/accounts", cta: "Open an account", core: true },
-          { title: "Make your first transfer", detail: "Watch it get fraud-scored, then posted to the ledger.", done: transfers.length > 0, href: "/transfers/new", cta: "Create transfer", core: true },
-          { title: "Tune your fraud policy", detail: policyCustomised ? "Custom thresholds applied." : "Using safe defaults — review and adjust for your risk appetite.", done: policyCustomised, href: "/admin", cta: "Review policy", core: false },
-          { title: "Connect a payment provider", detail: "Optional — the sandbox rail works without one.", done: providers.length > 0, href: "/admin", cta: "Add provider", core: false },
-          { title: "Export an evidence pack", detail: "Generate a checksummed pack from a fraud case.", done: evidence.length > 0, href: "/fraud-cases", cta: "Open cases", core: false },
+          { title: "Organisation created", detail: "Your tenant-scoped reliability workspace is isolated.", done: true, href: "/dashboard", cta: "Open dashboard", core: true },
+          { title: "Ingest settlement evidence", detail: "Import a provider statement without changing its original source state.", done: statements.length > 0, href: "/reconciliation/statements", cta: "Import statement", core: true },
+          { title: "Review reconciliation results", detail: "Matched records and unexplained breaks remain visible for investigation.", done: hasReconciliationResult, href: "/reconciliation", cta: "Review results", core: true },
+          { title: "Inspect attributable history", detail: "Confirm sensitive activity can be traced to an actor and time.", done: auditLogs.length > 0, href: "/audit-logs", cta: "Open audit logs", core: true },
+          { title: "Connect a read-only data source", detail: "Optional after approval; exported files remain the starting path.", done: providers.length > 0, href: "/admin", cta: "Review connections", core: false },
+          { title: "Review evidence exports", detail: "Checksummed exports support investigation and audit hand-off.", done: evidence.length > 0, href: "/evidence", cta: "Open evidence", core: false },
         ]);
       })
       .catch((e) => setError((e as Error).message));
@@ -49,30 +43,32 @@ export default function OnboardingPage() {
         <div>
           <p className="eyebrow">Getting started</p>
           <h1>Onboarding</h1>
-          <p className="sub">A few steps to a working pilot. Each item checks itself off from your real data.</p>
+          <p className="sub">Set up the read-only reliability workflow. Every item checks itself from tenant data.</p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
 
-      {steps && (
-        <div className={`notice${allDone ? "" : " warn"}`} style={{ marginBottom: 4 }}>
-          {allDone
-            ? "All set — your tenant is fully configured."
-            : `Core setup: ${coreDone} of ${coreTotal} complete.`}
-        </div>
-      )}
+      <div className="onboarding-workspace">
+      <aside className="onboarding-progress">
+        <p className="eyebrow">Core setup</p>
+        <strong>{coreDone} of {coreTotal}</strong>
+        <div className="progress-track"><span style={{ width: `${coreTotal ? (coreDone / coreTotal) * 100 : 0}%` }} /></div>
+        <p>{coreDone === coreTotal ? "Core reliability setup is complete." : "Complete the evidence-to-exception path before reviewing optional controls."}</p>
+        <small>Completion reflects current tenant records, not pilot or production readiness.</small>
+      </aside>
 
-      <section className="panel">
+      <section className="panel onboarding-checklist">
+        <div className="panelHeader"><div><h2>Reliability workflow checklist</h2><p className="sub">Source evidence first; exceptions and auditability follow.</p></div></div>
         {steps === null ? (
           <div className="panelBody"><div className="skeleton" style={{ minHeight: 60 }} /></div>
         ) : (
           steps.map((s, i) => (
-            <div key={s.title} className="row" style={{ justifyContent: "space-between", gap: 16, padding: "16px 18px", borderTop: i ? "1px solid var(--line)" : undefined, alignItems: "center" }}>
-              <div className="row" style={{ gap: 14, alignItems: "center" }}>
-                <span className={`risk ${s.done ? "low" : "medium"}`} style={{ minWidth: 34, justifyContent: "center" }}>{s.done ? "✓" : i + 1}</span>
+            <div key={s.title} className={`setup-step${s.done ? " complete" : ""}`}>
+              <div className="setup-step-copy">
+                <span className="setup-marker">{s.done ? "✓" : i + 1}</span>
                 <div>
-                  <div style={{ fontWeight: 600 }}>{s.title}{!s.core && <span className="muted" style={{ fontWeight: 400 }}> · optional</span>}</div>
-                  <div className="muted" style={{ fontSize: 13 }}>{s.detail}</div>
+                  <div>{s.title}{!s.core && <span> · supporting control</span>}</div>
+                  <p>{s.detail}</p>
                 </div>
               </div>
               <Link href={s.href} className={`btn${s.done ? " secondary" : ""}`} style={{ textDecoration: "none", whiteSpace: "nowrap" }}>
@@ -82,6 +78,9 @@ export default function OnboardingPage() {
           ))
         )}
       </section>
+      </div>
+
+      {steps && allDone && <div className="notice ok onboarding-complete">All configured read-only workflow steps are present in this tenant.</div>}
     </Shell>
   );
 }

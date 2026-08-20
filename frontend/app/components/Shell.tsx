@@ -10,6 +10,7 @@ import PlatformProductionGate from "./PlatformProductionGate";
 
 type IconName =
   | "overview"
+  | "showcase"
   | "spark"
   | "accounts"
   | "transfer"
@@ -33,6 +34,7 @@ type IconName =
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
+  showcase: <><path d="M4 4h16v12H4z"/><path d="M8 20h8M12 16v4"/><path d="m8 11 2-2 2 2 4-4"/></>,
   spark: <><path d="m12 3 1.2 4.2L17 9l-3.8 1.8L12 15l-1.2-4.2L7 9l3.8-1.8L12 3Z"/><path d="m5 15 .7 2.3L8 18l-2.3.7L5 21l-.7-2.3L2 18l2.3-.7L5 15Z"/></>,
   accounts: <><path d="M3 9h18"/><path d="M5 9V6l7-3 7 3v3"/><path d="M6 9v8M10 9v8M14 9v8M18 9v8"/><path d="M3 21h18M4 17h16"/></>,
   transfer: <><path d="M4 7h13"/><path d="m14 4 3 3-3 3"/><path d="M20 17H7"/><path d="m10 14-3 3 3 3"/></>,
@@ -64,7 +66,7 @@ function Icon({ name }: { name: IconName }) {
 }
 
 const NAV: { label: string; links: [string, string, IconName][] }[] = [
-  { label: "Overview", links: [["Dashboard", "/dashboard", "overview"], ["Getting Started", "/onboarding", "spark"]] },
+  { label: "Overview", links: [["Dashboard", "/dashboard", "overview"], ["Executive Showcase", "/showcase", "showcase"], ["Getting Started", "/onboarding", "spark"]] },
   {
     label: "Money",
     links: [
@@ -145,7 +147,7 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           </span>
           <span className="brand-copy">
             <span className="brand-name">TrustLedger</span>
-            <span className="brand-tagline">Financial control plane</span>
+            <span className="brand-tagline">Payment reliability</span>
           </span>
         </div>
 
@@ -200,16 +202,16 @@ export default function Shell({ children, active }: { children: ReactNode; activ
           <span className={`envbadge ${ENVIRONMENT}`}>{ENVIRONMENT}</span>
           <div className="topnav-actions">
             <button className="cmdk-trigger" aria-label="Open command palette" onClick={() => window.dispatchEvent(new Event("trustledger:cmdk"))}>
-              <span>Search transfers, cases and evidence</span> <kbd>⌘K</kbd>
+              <span>Search exceptions, transfers and evidence</span> <kbd>⌘K</kbd>
             </button>
             {scopeUnits.length > 0 && (
               <span className="tenantchip" title="You see only accounts, transfers, ledger and fraud cases within these organisation units">
                 Scope <b>{scopeUnits.map((u) => u.name).join(", ")}</b>
               </span>
             )}
-            <Link href="/transfers/new" className="btn primary-action" style={{ textDecoration: "none" }}>
-              <Icon name="plus" />
-              <span className="action-label">Create transfer</span>
+            <Link href="/reconciliation" className="btn primary-action" style={{ textDecoration: "none" }}>
+              <Icon name="reconcile" />
+              <span className="action-label">Review exceptions</span>
             </Link>
             {session && (
               <span className="topnav-user" title={`${session.email} · ${session.tenantId}`}>
@@ -225,8 +227,8 @@ export default function Shell({ children, active }: { children: ReactNode; activ
         </main>
       </div>
       <nav className="mobile-tabbar" aria-label="Mobile navigation">
-        {[["Overview", "/dashboard", "overview"], ["Money", "/transfers", "transfer"], ["Fraud", "/fraud-cases", "shield"]].map(([label, href, icon]) => (
-          <Link key={href} href={href} className={active === href || (label === "Money" && activeGroup === "Money") ? "active" : ""}>
+        {[["Overview", "/dashboard", "overview"], ["Exceptions", "/reconciliation", "reconcile"], ["Evidence", "/evidence", "evidence"]].map(([label, href, icon]) => (
+          <Link key={href} href={href} className={active === href || (label === "Overview" && activeGroup === "Overview") || (label === "Exceptions" && activeGroup === "Money") ? "active" : ""}>
             <span className="nav-icon"><Icon name={icon as IconName} /></span><span>{label}</span>
           </Link>
         ))}

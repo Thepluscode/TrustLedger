@@ -65,7 +65,8 @@ export default function UsersPage() {
       {error && <p className="error">{error}</p>}
       {note && <p className="ok">{note}</p>}
 
-      <section className="panel">
+      <div className="user-workspace">
+      <section className="panel invite-panel">
         <div className="panelHeader">
           <div>
             <h2>Invite a teammate</h2>
@@ -73,7 +74,7 @@ export default function UsersPage() {
           </div>
         </div>
         <div className="panelBody">
-          <form className="row" onSubmit={invite}>
+          <form className="form" onSubmit={invite}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <label htmlFor="inv-email" style={{ marginTop: 0 }}>Email</label>
               <input id="inv-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required placeholder="teammate@company.com" />
@@ -87,15 +88,18 @@ export default function UsersPage() {
             <button type="submit" disabled={busy || !inviteEmail.trim()}>{busy ? "Inviting…" : "Invite"}</button>
           </form>
           {tempPassword && (
-            <div className="notice warn" style={{ marginTop: 12 }}>
-              <b>{tempPassword.email}</b> created. One-time password (shown once): <span className="mono">{tempPassword.password}</span> — share it securely; they should sign in and it should be rotated.
+            <div className="one-time-secret" role="status">
+              <small>Invitation created · shown once</small><b>{tempPassword.email}</b>
+              <span className="mono secret-value">{tempPassword.password}</span>
+              <p>Share this temporary password securely. It cannot be retrieved after this screen.</p>
             </div>
           )}
         </div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
-        <table>
+      <section className="panel user-register">
+        <div className="panelHeader"><div><h2>Member register</h2><p className="sub">Role changes apply to the selected member and remain audited.</p></div><span className="muted">{members?.length ?? 0} members</span></div>
+        <table className="desktop-table">
           <thead>
             <tr><th>Email</th><th>Role</th><th>Added</th></tr>
           </thead>
@@ -114,10 +118,23 @@ export default function UsersPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list">
+          {members?.map((m) => (
+            <article className="mobile-record user-record" key={m.id}>
+              <div className="record-head"><div><small>Member</small><b>{m.email}</b></div><span className="member-avatar" aria-hidden>{m.email.slice(0, 2).toUpperCase()}</span></div>
+              <label htmlFor={`mobile-role-${m.id}`}>Role</label>
+              <select id={`mobile-role-${m.id}`} value={m.role} onChange={(e) => changeRole(m.id, e.target.value)} aria-label={`Role for ${m.email}`}>{ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ").toLowerCase()}</option>)}</select>
+              <small>Added {dateTime(m.createdAt)}</small>
+            </article>
+          ))}
+        </div>
         {members !== null && members.length === 0 && (
           <EmptyState title="No teammates yet" hint="Invite your first teammate above." />
         )}
       </section>
+      </div>
+
+      <div className="notice access-boundary">Only an OWNER can grant OWNER. The last remaining OWNER cannot be demoted.</div>
     </Shell>
   );
 }

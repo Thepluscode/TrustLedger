@@ -65,6 +65,8 @@ export default function SettlementStatementsPage() {
   }
 
   const canIngest = provider && currency && statementRef && periodStart && periodEnd && !busy;
+  const providerCount = new Set((statements ?? []).map((statement) => statement.provider)).size;
+  const lineCount = (statements ?? []).reduce((total, statement) => total + statement.lineCount, 0);
 
   return (
     <Shell active="/reconciliation/statements">
@@ -81,7 +83,13 @@ export default function SettlementStatementsPage() {
       </header>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
+      <section className="statement-summary">
+        <article className="card"><span>Ingested</span><strong>{statements?.length ?? "—"}</strong><small>Provider statements</small></article>
+        <article className="card"><span>Lines received</span><strong>{statements ? lineCount : "—"}</strong><small>Across all statements</small></article>
+        <article className="card"><span>Providers</span><strong>{statements ? providerCount : "—"}</strong><small>Represented in this tenant</small></article>
+      </section>
+
+      <section className="panel statement-ingest-panel" id="ingest-statement">
         <div className="panelHeader">
           <div>
             <h2>Ingest a statement</h2>
@@ -132,7 +140,7 @@ export default function SettlementStatementsPage() {
 
       <section className="panel" style={{ marginTop: 18 }}>
         <div className="panelHeader"><div><h2>Ingested statements</h2></div></div>
-        <table>
+        <table className="desktop-table">
           <thead>
             <tr><th>Statement</th><th>Provider</th><th>Currency</th><th>Lines</th><th>Total</th><th>Fees</th><th>Ingested</th></tr>
           </thead>
@@ -151,10 +159,20 @@ export default function SettlementStatementsPage() {
             ))}
           </tbody>
         </table>
+        <div className="mobile-record-list statement-record-list">
+          {statements?.map((statement) => (
+            <Link href={`/reconciliation/statements/${statement.id}`} className="mobile-record statement-record" key={statement.id}>
+              <div className="record-head"><span className="record-icon">▤</span><div><strong>{statement.provider}</strong><small className="mono">{statement.statementRef}</small></div><span>→</span></div>
+              <div className="record-stats"><span><small>Lines</small><b>{statement.lineCount}</b></span><span><small>Total</small><b>{statement.totalAmount} {statement.currency}</b></span><span><small>Fees</small><b>{statement.totalFees}</b></span></div>
+              <small>Ingested {dateTime(statement.ingestedAt)}</small>
+            </Link>
+          ))}
+        </div>
         {statements !== null && statements.length === 0 && (
           <EmptyState title="No statements ingested" hint="Ingest a provider settlement statement above to reconcile it against your payment attempts." />
         )}
       </section>
+      <a href="#ingest-statement" className="mobile-primary-action">⇧ Ingest statement</a>
     </Shell>
   );
 }

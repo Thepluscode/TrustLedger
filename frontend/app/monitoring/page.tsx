@@ -19,19 +19,19 @@ function num(v: number | null | undefined, suffix = "") {
 
 function Card({ title, status, children }: { title: string; status: string; children: ReactNode }) {
   return (
-    <section className="panel" style={{ margin: 0 }}>
-      <div className="panelHeader">
-        <div><h2 style={{ fontSize: "1rem" }}>{title}</h2></div>
+    <article className="health-row">
+      <div className="health-row-title">
+        <h2>{title}</h2>
         <Status value={status} />
       </div>
-      <div className="panelBody">{children}</div>
-    </section>
+      <div className="health-row-facts">{children}</div>
+    </article>
   );
 }
 
 function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+    <div className="health-stat">
       <span className="muted">{label}</span>
       <span className="mono">{value}</span>
     </div>
@@ -71,16 +71,16 @@ export default function MonitoringPage() {
 
       {snap && (
         <>
-          <div
-            className={`notice ${snap.overallStatus === "OK" ? "ok" : snap.overallStatus === "WARN" ? "warn" : "danger"}`}
-            style={{ display: "flex", alignItems: "center", gap: 12 }}
-          >
+          <div className={`monitoring-banner ${snap.overallStatus === "OK" ? "ok" : snap.overallStatus === "WARN" ? "warn" : "danger"}`}>
+            <span className="monitoring-indicator" aria-hidden>{snap.overallStatus === "OK" ? "✓" : "!"}</span>
+            <div><small>Overall system status</small><b>{snap.banner}</b></div>
             <Status value={snap.overallStatus} />
-            <b>{snap.banner}</b>
-            {fetchedAt && <span className="muted" style={{ marginLeft: "auto" }}>as of {dateTime(fetchedAt)}</span>}
+            {fetchedAt && <span className="muted">as of {dateTime(fetchedAt)}</span>}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, marginTop: 18 }}>
+          <section className="panel health-register">
+            <div className="panelHeader"><div><h2>Operational health register</h2><p className="sub">Point-in-time readings from system probes and tenant-scoped records.</p></div></div>
+            <div className="health-register-body">
             <Card title="API / database" status={snap.database.status}>
               <Stat label="Reachable" value={snap.database.up ? "yes" : "no"} />
               <Stat label="Probe latency" value={num(snap.database.latencyMs, " ms")} />
@@ -133,7 +133,8 @@ export default function MonitoringPage() {
               <Stat label="Expiring soon" value={snap.certifications.expiringSoon} />
               <Stat label="Uncertified" value={snap.certifications.uncertified} />
             </Card>
-          </div>
+            </div>
+          </section>
         </>
       )}
     </Shell>

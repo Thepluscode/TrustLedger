@@ -8,11 +8,15 @@ type Command = { label: string; hint: string; href: string; keywords?: string };
 /** Static navigation + quick actions (design.md §23.1). */
 const COMMANDS: Command[] = [
   { label: "Dashboard", hint: "Overview", href: "/dashboard", keywords: "home overview cockpit" },
-  { label: "Create transfer", hint: "New money movement", href: "/transfers/new", keywords: "send pay new" },
+  { label: "Executive showcase", hint: "Synthetic incident replay", href: "/showcase", keywords: "demo proof incident fee audit timeout executive" },
+  { label: "Reconciliation", hint: "Exception queue", href: "/reconciliation", keywords: "mismatch break unknown investigate issues" },
+  { label: "Settlement statements", hint: "Import and compare", href: "/reconciliation/statements", keywords: "provider bank file import settlement" },
+  { label: "Evidence", hint: "Defensible exports", href: "/evidence", keywords: "export pack checksum proof" },
+  { label: "Audit logs", hint: "Attributable activity", href: "/audit-logs", keywords: "audit history actions" },
+  { label: "Create transfer", hint: "Sandbox execution", href: "/transfers/new", keywords: "send pay new sandbox" },
   { label: "Transfers", hint: "List & detail", href: "/transfers", keywords: "payments money list" },
   { label: "Accounts", hint: "Balances", href: "/accounts", keywords: "balance funds" },
   { label: "Ledger", hint: "Double-entry explorer", href: "/ledger", keywords: "debit credit entries" },
-  { label: "Reconciliation", hint: "Issues", href: "/reconciliation", keywords: "mismatch unbalanced issues" },
   { label: "Fraud cases", hint: "Case queue", href: "/fraud-cases", keywords: "fraud review approve reject" },
   { label: "Risk profiles", hint: "Devices / payees / users", href: "/risk-profiles", keywords: "device beneficiary mule trust" },
   { label: "ML monitoring", hint: "Model scores", href: "/ml", keywords: "model shadow score" },
@@ -23,8 +27,6 @@ const COMMANDS: Command[] = [
     href: "/production-readiness",
     keywords: "provider rollout approval canary exposure pause production live payments",
   },
-  { label: "Evidence", hint: "Exports", href: "/evidence", keywords: "export pack checksum" },
-  { label: "Audit logs", hint: "Activity", href: "/audit-logs", keywords: "audit history actions" },
   { label: "Tenant admin", hint: "Plan, quotas, fraud policy", href: "/admin", keywords: "settings policy plan quota org" },
   { label: "Org units", hint: "Hierarchy & member scope", href: "/org-units", keywords: "organisation department team scope hierarchy assign" },
 ];

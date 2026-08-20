@@ -1,7 +1,15 @@
 # Kill-Test Interview Outreach
 
+Canonical research question: **What actually happened to the money?** Do not use that line to lead
+the interview; ask the pain questions first so respondents describe their current process without
+being primed by the product framing.
+
 The only artefact between `TARGET_LIST.md` and `PREMISE_KILL_TEST.md`. Everything else in `pilot/`
 is written; nothing books a call.
+
+Active milestone: complete three incident-reconstruction conversations before optimising for the
+full sample. Use `FIRST_THREE_CONVERSATIONS.md`. PalmPay is the first target; its verified public
+signals, contact path and unsent operator-first draft are in `INTERVIEW_01_PALMPAY.md`.
 
 > **These ask for 20 minutes of opinion, not a meeting about a product.** That is deliberate and it
 > is also the truth — Q1–Q8 of the script never mention TrustLedger. A message that hints at a demo
@@ -96,10 +104,10 @@ before writing. Generic "I noticed your company processes payments" is why cold 
 - **Only interviewing people who already agree.** Warm network skews positive. At least one of the
   three sub-segments must come from cold or community sourcing.
 - **Counting a friendly "sounds useful" as the Money bar.** The bar is a number and a person who
-  signs it. Politeness is not evidence — that separation is exactly why the gate was raised to three
-  bars on 2026-07-31.
-- **Stopping at 6 pain-positives and declaring GO.** All three bars must clear. Pain alone is the
-  cheapest of the three to hit and the least informative.
+  signs it. Politeness is not evidence — that separation is exactly why data and money are distinct
+  bars.
+- **Stopping at 6 pain-positives and declaring GO.** All four bars must clear. Pain without
+  recurrence, data access and budget is not a retained product workflow.
 - **Rewriting the thresholds after seeing results.** They were pre-committed. Changing them
   post-hoc is how a kill-test becomes a formality.
 

@@ -63,14 +63,15 @@ export default function CertificationRunPage() {
 
       {run && (
         <>
-          <section className="panel">
+          <section className="panel certification-run-summary">
             <div className="panelBody">
-              <p className="row" style={{ gap: 10, alignItems: "center" }}>
-                <StatusPill value={run.status} />
-                {run.signedOff ? <StatusPill value="SIGNED_OFF" /> : <span className="muted">not signed off</span>}
-                <span className="muted">{run.environment}</span>
-              </p>
-              <div style={{ maxWidth: 620 }}>
+              <div className="run-status-line">
+                <div><span className="muted">Run status</span><StatusPill value={run.status} /></div>
+                <div><span className="muted">Independent sign-off</span>{run.signedOff ? <StatusPill value="SIGNED_OFF" /> : <strong>Required</strong>}</div>
+                <div><span className="muted">Drills passed</span><strong>{run.drills.filter((drill) => drill.status === "PASS").length} / {run.drills.length}</strong></div>
+                <div><span className="muted">Environment</span><strong>{run.environment.toLowerCase()}</strong></div>
+              </div>
+              <div className="detail-register">
                 <div className="entry">
                   <span className="muted">Provider config</span>
                   <span className="mono">{shortId(run.tenantProviderConfigId)}</span>
@@ -88,18 +89,12 @@ export default function CertificationRunPage() {
                   <span>{run.expiresAt ? dateTime(run.expiresAt) : "—"}</span>
                 </div>
               </div>
-              {run.evidenceExportId && (
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button onClick={() => api.downloadEvidence(run.evidenceExportId as string)}>
-                    Download evidence pack
-                  </button>
-                </div>
-              )}
+              {run.evidenceExportId && <button className="secondary evidence-download" onClick={() => api.downloadEvidence(run.evidenceExportId as string)}>Download evidence pack</button>}
             </div>
           </section>
 
           {run.status === "PASSED" && !run.signedOff && (
-            <section className="panel" style={{ marginTop: 18 }}>
+            <section className="panel signoff-panel" id="certification-signoff" style={{ marginTop: 18 }}>
               <div className="panelHeader">
                 <div>
                   <h2>Dual-control sign-off</h2>
@@ -110,7 +105,7 @@ export default function CertificationRunPage() {
                 </div>
               </div>
               <div className="panelBody">
-                <div className="row" style={{ gap: 8 }}>
+                <div className="signoff-control">
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
@@ -126,22 +121,22 @@ export default function CertificationRunPage() {
             </section>
           )}
 
-          <section className="panel" style={{ marginTop: 18 }}>
+          <section className="panel drill-register" style={{ marginTop: 18 }}>
             <div className="panelHeader">
               <div>
                 <h2>Drills</h2>
                 <p className="sub">Each drill and its assertions — expected vs actual, read back from real state.</p>
               </div>
             </div>
-            <div className="panelBody">
+            <div className="panelBody drill-list">
               {run.drills.map((drill) => (
-                <div key={drill.drillId} style={{ marginBottom: 18 }}>
-                  <p className="row" style={{ gap: 10, alignItems: "center", marginBottom: 6 }}>
+                <section className="drill-block" key={drill.drillId}>
+                  <div className="drill-heading">
                     <StatusPill value={drill.status} />
                     <strong>{drill.drillId.replace(/_/g, " ")}</strong>
                     <span className="muted">v{drill.drillVersion}</span>
-                  </p>
-                  <table>
+                  </div>
+                  <table className="desktop-table">
                     <thead>
                       <tr>
                         <th>Assertion</th>
@@ -167,10 +162,19 @@ export default function CertificationRunPage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                  <div className="mobile-record-list drill-assertions">
+                    {assertionsOf(drill).map((assertion) => (
+                      <article className="mobile-record" key={assertion.name}>
+                        <div className="record-head"><div><small>Assertion</small><strong>{assertion.name.replace(/_/g, " ")}</strong></div><StatusPill value={assertion.ok ? "PASS" : "FAIL"} /></div>
+                        <div className="record-stats"><span><small>Expected</small><b className="mono">{assertion.expected}</b></span><span><small>Actual</small><b className="mono">{assertion.actual}</b></span></div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           </section>
+          {run.status === "PASSED" && !run.signedOff && <button className="mobile-primary-action" onClick={() => document.getElementById("certification-signoff")?.scrollIntoView({ behavior: "smooth" })}>Review sign-off</button>}
         </>
       )}
     </Shell>

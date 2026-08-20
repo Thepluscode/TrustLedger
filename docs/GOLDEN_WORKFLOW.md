@@ -1,5 +1,9 @@
 # The Golden Workflow
 
+This workflow exists to answer the canonical product question: **What actually happened to the
+money?** The first customer posture is read-only; see
+[`CANONICAL_PRODUCT_DOCTRINE.md`](CANONICAL_PRODUCT_DOCTRINE.md) for the role model and gates.
+
 **One end-to-end path matters more than breadth.** Every slice must strengthen this path or be
 deferred (see the feature decision rule in `CLAUDE.md`). Status per stage lives in
 `FEATURE_TRACKER.md` — never in this file.
@@ -17,7 +21,7 @@ provider webhook / settlement row / ledger import
   → append to the event stream          (idempotent on tenant+provider+event id+type+ref)
   → compare against internal ledger     (reconciliation/)
   → classify the break                  (closed taxonomy — see PRODUCT_BLUEPRINT §1.3)
-  → raise an operator exception         (severity + financial exposure + owner + evidence)
+  → raise an operator exception         (current: severity + evidence; owner/exposure after gates)
   → record the resolution               (core/audit — immutable, attributable)
 ```
 

@@ -46,6 +46,9 @@ export default function MlPage() {
     }
   }
 
+  const registered = models ?? [];
+  const shadowModels = registered.filter((model) => model.deploymentMode.toUpperCase().includes("SHADOW")).length;
+
   return (
     <Shell active="/ml">
       <header className="topbar">
@@ -55,98 +58,79 @@ export default function MlPage() {
           <p className="sub">Model registry, governance state, and per-transaction explainability.</p>
         </div>
       </header>
-      {/* §12.3 banner — non-negotiable honesty about shadow mode */}
-      <div className="notice">
-        <b>ML is running in shadow mode.</b> It cannot directly move or block money — scores inform analysts; the
-        rules engine and human decisions gate every transfer.
+      <div className="safety-boundary ml-safety-boundary">
+        <strong>Shadow-mode boundary</strong>
+        <span>ML scores are recorded for evaluation. They cannot move, hold, or reject money; rules and authorised analysts govern outcomes.</span>
       </div>
       {error && <p className="error">{error}</p>}
 
-      <section className="panel">
-        <div className="panelHeader">
-          <h2>Registered models</h2>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Model</th>
-              <th>Version</th>
-              <th>Status</th>
-              <th>Deployment mode</th>
-            </tr>
-          </thead>
-          <tbody>
-            {models === null && <SkeletonRows cols={4} rows={2} />}
-            {models?.map((m, i) => (
-              <tr key={i}>
-                <td>{m.modelName}</td>
-                <td className="mono">{m.version}</td>
-                <td><StatusPill value={m.status} /></td>
-                <td className="muted">{m.deploymentMode.replace(/_/g, " ").toLowerCase()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {models !== null && models.length === 0 && (
-          <EmptyState
-            title="No models registered"
-            hint="Scoring still runs in shadow with the baseline. Register a model via the ML API to govern promotion and rollback here."
-          />
-        )}
+      <section className="operations-strip" aria-label="Model registry summary">
+        <div><span>Registered models</span><strong>{models ? registered.length : "—"}</strong></div>
+        <div><span>Shadow deployments</span><strong>{models ? shadowModels : "—"}</strong></div>
+        <div><span>Decision authority</span><strong>Rules + review</strong></div>
       </section>
 
-      <section className="panel" style={{ marginTop: 18 }}>
-        <div className="panelHeader">
-          <div>
-            <h2>Explain a transaction score</h2>
-            <p className="sub">Rules score vs ML score, top contributing factors, and latency for any scored transaction.</p>
+      <div className="ml-workbench">
+        <section className="panel model-register">
+          <div className="panelHeader">
+            <div><h2>Model register</h2><p className="sub">Governed versions and their current deployment posture.</p></div>
           </div>
-        </div>
-        <div className="panelBody">
-          <div className="row">
-            <input
-              value={txId}
-              onChange={(e) => setTxId(e.target.value)}
-              placeholder="transaction id"
-              style={{ minWidth: 320, flex: 1 }}
-              aria-label="Transaction id"
-            />
-            <button onClick={lookup} disabled={!txId.trim()}>
-              Look up
-            </button>
+          <table className="desktop-table">
+            <thead><tr><th>Model</th><th>Version</th><th>Status</th><th>Mode</th></tr></thead>
+            <tbody>
+              {models === null && <SkeletonRows cols={4} rows={2} />}
+              {models?.map((model, index) => (
+                <tr key={`${model.modelName}-${model.version}-${index}`}><td>{model.modelName}</td><td className="mono">{model.version}</td><td><StatusPill value={model.status} /></td><td className="muted">{model.deploymentMode.replace(/_/g, " ").toLowerCase()}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mobile-record-list">
+            {models?.map((model, index) => (
+              <article className="mobile-record model-record" key={`${model.modelName}-${model.version}-${index}`}>
+                <div className="record-head"><div><small>Model</small><strong>{model.modelName}</strong></div><StatusPill value={model.status} /></div>
+                <div className="record-stats"><span><small>Version</small><b className="mono">{model.version}</b></span><span><small>Mode</small><b>{model.deploymentMode.replace(/_/g, " ").toLowerCase()}</b></span></div>
+              </article>
+            ))}
           </div>
-          {scores?.length === 0 && (
-            <EmptyState
-              title="No ML score for that transaction"
-              hint="Shadow scores are written when a transfer is fraud-scored — check the transaction id from the transfer result or audit log."
-            />
-          )}
-          {scores?.map((s, i) => {
-            const pct = parseFloat(s.fraudProbability) * 100;
-            return (
-              <div key={i} style={{ marginTop: 16 }}>
-                <p className="row" style={{ gap: 10, alignItems: "center" }}>
-                  <span className={`risk ${s.riskBand.toLowerCase()}`}>
-                    {s.riskBand} · {pct.toFixed(1)}%
-                  </span>
-                  <StatusPill value={s.shadowMode ? "SHADOW" : "ACTIVE"} />
-                  <span className="muted mono">
-                    {s.modelVersion} · features {s.featureSetVersion} · {s.latencyMs}ms
-                  </span>
-                </p>
-                <p className="muted" style={{ marginBottom: 4 }}>Top contributing factors:</p>
-                <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
-                  {factors(s.explanationJson).map((f, j) => (
-                    <li key={j}>
-                      {f.label} <span className="muted">(+{f.contribution.toFixed(2)})</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+          {models !== null && models.length === 0 && <EmptyState title="No models registered" hint="The registry is empty. Model outputs remain unavailable until a governed version is registered." />}
+        </section>
+
+        <section className="panel score-inspector">
+          <div className="panelHeader"><div><h2>Transaction explanation</h2><p className="sub">Retrieve the recorded shadow score and its contributing factors.</p></div></div>
+          <div className="panelBody">
+            <div className="lookup-control">
+              <input
+                value={txId}
+                onChange={(e) => setTxId(e.target.value)}
+                placeholder="Transaction ID"
+                aria-label="Transaction id"
+              />
+              <button onClick={lookup} disabled={!txId.trim()}>Retrieve</button>
+            </div>
+            {scores === null && <p className="inspector-prompt">Enter a transfer ID to inspect the evidence stored with its shadow score.</p>}
+            {scores?.length === 0 && <EmptyState title="No score recorded" hint="Check the transfer ID. Shadow scores are written when the fraud gate evaluates a transfer." />}
+            {scores?.map((score, index) => {
+              const probability = parseFloat(score.fraudProbability) * 100;
+              return (
+                <div className="score-readout" key={`${score.modelVersion}-${index}`}>
+                  <div className="score-readout-head">
+                    <div><small>Fraud probability</small><strong>{probability.toFixed(1)}%</strong></div>
+                    <div><small>Risk band</small><span className={`risk ${score.riskBand.toLowerCase()}`}>{score.riskBand}</span></div>
+                    <div><small>Mode</small><StatusPill value={score.shadowMode ? "SHADOW" : "ACTIVE"} /></div>
+                  </div>
+                  <dl className="model-facts"><div><dt>Model</dt><dd className="mono">{score.modelVersion}</dd></div><div><dt>Feature set</dt><dd className="mono">{score.featureSetVersion}</dd></div><div><dt>Latency</dt><dd>{score.latencyMs}ms</dd></div></dl>
+                  <div className="factor-list">
+                    <h3>Recorded factors</h3>
+                    {factors(score.explanationJson).map((factor, factorIndex) => (
+                      <div key={`${factor.feature}-${factorIndex}`}><span>{factor.label}</span><b>+{factor.contribution.toFixed(2)}</b></div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
     </Shell>
   );
 }
