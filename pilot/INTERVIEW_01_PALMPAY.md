@@ -56,6 +56,52 @@ said it was not a product demo or sales call. Follow up once on 2026-08-20 if no
 This exact draft was sent through the founder-controlled Sales Navigator account on 2026-08-14.
 Do not send it again unless the first delivery is proven to have failed.
 
+## Follow-up draft — Friday Ogungbemi (READY TO SEND; the plan above dates it 2026-08-20)
+
+Reply **in the existing InMail thread** (no new credit). One question instead of a meeting
+request; an answer or a name both count.
+
+> Hi Friday — following up once, with one question instead of a meeting request:
+>
+> when PalmPay's internal record and a bank or provider record disagree, which system does your
+> team open first?
+>
+> Even a one-line answer teaches me something real. And if reconciliation sits closer to someone
+> else, a name is as useful as an answer.
+>
+> Theophilus
+
+Once means once, per the plan above: if this draws nothing, mark this path dead and move to the
+fallback below. Do not log it as sent until it is sent.
+
+## Fallback draft — Precious Eguda (contact path #2; READY, sequenced BEHIND the follow-up)
+
+- **Contact:** Precious Eguda — public posts on reconciliation, settlement, reversals, fee
+  calculations and operational payment processing:
+  <https://ng.linkedin.com/in/precious-eguda-05427a1a4>
+- **Channel:** Sales Navigator InMail, new thread (1 credit; 39 remain as of 2026-08-20).
+- **When:** only after the Friday follow-up has had ~3 clear days (from 2026-08-24). Two
+  near-simultaneous InMails into the same team read as a campaign, not research — and colleagues
+  compare messages, which is why this one is deliberately anchored to Precious's own public
+  topics (reversals, fees) rather than reusing Friday's provider-mismatch framing.
+- **Subject:** `settlement reversals — one research question`
+
+> Hi Precious — I'm researching how payment operations teams establish what actually happened to
+> the money when records disagree. Your public posts on settlement, reversals and fee
+> calculations suggest you live inside exactly that workflow at PalmPay.
+>
+> This is not a sales message. I'm trying to understand one anonymised incident: the last
+> reversal or fee mismatch where the first number you saw was not the one that turned out to be
+> true — which systems you checked, and what finally settled it.
+>
+> Would you be open to 20 minutes? I can work around WAT hours any day. And if this sits closer
+> to a colleague, a referral helps just as much.
+>
+> Theophilus
+
+Same success condition as everything in this file: a sent message is not success; only a
+completed incident-reconstruction conversation or a verified referral counts.
+
 ## PalmPay-specific probes
 
 - Which discrepancy is most operationally expensive: missing record, delayed settlement,
