@@ -66,3 +66,14 @@ stack trace lost, and a null message logs "null". Pass `e` as the final argument
 Provider-leg reconciliation is status-only: the adapter returns no amount, so a partial
 settlement (provider settled less than requested) is structurally undetectable. Larger
 than a bug — an adapter API decision to revisit with the first real provider.
+
+## Disposition (updated 2026-08-20, same day)
+
+Findings #1, #2, #3, #6 fixed in `e85818a`; #4 and #5 fixed in the follow-up commit:
+a lapsed fraud hold is now default-denied (`expireOverdueHold` — funds return to
+available, transfer REJECTED with action `FRAUD_REVIEW_EXPIRED`, reservation EXPIRED;
+orphan reservations still raise the human-attention issue and never move money), and
+the 30s balance sweep is windowed (`ledger-window-hours`, default 168, 0 = full scan)
+while certification's per-tenant check remains full. Eight regression tests total,
+each written to fail against the pre-review service. The status-only provider-leg
+limitation (no amounts from adapters) remains open by design.

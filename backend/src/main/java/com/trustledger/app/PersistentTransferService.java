@@ -230,6 +230,45 @@ public class PersistentTransferService {
             transfer.getFraudDecision(), "Held transfer rejected and reservation released");
     }
 
+    /**
+     * Fraud-review hold lapsed without a verdict: default-deny. Funds return to the
+     * customer's available balance; a timeout must never approve a transfer the
+     * review existed to question. Returns false when there is nothing safe to do —
+     * transfer not awaiting resolution, or no ACTIVE reservation — so the caller
+     * (the reconciliation sweep) can raise a drift issue instead of moving money.
+     */
+    @Transactional
+    public boolean expireOverdueHold(UUID tenantId, UUID transferId) {
+        TransferEntity transfer;
+        try {
+            transfer = requireHeld(tenantId, transferId);
+        } catch (RuntimeException notHeld) {
+            return false;
+        }
+        FundReservationEntity reservation =
+            reservations.findByTransactionIdAndStatus(transferId, "ACTIVE").orElse(null);
+        if (reservation == null) return false;
+        // Re-check expiry inside the transaction: an analyst verdict racing this sweep
+        // wins by flipping status off ACTIVE; a not-yet-expired reservation stays held.
+        if (reservation.getExpiresAt() == null || reservation.getExpiresAt().isAfter(java.time.Instant.now())) {
+            return false;
+        }
+        Money amount = money(transfer.getAmount(), transfer.getCurrency());
+        AccountEntity source = lock(transfer.getSourceAccountId(), tenantId);
+        source.setPendingBalance(money(source.getPendingBalance(), source.getCurrency()).minus(amount).amount());
+        source.setAvailableBalance(money(source.getAvailableBalance(), source.getCurrency()).plus(amount).amount());
+
+        reservation.setStatus("EXPIRED");
+        // Same terminal as an analyst rejection; the ACTION carries the real justification —
+        // per the transition() contract, the action is what keeps justifications distinguishable.
+        transition(transfer, "REJECTED", "SYSTEM", null, "FRAUD_REVIEW_EXPIRED",
+            Map.of("reservationId", reservation.getId().toString(),
+                   "expiredAt", String.valueOf(reservation.getExpiresAt())));
+        fraudCases.findByTransactionId(transferId).ifPresent(c -> c.setStatus("REJECTED"));
+        enqueue(tenantId, "TRANSFER", transferId, "TRANSFER_EXPIRED_AFTER_REVIEW_TIMEOUT", Map.of());
+        return true;
+    }
+
     // --- helpers ---
 
     private void postBalancedTransfer(UUID tenantId, UUID transferId, AccountEntity source, AccountEntity destination,

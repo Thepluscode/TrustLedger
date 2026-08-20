@@ -1,6 +1,7 @@
 package com.trustledger.reconciliation;
 
 import com.trustledger.app.ExternalPaymentTransitionService;
+import com.trustledger.app.PersistentTransferService;
 import com.trustledger.persistence.entity.*;
 import com.trustledger.persistence.repo.*;
 import com.trustledger.rails.ExternalPaymentStatus;
@@ -61,10 +62,12 @@ public class ReconciliationService {
     private final ReconciliationIssueRepository issues;
     private final ExternalPaymentAttemptRepository externalAttempts;
     private final ExternalPaymentTransitionService transitions;
+    private final PersistentTransferService transfers;
     private final PaymentRailRegistry railRegistry;
     private final ObjectMapper json;
     private final boolean enabled;
     private final int stuckOutboxRetryThreshold;
+    private final int ledgerWindowHours;
 
     public ReconciliationService(LedgerTransactionRepository ledgerTransactions,
                                  LedgerEntryRepository ledgerEntries,
@@ -73,11 +76,17 @@ public class ReconciliationService {
                                  ReconciliationIssueRepository issues,
                                  ExternalPaymentAttemptRepository externalAttempts,
                                  ExternalPaymentTransitionService transitions,
+                                 PersistentTransferService transfers,
                                  PaymentRailRegistry railRegistry,
                                  ObjectMapper json,
                                  @Value("${trustledger.reconciliation.enabled:true}") boolean enabled,
                                  @Value("${trustledger.reconciliation.stuck-outbox-retry-threshold:5}")
-                                 int stuckOutboxRetryThreshold) {
+                                 int stuckOutboxRetryThreshold,
+                                 // Sweep window for the every-30s balance check. 0 disables the
+                                 // window (full scan — the safe fallback if the value is mis-set);
+                                 // certification's checkTenantLedgerBalance is always full-tenant.
+                                 @Value("${trustledger.reconciliation.ledger-window-hours:168}")
+                                 int ledgerWindowHours) {
         this.ledgerTransactions = ledgerTransactions;
         this.ledgerEntries = ledgerEntries;
         this.reservations = reservations;
@@ -85,10 +94,12 @@ public class ReconciliationService {
         this.issues = issues;
         this.externalAttempts = externalAttempts;
         this.transitions = transitions;
+        this.transfers = transfers;
         this.railRegistry = railRegistry;
         this.json = json;
         this.enabled = enabled;
         this.stuckOutboxRetryThreshold = stuckOutboxRetryThreshold;
+        this.ledgerWindowHours = ledgerWindowHours;
     }
 
     @Scheduled(fixedDelayString = "${trustledger.reconciliation.interval-ms:30000}")
@@ -237,8 +248,15 @@ public class ReconciliationService {
     }
 
     private int checkUnbalancedLedgerTransactions() {
+        // Review finding #5: findAll() loaded every historical journal every 30s.
+        // The sweep re-runs constantly, so anything posted inside the window has been
+        // checked hundreds of times; a corrupt OLD journal is caught by the full
+        // per-tenant certification path instead.
+        List<LedgerTransactionEntity> window = ledgerWindowHours <= 0
+            ? ledgerTransactions.findAll()
+            : ledgerTransactions.findByPostedAtAfter(Instant.now().minusSeconds(ledgerWindowHours * 3600L));
         int created = 0;
-        for (LedgerTransactionEntity transaction : ledgerTransactions.findAll()) {
+        for (LedgerTransactionEntity transaction : window) {
             created += checkLedgerTransactionBalanced(transaction);
         }
         return created;
@@ -301,14 +319,37 @@ public class ReconciliationService {
     }
 
     private int checkExpiredReservations() {
+        // Review finding #4: detection without release held customer funds forever.
+        // The lapse itself is default-deny (expireOverdueHold — a timeout never
+        // approves), so the normal outcome is funds returned plus an audit-trail
+        // issue. Only a reservation the release path refuses to touch — no held
+        // transfer behind it — still raises the human-attention issue.
         int created = 0;
         for (FundReservationEntity reservation : reservations.findByStatusAndExpiresAtBefore("ACTIVE", Instant.now())) {
-            created += raise(reservation.getTenantId(), "HIGH", "EXPIRED_RESERVATION", "FUND_RESERVATION",
-                reservation.getId(), "consumed or released before expiry", "still ACTIVE after expiry",
-                Map.of("amount", reservation.getAmount().toPlainString(),
-                    "expiresAt", String.valueOf(reservation.getExpiresAt())),
-                // Funds still held against a reservation nobody will consume.
-                reservation.getAmount(), reservation.getCurrency());
+            boolean released;
+            String failure = null;
+            try {
+                released = transfers.expireOverdueHold(reservation.getTenantId(), reservation.getTransactionId());
+            } catch (RuntimeException e) {
+                released = false;
+                failure = safeMessage(e);
+            }
+            if (released) {
+                created += raise(reservation.getTenantId(), "MEDIUM", "RESERVATION_AUTO_EXPIRED",
+                    "FUND_RESERVATION", reservation.getId(), "analyst verdict before expiry",
+                    "review lapsed; funds auto-returned (default-deny)",
+                    Map.of("amount", reservation.getAmount().toPlainString(),
+                        "expiresAt", String.valueOf(reservation.getExpiresAt())));
+            } else {
+                created += raise(reservation.getTenantId(), "HIGH", "EXPIRED_RESERVATION", "FUND_RESERVATION",
+                    reservation.getId(), "consumed or released before expiry",
+                    failure != null ? "auto-release failed: " + failure
+                                    : "still ACTIVE after expiry and not attached to a held transfer",
+                    Map.of("amount", reservation.getAmount().toPlainString(),
+                        "expiresAt", String.valueOf(reservation.getExpiresAt())),
+                    // Funds still held against a reservation nobody released.
+                    reservation.getAmount(), reservation.getCurrency());
+            }
         }
         return created;
     }

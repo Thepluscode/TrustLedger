@@ -8,4 +8,5 @@ public interface LedgerTransactionRepository extends JpaRepository<LedgerTransac
     boolean existsByTenantIdAndIdempotencyKey(UUID tenantId, String idempotencyKey);
     java.util.List<LedgerTransactionEntity> findByBusinessTransactionId(UUID businessTransactionId);
     java.util.List<LedgerTransactionEntity> findByTenantId(UUID tenantId);
+    java.util.List<LedgerTransactionEntity> findByPostedAtAfter(java.time.Instant postedAfter);
 }

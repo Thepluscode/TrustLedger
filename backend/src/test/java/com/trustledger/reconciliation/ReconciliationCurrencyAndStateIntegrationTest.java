@@ -10,7 +10,11 @@ import com.trustledger.persistence.repo.AccountRepository;
 import com.trustledger.persistence.repo.ExternalPaymentAttemptRepository;
 import com.trustledger.persistence.repo.LedgerEntryRepository;
 import com.trustledger.persistence.repo.LedgerTransactionRepository;
+import com.trustledger.persistence.repo.FundReservationRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
+import com.trustledger.persistence.repo.TransferRepository;
+import com.trustledger.persistence.entity.FundReservationEntity;
+import com.trustledger.persistence.entity.TransferEntity;
 import com.trustledger.rails.ExternalPaymentStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,6 +54,8 @@ class ReconciliationCurrencyAndStateIntegrationTest {
     @Autowired LedgerEntryRepository ledgerEntries;
     @Autowired ExternalPaymentAttemptRepository attempts;
     @Autowired ReconciliationIssueRepository issues;
+    @Autowired TransferRepository transfers;
+    @Autowired FundReservationRepository reservations;
 
     private AccountEntity account(String currency) {
         return accounts.save(new AccountEntity(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -109,6 +115,75 @@ class ReconciliationCurrencyAndStateIntegrationTest {
             "foreign-currency entries are anomalous even when every currency nets to zero");
         assertFalse(issues.existsByTypeAndEntityIdAndStatus("UNBALANCED_LEDGER_TRANSACTION", txId, "OPEN"),
             "balanced per currency must not also claim UNBALANCED — one lie per journal");
+    }
+
+    /** Finding #4: a lapsed fraud hold is default-denied — funds return, nothing stays stuck. */
+    @Test
+    void expiredHoldIsAutoReleasedAndFundsReturned() {
+        UUID tenant = UUID.randomUUID();
+        AccountEntity source = accounts.save(new AccountEntity(UUID.randomUUID(), tenant, UUID.randomUUID(),
+            "GBP", new BigDecimal("800.0000")));
+        source.setPendingBalance(new BigDecimal("200.0000")); // the hold, as the fraud path leaves it
+        accounts.save(source);
+        AccountEntity dest = account("GBP");
+        UUID transferId = UUID.randomUUID();
+        transfers.save(new TransferEntity(transferId, tenant, UUID.randomUUID(), source.getId(), dest.getId(),
+            null, new BigDecimal("200.0000"), "GBP", "HELD_FOR_REVIEW", 87, "HOLD",
+            "idem-expire-" + transferId, "expiry-test"));
+        FundReservationEntity r = reservations.save(new FundReservationEntity(UUID.randomUUID(), tenant,
+            transferId, source.getId(), new BigDecimal("200.0000"), "GBP", "ACTIVE",
+            Instant.now().minusSeconds(3600)));
+
+        service.runReconciliation();
+
+        assertEquals("EXPIRED", reservations.findById(r.getId()).orElseThrow().getStatus(),
+            "the lapsed reservation must leave ACTIVE — that was the entire finding");
+        assertEquals("REJECTED", transfers.findById(transferId).orElseThrow().getStatus(),
+            "a timeout must never approve; default-deny is the only safe terminal");
+        AccountEntity after = accounts.findById(source.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("1000.0000").compareTo(after.getAvailableBalance()),
+            "the held 200 must be back in available");
+        assertEquals(0, BigDecimal.ZERO.compareTo(after.getPendingBalance()),
+            "nothing may remain pending after the release");
+        assertTrue(issues.existsByTypeAndEntityIdAndStatus("RESERVATION_AUTO_EXPIRED", r.getId(), "OPEN"),
+            "the auto-release leaves an audit-trail issue");
+        assertFalse(issues.existsByTypeAndEntityIdAndStatus("EXPIRED_RESERVATION", r.getId(), "OPEN"),
+            "the human-attention issue is reserved for reservations the release path cannot touch");
+    }
+
+    /** Finding #4, drift half: an orphan reservation still demands a human. */
+    @Test
+    void orphanExpiredReservationStillRaisesHumanIssue() {
+        UUID tenant = UUID.randomUUID();
+        FundReservationEntity r = reservations.save(new FundReservationEntity(UUID.randomUUID(), tenant,
+            UUID.randomUUID() /* no such transfer */, account("GBP").getId(),
+            new BigDecimal("75.0000"), "GBP", "ACTIVE", Instant.now().minusSeconds(3600)));
+
+        service.runReconciliation();
+
+        assertTrue(issues.existsByTypeAndEntityIdAndStatus("EXPIRED_RESERVATION", r.getId(), "OPEN"),
+            "no held transfer behind the reservation: money must not move, a human must look");
+        assertFalse(issues.existsByTypeAndEntityIdAndStatus("RESERVATION_AUTO_EXPIRED", r.getId(), "OPEN"));
+    }
+
+    /** Finding #5: the 30s sweep is windowed; old journals belong to full-tenant certification. */
+    @Test
+    void staleJournalOutsideWindowIsLeftToCertificationPath() {
+        UUID tenant = UUID.randomUUID();
+        UUID txId = UUID.randomUUID();
+        ledgerTransactions.save(new LedgerTransactionEntity(txId, tenant, UUID.randomUUID(),
+            "idem-stale-" + txId, "INTERNAL_TRANSFER", "POSTED", "GBP",
+            Instant.now().minusSeconds(30L * 24 * 3600))); // 30 days old, outside the 168h window
+        ledgerEntries.save(new LedgerEntryEntity(UUID.randomUUID(), tenant, txId, account("GBP").getId(),
+            "DEBIT", new BigDecimal("100.0000"), "GBP", "PRINCIPAL"));
+
+        service.runReconciliation();
+        assertFalse(issues.existsByTypeAndEntityIdAndStatus("UNBALANCED_LEDGER_TRANSACTION", txId, "OPEN"),
+            "outside the window the scheduled sweep skips it — that is the point of the window");
+
+        service.checkTenantLedgerBalance(tenant);
+        assertTrue(issues.existsByTypeAndEntityIdAndStatus("UNBALANCED_LEDGER_TRANSACTION", txId, "OPEN"),
+            "the certification path stays full-tenant and must still catch it");
     }
 
     /** Finding #3: local SETTLED that the provider reports still pending is CRITICAL, not silence. */
