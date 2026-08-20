@@ -9,6 +9,7 @@ import com.trustledger.rails.PaymentRailRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,7 +30,21 @@ public class ReconciliationService {
         ExternalPaymentStatus.PENDING_SETTLEMENT,
         ExternalPaymentStatus.ACTION_REQUIRED,
         ExternalPaymentStatus.ACCEPTED,
-        ExternalPaymentStatus.SUBMITTED
+        ExternalPaymentStatus.SUBMITTED,
+        // A crash between "mark SUBMITTING" and "mark SUBMITTED" used to strand the
+        // attempt forever: no sweep looked at it. providerReference is non-nullable,
+        // so the provider can always be asked. Review finding #1, 2026-08-20.
+        ExternalPaymentStatus.SUBMITTING
+    };
+    /**
+     * States that advance ONLY via provider webhooks — in the service whose founding
+     * commit exists because webhooks get lost. The sweep re-asks the provider and
+     * raises drift; transitions stay with the webhook/dispute services on purpose.
+     */
+    private static final String[] WEBHOOK_ONLY = {
+        ExternalPaymentStatus.DISPUTE_OPENED,
+        ExternalPaymentStatus.DISPUTE_REVIEW,
+        ExternalPaymentStatus.CHARGEBACK
     };
     private static final String[] TERMINAL = {
         ExternalPaymentStatus.SETTLED,
@@ -80,7 +95,7 @@ public class ReconciliationService {
     public void scheduledRun() {
         if (!enabled) return;
         try { runReconciliation(); }
-        catch (Exception e) { log.warn("Reconciliation sweep failed; will retry: {}", e.getMessage()); }
+        catch (Exception e) { log.warn("Reconciliation sweep failed; will retry", e); }
     }
 
     /** Provider calls run without a surrounding database transaction; mutations use row-locked transitions. */
@@ -89,7 +104,8 @@ public class ReconciliationService {
             + checkUnbalancedLedgerTransactions()
             + checkExpiredReservations()
             + checkStuckOutbox()
-            + detectExternalStatusMismatch();
+            + detectExternalStatusMismatch()
+            + sweepWebhookOnlyStates();
     }
 
     /** Queries every non-terminal provider attempt using its exact tenant configuration and environment. */
@@ -136,9 +152,26 @@ public class ReconciliationService {
                 }
                 try {
                     String providerStatus = query(adapter.get(), attempt);
+                    // local=SETTLED: ANY provider answer that is not SETTLED is a problem.
+                    // A release status or a still-pending status is the premature-settlement
+                    // direction (we may have released funds the provider never confirmed) —
+                    // CRITICAL. A dispute-family status is the normal post-settlement dispute
+                    // lifecycle racing its webhook — that drift is raised separately below.
+                    boolean disputeDrift = ExternalPaymentStatus.SETTLED.equals(localTerminal)
+                        && isDisputeFamily(providerStatus);
                     boolean mismatch = ExternalPaymentStatus.SETTLED.equals(localTerminal)
-                        ? isReleaseStatus(providerStatus)
+                        ? !ExternalPaymentStatus.SETTLED.equals(providerStatus) && !disputeDrift
                         : isReleaseStatus(localTerminal) && ExternalPaymentStatus.SETTLED.equals(providerStatus);
+                    if (disputeDrift) {
+                        created += raise(attempt.getTenantId(), "HIGH", "DISPUTE_STATE_DRIFT",
+                            "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localTerminal,
+                            "provider=" + providerStatus, Map.of(
+                                "provider", attempt.getProvider(),
+                                "providerReference", attempt.getProviderReference(),
+                                "localStatus", localTerminal,
+                                "providerStatus", providerStatus),
+                            attempt.getAmount(), attempt.getCurrency());
+                    }
                     if (mismatch) {
                         created += raise(attempt.getTenantId(), "CRITICAL", "EXTERNAL_STATUS_MISMATCH",
                             "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localTerminal,
@@ -162,6 +195,45 @@ public class ReconciliationService {
     private static String query(PaymentRailAdapter adapter, ExternalPaymentAttemptEntity attempt) {
         return adapter.getPaymentStatus(new PaymentRailAdapter.PaymentStatusRequest(attempt.getTenantId(),
             attempt.getTenantProviderConfigId(), attempt.getProviderEnvironment(), attempt.getProviderReference()));
+    }
+
+    /** Webhook-only states re-checked against the provider; drift raised, never auto-transitioned. */
+    private int sweepWebhookOnlyStates() {
+        int created = 0;
+        for (String localStatus : WEBHOOK_ONLY) {
+            for (ExternalPaymentAttemptEntity attempt : externalAttempts.findByStatus(localStatus)) {
+                Optional<PaymentRailAdapter> adapter = railRegistry.find(attempt.getProvider());
+                if (adapter.isEmpty()) {
+                    created += providerIssue(attempt, "PROVIDER_ADAPTER_MISSING",
+                        "registered adapter for " + attempt.getProvider(), "adapter unavailable");
+                    continue;
+                }
+                try {
+                    String providerStatus = query(adapter.get(), attempt);
+                    if (!localStatus.equals(providerStatus)) {
+                        created += raise(attempt.getTenantId(), "HIGH", "DISPUTE_STATE_DRIFT",
+                            "EXTERNAL_PAYMENT_ATTEMPT", attempt.getId(), "local=" + localStatus,
+                            "provider=" + providerStatus, Map.of(
+                                "provider", attempt.getProvider(),
+                                "providerReference", attempt.getProviderReference(),
+                                "localStatus", localStatus,
+                                "providerStatus", providerStatus),
+                            attempt.getAmount(), attempt.getCurrency());
+                    }
+                } catch (RuntimeException e) {
+                    created += providerIssue(attempt, "PROVIDER_STATUS_QUERY_FAILED",
+                        "authoritative provider status", safeMessage(e));
+                }
+            }
+        }
+        return created;
+    }
+
+    private static boolean isDisputeFamily(String status) {
+        return ExternalPaymentStatus.DISPUTE_OPENED.equals(status)
+            || ExternalPaymentStatus.DISPUTE_REVIEW.equals(status)
+            || ExternalPaymentStatus.DISPUTE_WON.equals(status)
+            || ExternalPaymentStatus.CHARGEBACK.equals(status);
     }
 
     private int checkUnbalancedLedgerTransactions() {
@@ -188,22 +260,44 @@ public class ReconciliationService {
 
     private int checkLedgerTransactionBalanced(LedgerTransactionEntity transaction) {
         List<LedgerEntryEntity> entries = ledgerEntries.findByLedgerTransactionId(transaction.getId());
-        BigDecimal debits = BigDecimal.ZERO;
-        BigDecimal credits = BigDecimal.ZERO;
+        // Net PER CURRENCY. Summing blind lets DEBIT 100 USD "balance" CREDIT 100 EUR —
+        // the sweep would certify exactly the corruption it exists to catch.
+        // Review finding #2, 2026-08-20.
+        Map<String, BigDecimal> netByCurrency = new LinkedHashMap<>();
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        boolean foreignEntry = false;
         for (LedgerEntryEntity entry : entries) {
-            if ("DEBIT".equals(entry.getDirection())) debits = debits.add(entry.getAmount());
-            else credits = credits.add(entry.getAmount());
+            BigDecimal signed = "DEBIT".equals(entry.getDirection())
+                ? entry.getAmount() : entry.getAmount().negate();
+            netByCurrency.merge(entry.getCurrency(), signed, BigDecimal::add);
+            if (!transaction.getCurrency().equals(entry.getCurrency())) foreignEntry = true;
         }
-        if (entries.size() < 2 || debits.compareTo(credits) != 0) {
-            return raise(transaction.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
-                "LEDGER_TRANSACTION", transaction.getId(), "debits == credits",
-                "debits=" + debits + " credits=" + credits, Map.of(
-                    "debits", debits.toPlainString(), "credits", credits.toPlainString(),
-                    "entryCount", entries.size()),
-                // The unbalanced remainder is the money the journal cannot account for.
-                debits.subtract(credits), transaction.getCurrency());
+        netByCurrency.forEach((cur, net) -> evidence.put("net_" + cur, net.toPlainString()));
+        evidence.put("entryCount", entries.size());
+        int created = 0;
+        if (foreignEntry) {
+            // Anomalous regardless of balance: the journal declares one currency and
+            // carries entries in another. No exposure figure — netting across
+            // currencies would be the same lie the old check told.
+            created += raise(transaction.getTenantId(), "CRITICAL", "MIXED_CURRENCY_JOURNAL",
+                "LEDGER_TRANSACTION", transaction.getId(),
+                "every entry in " + transaction.getCurrency(),
+                "currencies=" + netByCurrency.keySet(), evidence);
         }
-        return 0;
+        boolean unbalanced = entries.size() < 2
+            || netByCurrency.values().stream().anyMatch(net -> net.signum() != 0);
+        if (unbalanced) {
+            // Exposure only where it can be stated honestly: the net in the journal's
+            // own currency. A remainder in a foreign currency is covered by the
+            // MIXED_CURRENCY_JOURNAL issue above, not converted.
+            BigDecimal ownNet = netByCurrency.get(transaction.getCurrency());
+            boolean ownExposure = ownNet != null && ownNet.signum() != 0;
+            created += raise(transaction.getTenantId(), "CRITICAL", "UNBALANCED_LEDGER_TRANSACTION",
+                "LEDGER_TRANSACTION", transaction.getId(), "debits == credits per currency",
+                "net=" + netByCurrency, evidence,
+                ownExposure ? ownNet : null, ownExposure ? transaction.getCurrency() : null);
+        }
+        return created;
     }
 
     private int checkExpiredReservations() {
