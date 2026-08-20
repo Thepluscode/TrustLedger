@@ -764,10 +764,12 @@ permissions (tables modelled, enforcement still role-only); wiring the provider 
 Two externally-supplied architecture documents (2026-07-28/29) asked for a quality-attributes table:
 availability, p95 latencies, throughput, RTO/RPO, scale targets. Checking the repo:
 
-- **No benchmark, load test, JMH harness or k6 script exists anywhere.**
-- Therefore **not one** of those numbers has ever been measured on this system.
+- ~~No benchmark, load test, JMH harness or k6 script exists anywhere.~~ **No longer true:**
+  `backend/loadtest/baseline.js` (k6, added 2026-08-20) + `scripts/load_transfer_probe.py`
+  (2026-08-04). The availability row still needs synthetic monitoring over time.
 
-Status: **IN PROGRESS** — first two performance rows measured 2026-08-04. Nothing here may be
+Status: **IN PROGRESS** — rows measured 2026-08-04 (transfer completion path) and
+2026-08-20 (k6: health floor, authenticated read, step-up initiation segment). Nothing here may be
 written as a target-that-reads-like-a-result — Rule 3, "it should be fast enough" is not evidence.
 
 | Attribute | Target | Measured | How |
@@ -778,6 +780,9 @@ written as a target-that-reads-like-a-result — Rule 3, "it should be fast enou
 | Throughput (TPS, single-account contention) | — | **133/s** (worse of 2 runs; p95 98.4 ms, all 1,000 COMPLETED, no deadlocks) | `load_transfer_probe.py single`, 2026-08-04 |
 | RTO (restore component) | — | **pg_restore 1.0 s + app ready ≤10 s** (1,100-transfer DB, 810 KB dump; backup 0.7 s) | timed drill 2026-08-04: backup → `DROP DATABASE … FORCE` (destruction proven: relation gone) → restore → counts match exactly (1,100/2,200/3,300). Excludes failure detection + failover; scales with data volume. |
 | RPO | — | **= backup interval, by construction** | pg_dump snapshots only; no WAL archiving configured, so worst-case loss is time-since-last-dump. Structural property, not a measurement — continuous archiving is the fix if a tighter RPO is ever required. |
+| Health endpoint floor | — | **2,494 req/s · p50 2.07 ms · p95 4.51 ms · p99 7.85 ms** (20 VUs, 30 s, 0 failures) | k6 `baseline.js`, 2026-08-20 |
+| Authenticated tenant-scoped read (accounts list) p95 | — | **8.34 ms** (p50 5.05, p99 10.89; 1,119 req/s, 20 VUs, 0 failures) | k6 `baseline.js`, 2026-08-20 |
+| Transfer INITIATION p95 (step-up path: JWT → idempotency → fraud scoring → MFA challenge created) | — | **61.55 ms** (p50 45.31, p99 87.47; 61.6/s sustained, 10 VUs, 6,164 requests, 0 failures) | k6 `baseline.js`, 2026-08-20 — measures a DIFFERENT segment than the 2026-08-04 completion rows: fresh tenant at default step-up threshold, every transfer stops at MFA_REQUIRED by design |
 | Ledger integrity | zero unbalanced journals | **VERIFIED** | `validateBalanced()` + invariant tests |
 | Tenant isolation | zero cross-tenant access | **VERIFIED** | `CrossTenantMoneyAuthorizationIntegrationTest` + authz suite |
 
@@ -791,6 +796,13 @@ boot (`mvn spring-boot:run`) on an Apple-silicon laptop, PostgreSQL 16 in a coli
 system under test), tenant step-up threshold raised to 60 so cold-start score-45 transfers complete
 in the monitor band. These are a **local baseline floor, not a production claim** — no claim about
 availability, sustained load, or multi-node behaviour follows from them.
+
+**k6 run conditions (2026-08-20):** same laptop class, PostgreSQL **18** in colima via the
+smoke port override (native EDB PostgreSQL 16+17 own Mac-side 5432 — the smoke override exists
+for exactly this), rate limiter raised via env (not the system under test), sequential
+scenarios so endpoints never contend, 367,658 total requests, zero HTTP failures. The transfer
+scenario measures initiation-to-challenge, not completion — do not compare its 61.6/s to the
+2026-08-04 completion TPS; they are different segments of the same path.
 
 The worst pipeline run (105 TPS, p95 204 ms) was the first pipeline-path run of a freshly booted
 JVM — JIT warm-up beyond the probe's built-in warmup. Reported, not discarded: a just-deployed

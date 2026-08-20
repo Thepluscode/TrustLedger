@@ -1,3 +1,8 @@
+# Project name pinned: without it, every repo with an infra/ dir collides as
+# project "infra" — on 2026-08-20 this mounted CyberGuardPlus's PG16 volume under
+# TrustLedger's postgres:18, which refused the datadir and crashed.
+name: trustledger
+
 services:
   postgres:
     image: postgres:18
