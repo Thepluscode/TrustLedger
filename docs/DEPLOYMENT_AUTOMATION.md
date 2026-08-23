@@ -24,7 +24,7 @@ build & test (CI green) → build images → push to ECR/GHCR (immutable tag = g
 - **Model:** `POST /api/v2/ml/models/{id}/rollback` (v2.8) reverts a model to OFF.
 
 ## Migration gate
-Flyway owns the schema (`V1..V14`); Hibernate runs `ddl-auto=validate` and the app **refuses to boot**
+Flyway owns the schema (`backend/src/main/resources/db/migration`); Hibernate runs `ddl-auto=validate` and the app **refuses to boot**
 on drift. CD should run migrations as a pre-deploy step (or let the first new pod apply them) and gate
 promotion on a healthy readiness probe.
 

@@ -92,7 +92,8 @@ mvn -B test            # JUnit 5 + Testcontainers — currently 56 tests, 0 fail
 mvn -B compile
 mvn spring-boot:run     # needs Postgres (+ Kafka/Redpanda for outbox) — see infra/
 
-# Dependency-free domain harness (no Maven/Docker needed):
+# Dependency-free domain harness (run from the repository root; no Maven/Docker needed):
+cd ..
 bash scripts/run_domain_validation.sh && python3 scripts/validate_repo.py
 ```
 

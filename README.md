@@ -77,7 +77,7 @@ A dependency-free `javac` harness also exists: `bash scripts/run_domain_validati
 ## Layout
 
 ```text
-backend/    Spring Boot 4 + JPA + Flyway (db/migration/V1..V14) ; src/test = JUnit + Testcontainers
+backend/    Spring Boot 4 + JPA + Flyway (db/migration; current schema validated at boot) ; src/test = JUnit + Testcontainers
 frontend/   Next.js 16 app router ; app/lib/api.ts is the typed client
 infra/      docker-compose.yml (+ .prod, + .smoke port-override), nginx, prometheus
 docs/       design + architecture (TRUSTLEDGER_V2_DESIGN.md, LEDGER_ENGINE.md, FRAUD_ENGINE.md, …)
