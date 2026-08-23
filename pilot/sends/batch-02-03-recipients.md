@@ -22,11 +22,11 @@ Verify the live LinkedIn profile before each send.
 | **Fallback** | Dmitrij Uskov — COO & MD (press Jul 2025; Firmenbuch shows him as *former* holding-co MD — standing muddier) |
 | Note | The Head of Finance Ops seat **does not exist yet** — the 25 Jun 2026 posting says the EU finance function is being built "from the ground up". Zeng is the right recipient; the draft's hook can use exactly that. |
 
-## 12. Satispay (satispay.com) — channel B — needs one logged-in LinkedIn search
+## 12. Satispay (satispay.com) — channel B — sent 2026-08-20
 
 | | |
 |---|---|
-| **Ideal target** | **"Head of Finance Transformation"** — confirmed to exist (the Finance Transformation PM posting reports to them) but **unnamed in any public source**. One logged-in LinkedIn people-search resolves it. |
+| **Verified route** | **Vincenzo Laurendi — Chief Business Operations Officer** at Satispay, Milan (authenticated LinkedIn profile checked 2026-08-20). LinkedIn accepted the 250-character research connection note on 2026-08-20; this is a send, not a reply or conversation. |
 | Source | https://www.jobsinforex.com/job/173674/project-manager-finance-transformation/ |
 | **⚠ Do not use** | Samuele Pinta as "CFO" — four sources give four titles; weight of evidence says **COO**, and he may run the *Luxembourg* EMI entity, not Milan finance. |
 | **Fallback** | Alberto Dalmasso — CEO & co-founder (low reply odds at unicorn scale, but verified) |
@@ -50,13 +50,13 @@ Verify the live LinkedIn profile before each send.
 | **Fallback** | Hong Fang — President |
 | **Alt play** | Wait ~2 months and approach the new Regional Treasurer in month one, when reconciliation pain is freshest. |
 
-## 16. Exness (exness.com) — ⚠ BLOCKED on authenticated LinkedIn
+## 16. Exness (exness.com) — channel B — sent 2026-08-20
 
 | | |
 |---|---|
 | **Finding** | No UAE finance/payments name is reachable by public web — About page 403s, no press below C-suite. The posting itself is gold though: the role manages "daily settlements of Exness MENA clients" and oversees a named **"Accounts Reconciliation Lead"**. |
 | **Named but not targets** | Petr Valov (Group CEO), Damian Bunce (CCO); the Co-Chief Payments Officers exist per the About page but are unnamed in the index. |
-| **Unblock** | LinkedIn Sales Navigator: Exness + Dubai + finance/payments titles. Public-web effort here is spent. |
+| **Verified route** | **Artem Ermakov — Senior Technical Product Manager, Core Ledger, Balances & Reconciliation**, Dubai (authenticated LinkedIn profile checked 2026-08-20). LinkedIn accepted the 257-character research connection note on 2026-08-20. He is an operator-workflow contact rather than the budget owner; this is a send, not a reply or conversation. |
 
 ## 24. Equiti Group (equiti.com) — channel C — strongest of the Dubai cluster
 
@@ -189,11 +189,11 @@ Verify the live LinkedIn profile before each send.
 | # | Company | Recipient | Confidence | Ready? |
 |---|---------|-----------|------------|--------|
 | 11 | Paysafe | Inna Dimitrova (Sofia, title unverified) | LOW | verify LinkedIn first |
-| 12 | Satispay | — (Head of Finance Transformation, unnamed) | — | one logged-in LinkedIn search |
+| 12 | Satispay | Vincenzo Laurendi (Chief Business Operations Officer) | HIGH | sent 2026-08-20; awaiting response |
 | 13 | iBanFirst | Arnaud de la Porte (CFO/Dep CEO) | HIGH ⭐ | send |
 | 14 | Bybit EU | Mazurka Zeng (MD & CEO EU) | HIGH | send |
 | 15 | OKX | Rifad Mahasneh (GM MENA, routing) | MEDIUM | verify; or wait for treasurer hire |
-| 16 | Exness | — | — | **blocked: needs Sales Navigator** |
+| 16 | Exness | Artem Ermakov (Senior Technical PM — Core Ledger/Reconciliation) | HIGH | sent 2026-08-20; awaiting response |
 | 17 | Swissquote | Nestor Verrier (COO) | HIGH | send |
 | 18 | IG Group | Clifford Abrahams (CFO) | HIGH | send (cite Cash Control ads) |
 | 19 | XTB | Paweł Szejko (CFO) | HIGH | send |
@@ -208,8 +208,7 @@ Verify the live LinkedIn profile before each send.
 | 28 | CMC Markets | Ahmed Soliman (DIFC SEO) | MEDIUM | verify title, send |
 | 29 | Nuvei | — | — | **deprioritized** |
 
-**12 sendable (after the usual live-LinkedIn eyeball) · 4 need a specific verification step ·
-3 blocked/parked (Satispay unnamed, Exness needs Sales Navigator, Nuvei deprioritized).**
+**Satispay and Exness were identity-verified and sent on 2026-08-20; Nuvei remains deprioritized.**
 
 Cross-cutting: **zero company-published personal email formats except Nuvei's** — LinkedIn-first
 everywhere; **the vacancy pattern recurs** (OKX, MultiBank, IronFX, CMC, OSL, Bybit are all

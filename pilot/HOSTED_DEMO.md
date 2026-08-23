@@ -13,7 +13,7 @@ prometheus, grafana) — it does not contain the app. Run the app from source. T
 docker run -d --name tl-demo-pg -e POSTGRES_DB=trustledger \
   -e POSTGRES_USER=trustledger -e POSTGRES_PASSWORD=trustledger -p 55433:5432 postgres:16-alpine
 
-# 2) Backend (Flyway migrates V1..V14 on boot; ~5s on a warm build)
+# 2) Backend (Flyway migrates the current schema on boot)
 cd backend
 DATABASE_URL=jdbc:postgresql://localhost:55433/trustledger \
 DATABASE_USERNAME=trustledger DATABASE_PASSWORD=trustledger \
@@ -48,14 +48,18 @@ helm upgrade --install trustledger deploy/helm/trustledger \
 ```
 See `deploy/README.md`. Point `NEXT_PUBLIC_API_BASE_URL` at the backend ingress.
 
-## Seed the demo tenant
+## Seed the read-only wedge walkthrough
 ```bash
-BASE=http://localhost:8080 ./pilot/demo-seed.sh
-# Creates: a demo tenant + owner, funded accounts, completed transfers, and prints a live
-# explainable risk assessment (decision + signals) from the intelligence layer.
+BASE=http://localhost:8090 CONSOLE=http://localhost:3010 ./pilot/demo-wedge-seed.sh
+# Creates: a fresh tenant + owner, ingests one synthetic settlement break through the real API,
+# verifies the priced OPEN exception, assigns it to the owner and verifies the audit entry.
 ```
 The script prints the seeded **owner login** (email + password) to use in the console. A new tenant
 is created per run, so re-running IS the reset.
+
+The output also prints direct paths for the real statement and exception. This is the first-sale
+walkthrough: no payment is initiated, routed, retried, reversed or moved. Use `pilot/demo-seed.sh`
+only when demonstrating the separate sandbox execution/fraud capabilities described below.
 
 > **Live fraud gate (v3.0):** the public `/transfers` endpoint is now scored by the **intelligence
 > layer** (behaviour / device trust / recipient risk), not a low-risk stub. The seed therefore opens
@@ -68,13 +72,13 @@ is created per run, so re-running IS the reset.
 ## Pre-demo smoke check
 - [ ] `GET /api/health` → 200
 - [ ] `GET /actuator/health/readiness` → UP
-- [ ] Log in with the seeded owner; Dashboard + Accounts load with the seeded data
+- [ ] Log in with the seeded owner; Dashboard, Settlement Statements and Reconciliation load
+- [ ] The printed statement path shows 1 unmatched line and links to Reconciliation
+- [ ] The printed exception path shows `SETTLEMENT_LINE_UNMATCHED`, GBP 125 exposure, an owner and an assignment activity entry
+- [ ] Unassign and reassign the owner once; both attributable transitions remain in Activity
 - [ ] `/showcase` loads the £50,000 fee-overcharge replay with the synthetic/no-money boundary visible
 - [ ] Replay advances the evidence counter and all six scenario tabs produce a supported conclusion
-- [ ] Transfers page shows the completed transfers
-- [ ] Fraud Cases shows an OPEN case (the seed's £900 held transfer, score 75) — approve/reject works
-- [ ] The seed printed a risk assessment with `decision` + `signals` (e.g. HOLD_FOR_REVIEW, NEW_BENEFICIARY)
-- [ ] ML page lists the registered model + governance state
+- [ ] If the optional execution seed was run: Transfers shows completed transfers, Fraud Cases shows the £900 held case and ML lists the registered model
 
 ## Safety
 - Use **throwaway secrets** for a demo; never reuse production secrets.

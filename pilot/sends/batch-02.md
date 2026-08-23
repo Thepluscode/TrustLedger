@@ -40,15 +40,20 @@ methods in many markets.
 
 **Signal:** hiring **Project Manager — Finance Transformation** (Milan). Scaling European payment
 network.
-**Who to target:** CFO or Head of Finance Operations.
+**Verified contact:** Vincenzo Laurendi, Chief Business Operations Officer (live LinkedIn profile,
+2026-08-20).
 **Channel:** B
 **Caveat:** indirect signal — "finance transformation" could be ERP, procurement, anything. Qualify
 in the first two questions; do not stretch the script if reconciliation is not in scope.
 
 > LinkedIn note:
 >
-> Researching how scaling payment networks handle settlement breaks across partners — not selling.
-> 20 minutes in exchange for anonymised findings from ~25 similar companies?
+> Researching how multi-rail payment teams prove what happened when settlement and internal records
+> disagree—not selling. You lead business operations at Satispay; would you trade 20 minutes on one
+> anonymised incident for the findings across ~25 teams?
+
+**Sent 2026-08-20:** LinkedIn accepted the 250-character connection note; the populated dialog
+closed and Connect disappeared from the profile action menu. This is not a reply or conversation.
 
 > Follow-up once accepted:
 >
@@ -135,23 +140,34 @@ partners plus on-chain settlement.
 
 **Signal:** hiring **Finance Operations Manager — UAE** (Dubai). High-volume broker using many
 regional payment providers — the multi-PSP fan-out is real here even though the segment is adjacent.
-**Who to target:** Head of Finance Operations or Head of Payments, UAE.
-**Channel:** C
+**Verified contact:** Artem Ermakov, Senior Technical Product Manager — Core Ledger, Balances &
+Reconciliation (live LinkedIn profile, Dubai, 2026-08-20). Operator-workflow contact, not budget
+owner.
+**Channel:** B
 
-> Subject: many regional PSPs — how do you know they all settled?
+> Researching how payment teams prove what happened when ledger, balance and provider records
+> disagree—not selling. Your Exness work spans core ledger and reconciliation. Would you trade 20
+> minutes on one anonymised incident for the findings across ~25 teams?
+
+**Sent 2026-08-20:** LinkedIn accepted the 257-character connection note; the populated dialog
+closed and the profile action changed from Connect to Message Artem. This is not a reply or
+conversation.
+
+**Accepted and replied 2026-08-20:** LinkedIn showed Artem as a 1st-degree connection and one unread
+message: “Sounds interesting. What's the research for? Are you building a product, writing a report,
+or conducting independent research?” This is a reply, not yet an incident-reconstruction conversation.
+
+> Response sent 2026-08-21 at 07:06 BST after action-time approval:
 >
-> Hi [Name],
->
-> You're hiring a Finance Operations Manager. Running client deposits and withdrawals through a
-> different set of payment providers in each region, I'd guess reconciling what actually settled is
-> a standing job rather than an exception.
->
-> I'm researching that across ~25 companies on more than one provider — how breaks surface, how long
-> they take, what leaks. Not a pitch.
->
-> 20 minutes? Anonymised findings back either way.
->
-> [Your name]
+> Thanks, Artem — it’s founder-led customer discovery, not commissioned research. I’m deciding
+> whether a product should exist; if the evidence says existing tools handle the problem well, I
+> stop. The immediate output is an anonymised findings report shared with participants. No deck or
+> pitch. Would you be open to 20 minutes on one recent reconciliation incident? I can work around
+> your calendar.
+
+LinkedIn recorded the exact response in Artem's conversation with `Sent at 8/21/2026, 7:06 AM` and
+cleared the composer. This is a sent scheduling ask, not an accepted interview or completed
+incident-reconstruction conversation.
 
 ---
 

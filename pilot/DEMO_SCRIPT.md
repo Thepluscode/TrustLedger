@@ -9,8 +9,9 @@ The exact talk track, 90-second recording storyboard and proof sheet live in
 
 ## 0. Setup
 
-Run `pilot/demo-seed.sh` to create a fresh sandbox tenant. Confirm the execution posture is sandbox
-and do not enable production provider configurations or controlled-exposure workflows.
+Run `pilot/demo-wedge-seed.sh` to create a fresh sandbox tenant and a real, synthetic settlement
+break. Confirm the output says the issue was detected, assigned and audit-verified. Do not enable
+production provider configurations or controlled-exposure workflows.
 
 Open `/showcase` with **Settlement fee overcharge** selected. Confirm the page says synthetic replay,
 no customer data and no money movement.
@@ -39,10 +40,11 @@ preserves the evidence. It is not the bank, gateway or autonomous decision-maker
 
 ## 4. Show the three-role workflow (1 minute)
 
-- **Reconciliation operator:** queue, investigation context and controlled resolution evidence.
-- **Payments engineer:** raw webhook/event/provider provenance used for a technical escalation.
-- **Head of Payments:** current open exposure and SLA posture. If a field is not implemented yet,
-  say so; ownership/exposure/deadline/activity history are gated exception-ops work, not demo fiction.
+- **Reconciliation operator:** open the seeded statement and exception, then show its investigation
+  context, GBP 125 exposure, owner control and attributable assignment activity.
+- **Payments engineer:** the raw settlement row and provider reference retained for a technical escalation.
+- **Head of Payments:** current open exposure and SLA posture. Ownership, exposure, per-issue deadline
+  and activity history are implemented and locally verified; do not claim customer or production proof.
 
 ## 5. Show defensible evidence (1 minute)
 

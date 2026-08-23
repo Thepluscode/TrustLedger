@@ -1,7 +1,7 @@
 # Batch 06 — three named asks, drafted 2026-08-16
 
-> **These are drafts. None of them is a send.** A send exists when `date_sent` is filled in
-> `kill-test-tracker.csv` — nowhere else.
+> **VIALET was mailbox-verified as sent on 2026-08-20. ConnectPay and OSL remain drafts.** A send
+> exists when `date_sent` is filled in `kill-test-tracker.csv` and backed by channel evidence.
 
 **Why these three, and why now.** The D3 community post (TL-SOC-040, 15 Aug) returned **24
 impressions and 3 members reached**. Broadcast recruitment on this profile does not reach anyone —
@@ -20,6 +20,11 @@ software, or a demo. All three pass `pilot/check_send.py` (guard selftest 8/8 fi
 ---
 
 ## 1. VIALET — Mantas Staliūnas, CEO · channel C (email)
+
+**SENT 2026-08-20** from the authenticated founder Gmail account to the published address below.
+Gmail returned a Sent-labelled copy with the exact recipient and subject. This proves the send, not
+delivery, reply or a booked conversation. The tracker preserves and corrects an unsupported earlier
+claim that this message had been sent on 2026-08-16.
 
 **To:** `info@vialet.eu` — verified 2026-08-16 at `vialet.eu/contact-us/`, first-party.
 **Why the CEO:** VIA Payments UAB is small enough that the CEO is the buyer; the research rates the
