@@ -212,6 +212,7 @@ export interface SettlementLine {
 export interface SettlementStatementDetail {
   statement: SettlementStatement;
   lines: SettlementLine[];
+  reconciliationIssueIds: string[];
 }
 
 export interface ReconciliationIssue {

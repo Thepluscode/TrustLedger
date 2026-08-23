@@ -6,6 +6,7 @@ import com.trustledger.app.SettlementReconciliationService.IngestResult;
 import com.trustledger.app.SettlementReconciliationService.LineInput;
 import com.trustledger.app.SettlementReconciliationService.StatementInput;
 import com.trustledger.persistence.entity.SettlementStatementEntity;
+import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
 import java.math.BigDecimal;
@@ -26,10 +27,13 @@ public class SettlementReconciliationController {
 
     private final SettlementReconciliationService settlements;
     private final AccessControlService access;
+    private final ReconciliationIssueRepository issues;
 
-    public SettlementReconciliationController(SettlementReconciliationService settlements, AccessControlService access) {
+    public SettlementReconciliationController(SettlementReconciliationService settlements, AccessControlService access,
+                                              ReconciliationIssueRepository issues) {
         this.settlements = settlements;
         this.access = access;
+        this.issues = issues;
     }
 
     public record LineRequest(String providerReference, BigDecimal amount, BigDecimal fee, String status) {}
@@ -55,7 +59,8 @@ public class SettlementReconciliationController {
     public record LineView(String providerReference, String amount, String fee, String status,
                            String matchStatus, UUID matchedAttemptId) {}
 
-    public record StatementDetailView(StatementView statement, List<LineView> lines) {}
+    public record StatementDetailView(StatementView statement, List<LineView> lines,
+                                      List<UUID> reconciliationIssueIds) {}
 
     @PostMapping
     public IngestResponse ingest(@RequestBody IngestRequest body) {
@@ -149,7 +154,9 @@ public class SettlementReconciliationController {
                 .map(l -> new LineView(l.getProviderReference(), l.getAmount().toPlainString(),
                         l.getFee().toPlainString(), l.getStatus(), l.getMatchStatus(), l.getMatchedAttemptId()))
                 .toList();
-        return new StatementDetailView(view(d.statement()), lines);
+        List<UUID> issueIds = issues.findByTenantIdAndSettlementStatementId(CurrentUser.tenantId(), id)
+                .stream().map(i -> i.getId()).toList();
+        return new StatementDetailView(view(d.statement()), lines, issueIds);
     }
 
     private static StatementView view(SettlementStatementEntity s) {

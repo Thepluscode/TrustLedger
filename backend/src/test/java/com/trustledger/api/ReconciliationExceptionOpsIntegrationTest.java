@@ -52,6 +52,7 @@ class ReconciliationExceptionOpsIntegrationTest {
         r.add("spring.datasource.password", POSTGRES::getPassword);
         r.add("trustledger.outbox.publisher.enabled", () -> "false");
         r.add("trustledger.reconciliation.enabled", () -> "false");
+        r.add("trustledger.payment-rails.webhook-inbox.worker-enabled", () -> "false");
     }
 
     @Value("${local.server.port}") int port;
@@ -93,6 +94,41 @@ class ReconciliationExceptionOpsIntegrationTest {
     private HttpResponse<String> list(String token) throws Exception {
         return http.send(HttpRequest.newBuilder(uri("/api/v1/reconciliation/issues"))
             .header("Authorization", "Bearer " + token).GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void settlementDetailLinksDirectlyToItsRaisedExceptionAndKeepsTheLinkTenantScoped() throws Exception {
+        AuthResponse operator = register();
+        String statementRef = "LEAD-LINK-" + UUID.randomUUID();
+        String body = json.writeValueAsString(Map.of(
+            "provider", "SANDBOX", "currency", "GBP", "statementRef", statementRef,
+            "periodStart", "2026-08-19T00:00:00Z", "periodEnd", "2026-08-20T00:00:00Z",
+            "linesCsv", "providerReference,amount,fee,status\nunmatched-link,125.00,0.00,SETTLED",
+            "declaredTotalAmount", 125, "declaredTotalFees", 0));
+        HttpResponse<String> ingested = http.send(HttpRequest.newBuilder(
+                uri("/api/v1/tenant/reconciliation/statements/csv"))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer " + operator.token())
+            .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, ingested.statusCode(), ingested.body());
+        UUID statementId = UUID.fromString(json.readTree(ingested.body()).get("statement").get("id").asText());
+
+        HttpResponse<String> detail = http.send(HttpRequest.newBuilder(
+                uri("/api/v1/tenant/reconciliation/statements/" + statementId))
+            .header("Authorization", "Bearer " + operator.token()).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, detail.statusCode(), detail.body());
+        var view = json.readValue(detail.body(), SettlementReconciliationController.StatementDetailView.class);
+        assertEquals(1, view.reconciliationIssueIds().size(), detail.body());
+        UUID linkedIssueId = view.reconciliationIssueIds().get(0);
+        assertEquals("SETTLEMENT_LINE_UNMATCHED", issues.findById(linkedIssueId).orElseThrow().getType());
+
+        AuthResponse otherTenant = register();
+        HttpResponse<String> forbidden = http.send(HttpRequest.newBuilder(
+                uri("/api/v1/tenant/reconciliation/statements/" + statementId))
+            .header("Authorization", "Bearer " + otherTenant.token()).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, forbidden.statusCode(), "another tenant must not discover the statement or linked issue");
     }
 
     @Test

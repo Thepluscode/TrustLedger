@@ -42,6 +42,19 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
     java.util.List<ReconciliationIssueEntity> findByStatus(String status);
     java.util.List<ReconciliationIssueEntity> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 
+    /**
+     * Every exception raised from one settlement statement, tenant-scoped in the query. Line-level
+     * breaks retain the statement id in JSON evidence; statement-total breaks use it as entity_id.
+     */
+    @Query(value = """
+        select * from reconciliation_issues
+        where tenant_id = :tenantId
+          and (entity_id = :statementId or evidence ->> 'statementId' = cast(:statementId as text))
+        order by created_at desc
+        """, nativeQuery = true)
+    List<ReconciliationIssueEntity> findByTenantIdAndSettlementStatementId(
+        @Param("tenantId") UUID tenantId, @Param("statementId") UUID statementId);
+
     /** Oldest open break's timestamp — one aggregate row, not the whole issue list, for the health signal. */
     @Query("select min(i.createdAt) from ReconciliationIssueEntity i where i.tenantId = :tenantId and i.status = :status")
     Instant oldestCreatedAtByStatus(@Param("tenantId") UUID tenantId, @Param("status") String status);

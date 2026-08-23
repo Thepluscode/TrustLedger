@@ -21,6 +21,7 @@ export default function SettlementStatementDetailPage() {
 
   const s = detail?.statement;
   const lines = detail?.lines ?? null;
+  const issueIds = detail?.reconciliationIssueIds ?? [];
   const matchedLines = lines?.filter((line) => line.matchStatus === "MATCHED").length ?? 0;
   const breakLines = lines?.filter((line) => line.matchStatus !== "MATCHED").length ?? 0;
 
@@ -58,6 +59,19 @@ export default function SettlementStatementDetailPage() {
             <article><small>Gross amount</small><strong>{s.totalAmount} {s.currency}</strong></article>
             <article><small>Fees</small><strong>{s.totalFees} {s.currency}</strong></article>
           </section>
+
+          {issueIds.length > 0 && (
+            <div className="notice" style={{ marginTop: 18 }}>
+              <b>{issueIds.length} reconciliation {issueIds.length === 1 ? "exception" : "exceptions"} raised</b>
+              {" — "}
+              {issueIds.map((issueId, index) => (
+                <span key={issueId}>
+                  {index > 0 && " · "}
+                  <Link href={`/reconciliation/${issueId}`}>Open exception {shortId(issueId)} →</Link>
+                </span>
+              ))}
+            </div>
+          )}
 
           <section className="panel" style={{ marginTop: 18 }}>
             <div className="panelHeader">
