@@ -5,9 +5,9 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ConfirmModal, SeverityPill, StatusPill } from "../../components/ui";
 import Shell from "../../components/Shell";
-import { api } from "../../lib/api";
+import { api, getSession } from "../../lib/api";
 import { dateTime, money, shortId } from "../../lib/format";
-import type { ReconciliationAuditEntry, ReconciliationIssue } from "../../lib/types";
+import type { ReconciliationAuditEntry, ReconciliationIssue, TeamMember } from "../../lib/types";
 
 function pretty(json: string | null): string {
   if (!json) return "—";
@@ -63,15 +63,49 @@ export default function ReconciliationIssuePage() {
   const [outcome, setOutcome] = useState("");
   const [note, setNote] = useState("");
   const [audit, setAudit] = useState<ReconciliationAuditEntry[]>([]);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [ownerChoice, setOwnerChoice] = useState("");
+  const role = getSession()?.role.toUpperCase() ?? "";
+  const canManage = role === "OWNER" || role === "ADMIN" || role === "TENANT_ADMIN";
 
-  function loadAudit() {
-    if (id) api.reconciliationIssueAudit(id).then(setAudit).catch(() => {});
+  async function loadAudit() {
+    if (!id) return;
+    try {
+      setAudit(await api.reconciliationIssueAudit(id));
+      setAuditError(null);
+    } catch (e) {
+      setAuditError(`Activity unavailable: ${(e as Error).message}`);
+    }
   }
 
   useEffect(() => {
-    if (id) api.getReconciliationIssue(id).then(setIssue).catch((e) => setError((e as Error).message));
-    loadAudit();
-  }, [id]);
+    if (!id) return;
+    api.getReconciliationIssue(id)
+      .then((loaded) => {
+        setIssue(loaded);
+        setOwnerChoice(loaded.ownerUserId ?? "");
+      })
+      .catch((e) => setError((e as Error).message));
+    void loadAudit();
+    if (canManage) {
+      api.listUsers().then(setMembers).catch((e) => setError(`Unable to load assignable owners: ${(e as Error).message}`));
+    }
+  }, [canManage, id]);
+
+  async function assign() {
+    if (!id) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setIssue(await api.assignReconciliationIssue(id, ownerChoice || null));
+      await loadAudit();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function resolve() {
     if (!id) return;
@@ -120,7 +154,9 @@ export default function ReconciliationIssuePage() {
                       : "— no amount applies"}
                   </span></div>
                 <div className="entry"><span className="muted">Owner</span>
-                  <span>{issue.ownerUserId ? <span className="mono">{shortId(issue.ownerUserId)}</span> : "unassigned"}</span></div>
+                  <span>{issue.ownerUserId
+                    ? members.find((member) => member.id === issue.ownerUserId)?.email ?? <span className="mono">{shortId(issue.ownerUserId)}</span>
+                    : "unassigned"}</span></div>
                 <div className="entry"><span className="muted">Due</span>
                   <span className={overdue(issue) ? "error" : undefined}>
                     {dateTime(issue.dueAt)}{overdue(issue) ? " · overdue" : ""}
@@ -128,7 +164,21 @@ export default function ReconciliationIssuePage() {
                 <div className="entry"><span className="muted">Created</span><span>{dateTime(issue.createdAt)}</span></div>
                 <div className="entry"><span className="muted">Resolved</span><span>{issue.resolvedAt ? dateTime(issue.resolvedAt) : "—"}</span></div>
               </div>
-              {issue.status === "OPEN" && (
+              {issue.status === "OPEN" && canManage && (
+                <div className="resolution-form">
+                  <label className="muted" htmlFor="issue-owner" style={{ display: "block", marginBottom: 6 }}>Accountable owner</label>
+                  <div className="row">
+                    <select id="issue-owner" value={ownerChoice} onChange={(e) => setOwnerChoice(e.target.value)} style={{ flex: 1 }}>
+                      <option value="">Unassigned</option>
+                      {members.map((member) => <option key={member.id} value={member.id}>{member.email} · {member.role.toLowerCase()}</option>)}
+                    </select>
+                    <button className="secondary" disabled={busy || ownerChoice === (issue.ownerUserId ?? "")} onClick={assign}>
+                      {busy ? "Saving…" : "Assign owner"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {issue.status === "OPEN" && canManage && (
                 <div className="resolution-form">
                   <label className="muted" style={{ display: "block", marginBottom: 6 }}>Resolution outcome</label>
                   <select value={outcome} onChange={(e) => setOutcome(e.target.value)} style={{ width: "100%", marginBottom: 12 }}>
@@ -146,6 +196,9 @@ export default function ReconciliationIssuePage() {
                     <button disabled={!outcome || !note.trim()} onClick={() => setConfirm(true)}>Resolve issue</button>
                   </div>
                 </div>
+              )}
+              {issue.status === "OPEN" && !canManage && (
+                <p className="notice">This role can inspect the issue and its evidence. A tenant administrator must assign or resolve it.</p>
               )}
             </div>
           </section>
@@ -190,7 +243,8 @@ export default function ReconciliationIssuePage() {
               </div>
             </section>
           )}
-          {issue.status === "OPEN" && <button className="mobile-primary-action" onClick={() => {
+          {auditError && <p className="error" style={{ marginTop: 18 }}>{auditError}</p>}
+          {issue.status === "OPEN" && canManage && <button className="mobile-primary-action" onClick={() => {
             document.querySelector<HTMLElement>(".resolution-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
           }}>Review resolution</button>}
         </>

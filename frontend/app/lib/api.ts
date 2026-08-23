@@ -192,6 +192,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ outcome, note }),
     }),
+  assignReconciliationIssue: (id: string, userId: string | null) =>
+    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
 
   deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
   beneficiaryProfiles: () => request<BeneficiaryProfile[]>("/api/v1/fraud/risk-profiles/beneficiaries"),
