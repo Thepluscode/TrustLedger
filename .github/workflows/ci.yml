@@ -31,6 +31,15 @@ jobs:
             tail -n 100 maven-test.log
           fi
           exit "$status"
+      - name: Assert the suite actually ran
+        working-directory: backend
+        # mvn test exits 0 when every test is SKIPPED. 78 of 79 @Testcontainers
+        # classes carry disabledWithoutDocker=true, so a runner without a Docker
+        # daemon silently drops the whole integration suite and this job would
+        # still be green. An assertion count below what you expected is a FAILED
+        # run, whatever the exit code says.
+        run: python3 scripts/assert_test_floor.py
+
       - name: Upload Maven diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
