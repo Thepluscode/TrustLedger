@@ -55,7 +55,7 @@ export default function OrgUnitsPage() {
 
   function load() {
     api.listOrgUnits().then(setUnits).catch((e) => setError((e as Error).message));
-    api.listUsers().then(setMembers).catch(() => {});
+    api.listUsers().then(setMembers).catch((e) => setError((e as Error).message));
   }
   useEffect(load, []);
 

@@ -43,7 +43,7 @@ export default function TransfersPage() {
         if (a[1]) setDestination(a[1].id);
       })
       .catch((e) => setError((e as Error).message));
-    api.listBeneficiaries().then(setBeneficiaries).catch(() => {});
+    api.listBeneficiaries().then(setBeneficiaries).catch((e) => setError((e as Error).message));
   }, []);
 
   const sourceAccount = useMemo(() => accounts.find((a) => a.id === source), [accounts, source]);
@@ -79,7 +79,14 @@ export default function TransfersPage() {
         currentCountry: "GB",
       });
       setResult(res);
-      api.listAccounts().then(setAccounts).catch(() => {});
+      api
+        .listAccounts()
+        .then(setAccounts)
+        // The transfer already succeeded; only the balance refresh failed. Saying so
+        // keeps the failure observable without reading as a failed transfer.
+        .catch((e) =>
+          setError(`Transfer completed. Balances could not be refreshed: ${(e as Error).message}`),
+        );
     } catch (err) {
       setError((err as Error).message);
     } finally {

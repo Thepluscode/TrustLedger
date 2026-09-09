@@ -37,10 +37,11 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    api.getUsage("transfers_created").then((u) => setTransfers(u.currentMonth)).catch(() => {});
+    api.getUsage("transfers_created").then((u) => setTransfers(u.currentMonth))
+      .catch((e) => setError((e as Error).message));
     api.getTenantQuota().then(setQuota).catch((e) => setError((e as Error).message));
-    api.getBillingEvents().then(setEvents).catch(() => {});
-    api.listProviderConfigs().then(setConfigs).catch(() => {});
+    api.getBillingEvents().then(setEvents).catch((e) => setError((e as Error).message));
+    api.listProviderConfigs().then(setConfigs).catch((e) => setError((e as Error).message));
     api.getFraudPolicy().then(setPolicy).catch((e) => setError((e as Error).message));
   }
   useEffect(load, []);

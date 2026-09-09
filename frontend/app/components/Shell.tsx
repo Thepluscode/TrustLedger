@@ -122,7 +122,13 @@ export default function Shell({ children, active }: { children: ReactNode; activ
     }
     setSess(getSession());
     setReady(true);
-    api.myScope().then((s) => setScopeUnits(s.scoped ? s.units : [])).catch(() => {});
+    api
+      .myScope()
+      .then((s) => setScopeUnits(s.scoped ? s.units : []))
+      // The shell has no error surface, and a missing scope badge must not block the
+      // page. It must still be observable: swallowed, a scoped user silently renders
+      // as unscoped, which looks identical to having no scope at all.
+      .catch((e) => console.error("[shell] scope lookup failed:", e));
   }, [router]);
 
   if (!ready) return null;

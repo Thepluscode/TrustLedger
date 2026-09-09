@@ -29,7 +29,7 @@ export default function CertificationsPage() {
 
   function load() {
     api.listCertifications().then(setRuns).catch((e) => setError((e as Error).message));
-    api.listProviderConfigs().then(setConfigs).catch(() => {});
+    api.listProviderConfigs().then(setConfigs).catch((e) => setError((e as Error).message));
   }
   useEffect(load, []);
 
