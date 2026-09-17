@@ -22,6 +22,14 @@ import type {
   ProductionCanaryRequest,
   ProductionCanaryView,
   ProviderConfigView,
+  ReconBundle,
+  ReconCase,
+  ReconCaseView,
+  ReconIssueActivity,
+  ReconRunView,
+  ReconRun,
+  ReconSourceRow,
+  ReconImportManifest,
   ReconciliationAuditEntry,
   ReconciliationIssue,
   ReconciliationIssueList,
@@ -49,6 +57,8 @@ export interface SessionInfo {
   email: string;
   role: string;
   tenantId: string;
+  /** Absent in sessions stored before it was added; features that need it degrade until the next sign-in. */
+  userId?: string;
 }
 
 export function getToken(): string | null {
@@ -79,8 +89,9 @@ export function setSession(info: SessionInfo | null): void {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // A multipart body must set its own Content-Type (it carries the boundary).
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> | undefined),
   };
   const token = getToken();
@@ -94,7 +105,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new Error(body?.error ?? `Request failed (${res.status})`);
+    throw new Error(body?.error ?? body?.manifest?.failureReason ?? `Request failed (${res.status})`);
   }
   return body as T;
 }
@@ -177,25 +188,73 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  listReconciliationIssues: (status?: string, severity?: string) => {
+  listReconciliationIssues: (status?: string, severity?: string, more: Record<string, string> = {}) => {
     const q = new URLSearchParams();
     if (status) q.set("status", status);
     if (severity) q.set("severity", severity);
+    for (const [k, v] of Object.entries(more)) if (v) q.set(k, v);
     const qs = q.toString();
     return request<ReconciliationIssueList>(`/api/v1/reconciliation/issues${qs ? `?${qs}` : ""}`);
   },
   getReconciliationIssue: (id: string) => request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}`),
   reconciliationIssueAudit: (id: string) =>
     request<ReconciliationAuditEntry[]>(`/api/v1/reconciliation/issues/${id}/audit`),
-  resolveReconciliationIssue: (id: string, outcome: string, note: string) =>
+  resolveReconciliationIssue: (id: string, outcome: string, note: string, evidenceRef?: string | null, expectedVersion?: number) =>
     request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/resolve`, {
       method: "POST",
-      body: JSON.stringify({ outcome, note }),
+      body: JSON.stringify({ outcome, note, evidenceRef: evidenceRef || null, expectedVersion }),
     }),
-  assignReconciliationIssue: (id: string, userId: string | null) =>
+  transitionReconciliationIssue: (id: string, to: string, expectedVersion: number) =>
+    request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ to, expectedVersion }),
+    }),
+  commentOnReconciliationIssue: (id: string, body: string) =>
+    request<ReconIssueActivity>(`/api/v1/reconciliation/issues/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
+  addReconciliationIssueEvidence: (id: string, file: File, note: string) => {
+    const form = new FormData();
+    form.set("file", file);
+    if (note) form.set("note", note);
+    return request<ReconIssueActivity>(`/api/v1/reconciliation/issues/${id}/evidence`, { method: "POST", body: form });
+  },
+  reconciliationIssueActivity: (id: string) =>
+    request<ReconIssueActivity[]>(`/api/v1/reconciliation/issues/${id}/activity`),
+
+  listReconCases: () => request<ReconCase[]>("/api/v1/reconciliation/cases"),
+  createReconCase: (body: { caseRef: string; title: string; periodStart: string; periodEnd: string; settlementSlaDays: number }) =>
+    request<{ reconciliationCase: ReconCase; replayed: boolean }>("/api/v1/reconciliation/cases", { method: "POST", body: JSON.stringify(body) }),
+  getReconCase: (caseId: string) => request<ReconCaseView>(`/api/v1/reconciliation/cases/${caseId}`),
+  importReconFile: (caseId: string, sourceType: string, sourceIdentity: string, profile: string, file: File) => {
+    const form = new FormData();
+    form.set("sourceType", sourceType);
+    form.set("sourceIdentity", sourceIdentity);
+    form.set("profile", profile);
+    form.set("file", file);
+    return request<{ manifest: ReconImportManifest; replayed: boolean }>(`/api/v1/reconciliation/cases/${caseId}/imports`, { method: "POST", body: form });
+  },
+  reconImportRows: (caseId: string, importId: string, status: string) =>
+    request<ReconSourceRow[]>(`/api/v1/reconciliation/cases/${caseId}/imports/${importId}/rows?status=${status}`),
+  acknowledgeReconRejections: (caseId: string, importId: string) =>
+    request<ReconImportManifest>(`/api/v1/reconciliation/cases/${caseId}/imports/${importId}/acknowledge-rejections`, { method: "POST" }),
+  discardReconImport: (caseId: string, importId: string) =>
+    request<ReconImportManifest>(`/api/v1/reconciliation/cases/${caseId}/imports/${importId}/discard`, { method: "POST" }),
+  runReconCase: (caseId: string) => request<ReconRunView>(`/api/v1/reconciliation/cases/${caseId}/runs`, { method: "POST" }),
+  listReconRuns: (caseId: string) => request<ReconRun[]>(`/api/v1/reconciliation/cases/${caseId}/runs`),
+  getReconRun: (caseId: string, runId: string) => request<ReconRunView>(`/api/v1/reconciliation/cases/${caseId}/runs/${runId}`),
+  closeReconCase: (caseId: string) => request<ReconCase>(`/api/v1/reconciliation/cases/${caseId}/close`, { method: "POST" }),
+  exportReconBundle: (caseId: string) => request<ReconBundle>(`/api/v1/reconciliation/cases/${caseId}/bundle`, { method: "POST" }),
+  /** The download needs the bearer token, so it cannot be a plain link. */
+  downloadEvidenceExport: async (exportId: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/api/v1/evidence/exports/${exportId}/download`, {
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    return res.blob();
+  },
+  assignReconciliationIssue: (id: string, userId: string | null, expectedVersion?: number) =>
     request<ReconciliationIssue>(`/api/v1/reconciliation/issues/${id}/assign`, {
       method: "POST",
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, expectedVersion }),
     }),
 
   deviceProfiles: () => request<DeviceProfile[]>("/api/v1/fraud/risk-profiles/devices"),
