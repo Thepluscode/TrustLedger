@@ -762,3 +762,22 @@ unless they start with `frontend/`, `.github/` or `docs/`. `J/` = `src/main/java
   freeze/block claim), `docs/GOLDEN_WORKFLOW.md` (ledger import and out-of-order wording),
   `docs/CANONICAL_PRODUCT_DOCTRINE.md` (record the gate decision), `pilot/DEMO_SCRIPT_RECON_CASE.md`,
   `scripts/seed_acme_case.sh`, `FEATURE_TRACKER.md`.
+
+## 24. Deviations from this design, as built (2026-09-17)
+
+Where the implementation differs from §1–§23, the implementation is the record. The §20 numbers did not
+change and no expected value was adjusted to fit.
+
+| # | Design said | Built | Why |
+|---|---|---|---|
+| 1 | Widen `reconciliation_issues.status` to six values | `status` stays OPEN/RESOLVED; new `lifecycle_state` holds the six working states; a CHECK ties them | About ten existing consumers key on `status = 'OPEN'` (dedup index, SLA notifier, dashboard, monitoring, detectors). Widening it would have changed all of them for no benefit. |
+| 2 | Case status includes READY | Stored status is DRAFT, RECONCILED or CLOSED; readiness is computed from blockers on every read | A stored READY could drift from the imports it describes. |
+| 3 | `evidence_objects` carries `tenant_id` | No tenant column; the storage key is tenant-prefixed and every reader reaches it through a tenant-scoped row | The table backs the generic `EvidenceStorage` interface, which has no tenant parameter. Changing that interface was out of scope. |
+| 4 | A failed import is simply absent | A file refused as a whole commits a FAILED manifest with zero rows, blocks the run, and is cleared by an explicit discard | "Failed imports produce no partial results" is met, and the refusal itself is evidence rather than a silent nothing. |
+| 5 | Settlement SLA per provider | One SLA per case (`settlement_sla_days`) | The fixture needs one. Per-provider SLA is a column on a table that does not exist yet; add it when a pilot has two providers with different terms. |
+| 6 | 12 detections | 14: the 12 plus `PAYMENT_STATUS_MISMATCH` (matched charge that did not succeed) and `MISSING_SETTLEMENT` (successful charge absent from a covered provider's settlement) | Both fell out of the same comparisons and would otherwise have been silent. |
+| 7 | New classification values and a widened V48 CHECK | None added | The existing closed set already covers every finding type; see the mapping in `docs/RECONCILIATION.md`. |
+| 8 | An exception is re-raised when a later run finds it again | Raised once per (type, records), whether still open or already decided | Identical evidence that a person has already ruled on should not return to the queue as new work. A different set of records is a different exception. |
+| 9 | `InvariantRegisterTest` | An invariant register in `docs/RECONCILIATION.md` mapping each invariant to the tests that already fail when it breaks | A test that re-asserts other tests adds a name, not a check. |
+| 10 | Foreign-tenant read of an exception stays 403 | 404 | 403 confirmed the id existed. Two existing assertions were updated deliberately. |
+| 11 | Pairing scans candidates | Candidates are looked up by a key both sides must share | The scan was O(n²) and did not finish at 100k payments. Found by measurement, not by review. |
