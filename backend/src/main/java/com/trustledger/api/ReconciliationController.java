@@ -1,6 +1,5 @@
 package com.trustledger.api;
 
-import com.trustledger.api.ApiViews.ReconciliationIssueView;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.app.AccessControlService;
 import com.trustledger.app.ReconciliationResolutionService;
@@ -8,7 +7,7 @@ import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.security.CurrentUser;
-import com.trustledger.security.ForbiddenException;
+import com.trustledger.security.NotFoundException;
 import com.trustledger.security.Permission;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,6 +18,7 @@ import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Reconciliation issues (design.md §14): the financial/operational mismatches the worker raises.
@@ -28,11 +28,33 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/reconciliation/issues")
 public class ReconciliationController {
 
-    /** Body for resolving an issue: an outcome classification and a free-text reason — both required. */
-    public record ResolveRequest(String outcome, String note) {}
+    /**
+     * Body for closing an issue: a reason code and an explanation, both required. {@code evidenceRef} is
+     * required by the reasons that say so. {@code expectedVersion} is optional for clients that predate it;
+     * a client that sends it is refused with 409 when somebody else changed the issue first.
+     */
+    public record ResolveRequest(String outcome, String note, String evidenceRef, Long expectedVersion) {}
 
     /** Body for assigning a case. A null {@code userId} unassigns it. */
-    public record AssignRequest(UUID userId) {}
+    public record AssignRequest(UUID userId, Long expectedVersion) {}
+
+    public record TransitionRequest(String to, Long expectedVersion) {}
+
+    public record CommentRequest(String body) {}
+
+    /**
+     * {@code status} stays the coarse OPEN/RESOLVED flag existing clients filter on; {@code lifecycleState}
+     * is the working state. {@code version} is what a client echoes back as {@code expectedVersion}.
+     */
+    public record ReconciliationIssueView(UUID id, String severity, String type, String classification,
+                                          String entityType, UUID entityId,
+                                          String expectedState, String actualState, String evidence, String status,
+                                          Instant createdAt, Instant resolvedAt,
+                                          UUID ownerUserId, BigDecimal exposureAmount,
+                                          String exposureCurrency, Instant dueAt,
+                                          String lifecycleState, UUID caseId, UUID runId, String ruleId,
+                                          String ruleVersion, String reasonCode, String resolutionNote,
+                                          String resolutionEvidenceRef, UUID resolvedBy, Long version) {}
 
     /**
      * Tenant-wide counts for the overview cards — independent of any active list filter.
@@ -68,9 +90,17 @@ public class ReconciliationController {
 
     @GetMapping
     public IssueList list(@RequestParam(required = false) String status,
-                          @RequestParam(required = false) String severity) {
+                          @RequestParam(required = false) String severity,
+                          @RequestParam(required = false) String lifecycleState,
+                          @RequestParam(required = false) UUID caseId,
+                          @RequestParam(required = false) String type,
+                          @RequestParam(required = false) String currency,
+                          @RequestParam(required = false) UUID owner,
+                          @RequestParam(required = false) Boolean overdue) {
         UUID tenant = CurrentUser.tenantId();
         List<ReconciliationIssueView> items = issues.search(tenant, blankToNull(status), blankToNull(severity),
+                blankToNull(lifecycleState), caseId, blankToNull(type), blankToNull(currency), owner,
+                Boolean.TRUE.equals(overdue) ? Instant.now() : null,
                 PageRequest.of(0, MAX_ITEMS, Sort.by(Sort.Direction.DESC, "createdAt")))
             .stream().map(ReconciliationController::view).toList();
         ListSummary summary = new ListSummary(
@@ -104,46 +134,71 @@ public class ReconciliationController {
     /** The issue's activity history (assign / reassign / resolve) — surfaces who resolved it, the outcome, and the reason. */
     @GetMapping("/{id}/audit")
     public List<IssueAuditView> audit(@PathVariable UUID id) {
-        require(id); // tenant-scopes: 404 if unknown, 403 if another tenant's, before reading its audit
+        require(id); // tenant-scoped 404 before reading its audit
         return auditLogs.findByTenantIdAndResourceIdOrderByCreatedAtDesc(CurrentUser.tenantId(), id).stream()
             .map(a -> new IssueAuditView(a.getAction(), a.getActorId(), a.getCreatedAt(), a.getMetadata()))
             .toList();
     }
 
-    @PostMapping("/{id}/resolve")
-    public ReconciliationIssueView resolve(@PathVariable UUID id, @RequestBody(required = false) ResolveRequest body) {
-        access.require(Permission.TENANT_ADMIN);
-        // The atomic, row-locked OPEN→RESOLVED transition + audit lives in the service. Actor and tenant
-        // come from the authenticated caller, never the request body.
-        String outcome = body == null ? null : body.outcome();
-        String note = body == null ? null : body.note();
-        return view(resolution.resolve(CurrentUser.tenantId(), CurrentUser.userId(), id, outcome, note));
+    /** The working history: assignment, state changes, comments, evidence and the closing decision, in order. */
+    @GetMapping("/{id}/activity")
+    public List<ReconciliationResolutionService.Activity> activity(@PathVariable UUID id) {
+        require(id);
+        return resolution.history(CurrentUser.tenantId(), id);
     }
 
     /**
-     * Assigns an owner (or unassigns, with a null userId). TENANT_ADMIN, like resolve: deciding who owns
-     * a money break is an accountability decision, not a viewer action.
+     * Closes the issue. The reason decides whether it closes as RESOLVED or DISMISSED. Actor and tenant
+     * come from the authenticated caller, never the request body.
      */
-    @PostMapping("/{id}/assign")
-    public ReconciliationIssueView assign(@PathVariable UUID id, @RequestBody(required = false) AssignRequest body) {
-        access.require(Permission.TENANT_ADMIN);
-        return view(resolution.assign(CurrentUser.tenantId(), CurrentUser.userId(), id,
-            body == null ? null : body.userId()));
+    @PostMapping({"/{id}/resolve", "/{id}/dismiss"})
+    public ReconciliationIssueView resolve(@PathVariable UUID id, @RequestBody(required = false) ResolveRequest body) {
+        access.require(Permission.RECON_ISSUE_RESOLVE);
+        ResolveRequest b = body == null ? new ResolveRequest(null, null, null, null) : body;
+        return view(resolution.close(CurrentUser.tenantId(), CurrentUser.userId(), id, b.outcome(), b.note(),
+            b.evidenceRef(), b.expectedVersion()));
     }
 
+    /** Assigns an owner (or unassigns, with a null userId): deciding who owns a money break is an accountability decision. */
+    @PostMapping("/{id}/assign")
+    public ReconciliationIssueView assign(@PathVariable UUID id, @RequestBody(required = false) AssignRequest body) {
+        access.require(Permission.RECON_ISSUE_WORK);
+        return view(resolution.assign(CurrentUser.tenantId(), CurrentUser.userId(), id,
+            body == null ? null : body.userId(), body == null ? null : body.expectedVersion()));
+    }
+
+    @PostMapping("/{id}/transition")
+    public ReconciliationIssueView transition(@PathVariable UUID id, @RequestBody TransitionRequest body) {
+        access.require(Permission.RECON_ISSUE_WORK);
+        return view(resolution.transition(CurrentUser.tenantId(), CurrentUser.userId(), id, body.to(), body.expectedVersion()));
+    }
+
+    @PostMapping("/{id}/comments")
+    public ReconciliationResolutionService.Activity comment(@PathVariable UUID id, @RequestBody CommentRequest body) {
+        access.require(Permission.RECON_ISSUE_WORK);
+        return resolution.comment(CurrentUser.tenantId(), CurrentUser.userId(), id, body.body());
+    }
+
+    @PostMapping(path = "/{id}/evidence", consumes = "multipart/form-data")
+    public ReconciliationResolutionService.Activity addEvidence(@PathVariable UUID id, @RequestParam("file") MultipartFile file,
+                                                                @RequestParam(required = false) String note) throws java.io.IOException {
+        access.require(Permission.RECON_ISSUE_WORK);
+        return resolution.addEvidence(CurrentUser.tenantId(), CurrentUser.userId(), id, file.getOriginalFilename(),
+            file.getBytes(), note);
+    }
+
+    /** Tenant is in the query, so another tenant's issue and an unknown id give the same 404. */
     private ReconciliationIssueEntity require(UUID id) {
-        ReconciliationIssueEntity issue = issues.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("Reconciliation issue not found: " + id));
-        if (!CurrentUser.tenantId().equals(issue.getTenantId())) {
-            throw new ForbiddenException("Reconciliation issue belongs to another tenant");
-        }
-        return issue;
+        return issues.findByIdAndTenantId(id, CurrentUser.tenantId())
+            .orElseThrow(() -> new NotFoundException("Reconciliation issue not found: " + id));
     }
 
     private static ReconciliationIssueView view(ReconciliationIssueEntity i) {
         return new ReconciliationIssueView(i.getId(), i.getSeverity(), i.getType(), i.getClassification(),
             i.getEntityType(), i.getEntityId(),
             i.getExpectedState(), i.getActualState(), i.getEvidence(), i.getStatus(), i.getCreatedAt(),
-            i.getResolvedAt(), i.getOwnerUserId(), i.getExposureAmount(), i.getExposureCurrency(), i.getDueAt());
+            i.getResolvedAt(), i.getOwnerUserId(), i.getExposureAmount(), i.getExposureCurrency(), i.getDueAt(),
+            i.getLifecycleState(), i.getCaseId(), i.getRunId(), i.getRuleId(), i.getRuleVersion(), i.getReasonCode(),
+            i.getResolutionNote(), i.getResolutionEvidenceRef(), i.getResolvedBy(), i.getVersion());
     }
 }

@@ -78,17 +78,23 @@ final class CaseworkHttp {
 
     HttpResponse<String> upload(String token, UUID caseId, String sourceType, String sourceIdentity, String profile,
                                 String filename, byte[] content) throws Exception {
+        return multipart("/api/v1/reconciliation/cases/" + caseId + "/imports", token,
+            Map.of("sourceType", sourceType, "sourceIdentity", sourceIdentity, "profile", profile), filename, content);
+    }
+
+    HttpResponse<String> multipart(String path, String token, Map<String, String> fields, String filename,
+                                   byte[] content) throws Exception {
         String boundary = "----tl" + UUID.randomUUID().toString().replace("-", "");
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        for (var e : Map.of("sourceType", sourceType, "sourceIdentity", sourceIdentity, "profile", profile).entrySet()) {
+        for (var e : fields.entrySet()) {
             out.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + e.getKey() + "\"\r\n\r\n"
                 + e.getValue() + "\r\n").getBytes(StandardCharsets.UTF_8));
         }
         out.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + filename
-            + "\"\r\nContent-Type: text/csv\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+            + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         out.write(content);
         out.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        return http.send(HttpRequest.newBuilder(uri("/api/v1/reconciliation/cases/" + caseId + "/imports"))
+        return http.send(HttpRequest.newBuilder(uri(path))
             .header("Authorization", "Bearer " + token)
             .header("Content-Type", "multipart/form-data; boundary=" + boundary)
             .POST(HttpRequest.BodyPublishers.ofByteArray(out.toByteArray())).build(), HttpResponse.BodyHandlers.ofString());

@@ -120,7 +120,8 @@ class ReconciliationResolutionIntegrationTest {
     void anAlreadyResolvedIssueCannotBeResolvedAgain() throws Exception {
         AuthResponse owner = register();
         ReconciliationIssueEntity issue = openIssue(owner.tenantId());
-        var valid = Map.<String, Object>of("outcome", "WRITTEN_OFF", "note", "unrecoverable; below chase threshold");
+        // RECOVERED, not WRITTEN_OFF: a write-off now needs attached evidence (ReconciliationIssueLifecycleIntegrationTest).
+        var valid = Map.<String, Object>of("outcome", "RECOVERED", "note", "provider re-settled the shortfall");
 
         assertEquals(200, resolve(issue.getId(), owner.token(), valid).statusCode());
         // Second attempt on stale (already-RESOLVED) state → 409, and no duplicate audit event.
@@ -150,8 +151,8 @@ class ReconciliationResolutionIntegrationTest {
         assertTrue(resolved.get("metadata").toString().contains("RECOVERED"), resolved.toString());
         assertTrue(resolved.get("metadata").toString().contains("re-settled"), "the reason is surfaced, not hidden");
 
-        // Another tenant cannot read this issue's audit trail.
-        assertEquals(403, http.send(HttpRequest.newBuilder(
+        // Another tenant cannot read this issue's audit trail, nor learn that the issue exists: 404, not 403.
+        assertEquals(404, http.send(HttpRequest.newBuilder(
             uri("/api/v1/reconciliation/issues/" + issue.getId() + "/audit"))
             .header("Authorization", "Bearer " + register().token()).GET().build(),
             HttpResponse.BodyHandlers.ofString()).statusCode());
