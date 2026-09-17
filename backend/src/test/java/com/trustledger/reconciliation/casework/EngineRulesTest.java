@@ -83,6 +83,22 @@ class EngineRulesTest {
             "the composite amount tolerance is zero");
     }
 
+    @Test
+    void theCompositeLookupTreatsTheSameAmountAtADifferentScaleAsOneAmount() {
+        // Built directly: the import profiles normalise every amount to scale 4, so a CSV cannot express this.
+        // The engine must not depend on its caller having done so.
+        java.time.Instant at = java.time.Instant.parse("2026-08-03T10:00:00Z");
+        CanonicalRecord internal = new CanonicalRecord("k-internal", SourceType.INTERNAL, "ledger", "prov", null, null, "P1",
+            CanonicalRecord.EventType.EXPECTED_PAYMENT, null, at, null, "GBP", new java.math.BigDecimal("10.00"), null, null,
+            "PAID", null, null, 1);
+        CanonicalRecord charge = new CanonicalRecord("k-charge", SourceType.PROVIDER_TRANSACTION, "prov", "prov", "e1", "tx1", null,
+            CanonicalRecord.EventType.CHARGE, null, at, at, "GBP", new java.math.BigDecimal("10.0000"), null, null,
+            "SUCCESS", null, null, 1);
+        Result r = ReconciliationEngine.reconcile(List.of(internal, charge), EngineFixtures.noFees(2));
+        assertEquals(1, r.matchesByRule().get("R4-COMPOSITE"));
+        assertEquals(List.of(), types(r));
+    }
+
     // ---- pair detectors -----------------------------------------------------------------------------
 
     @Test

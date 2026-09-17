@@ -8,6 +8,8 @@ import com.trustledger.reconciliation.casework.CaseworkStore.CurrencyTotal;
 import com.trustledger.reconciliation.casework.CaseworkStore.ImportRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.SourceRow;
 import com.trustledger.reconciliation.casework.ImportService;
+import com.trustledger.reconciliation.casework.RunService;
+import com.trustledger.reconciliation.casework.RunService.RunView;
 import com.trustledger.reconciliation.casework.SourceType;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
@@ -52,9 +54,11 @@ public class ReconciliationCaseController {
     private final CaseService cases;
     private final ImportService imports;
     private final CaseworkStore store;
+    private final RunService runs;
 
     public ReconciliationCaseController(AccessControlService access, CaseService cases, ImportService imports,
-                                        CaseworkStore store) {
+                                        CaseworkStore store, RunService runs) {
+        this.runs = runs;
         this.access = access;
         this.cases = cases;
         this.imports = imports;
@@ -131,5 +135,36 @@ public class ReconciliationCaseController {
     public ImportRow discard(@PathVariable UUID caseId, @PathVariable UUID importId) {
         access.require(Permission.RECON_CASE_MANAGE);
         return imports.discardFailed(CurrentUser.tenantId(), CurrentUser.userId(), caseId, importId);
+    }
+
+    /** 201 for a new run; 200 when identical inputs under identical rules already produced one. */
+    @PostMapping("/{caseId}/runs")
+    public ResponseEntity<RunView> run(@PathVariable UUID caseId) {
+        access.require(Permission.RECON_CASE_MANAGE);
+        RunView v = runs.run(CurrentUser.tenantId(), CurrentUser.userId(), caseId);
+        return ResponseEntity.status(v.replayed() ? 200 : 201).body(v);
+    }
+
+    @GetMapping("/{caseId}/runs")
+    public List<CaseworkStore.RunRow> listRuns(@PathVariable UUID caseId) {
+        access.require(Permission.RECON_VIEW);
+        cases.require(CurrentUser.tenantId(), caseId);
+        return store.listRuns(CurrentUser.tenantId(), caseId);
+    }
+
+    @GetMapping("/{caseId}/runs/{runId}")
+    public RunView getRun(@PathVariable UUID caseId, @PathVariable UUID runId) {
+        access.require(Permission.RECON_VIEW);
+        return runs.get(CurrentUser.tenantId(), caseId, runId);
+    }
+
+    @GetMapping("/{caseId}/runs/{runId}/matches")
+    public List<CaseworkStore.MatchRow> matches(@PathVariable UUID caseId, @PathVariable UUID runId,
+                                                @RequestParam(defaultValue = "0") int page,
+                                                @RequestParam(defaultValue = "100") int size) {
+        access.require(Permission.RECON_VIEW);
+        runs.get(CurrentUser.tenantId(), caseId, runId);
+        int limit = Math.max(1, Math.min(size, MAX_PAGE));
+        return store.listMatches(CurrentUser.tenantId(), runId, limit, Math.max(0, page) * limit);
     }
 }

@@ -43,6 +43,16 @@ public class CaseworkStore {
     public record StoredRecord(UUID id, UUID importId, CanonicalRecord record, String evidenceStorageKey,
                                String evidenceFileSha256, String evidenceRowSha256) {}
 
+    /** {@code summary} is JSON with sorted keys: exceptions by type, matches by rule, settlement coverage. */
+    public record RunRow(UUID id, UUID caseId, String runKey, String rulesetVersion, int recordsProcessed,
+                         int internalPayments, int internalMatched, int rejectedInputs, int exceptionCount,
+                         String summary, UUID startedBy, String correlationId, Instant startedAt, Instant completedAt) {}
+
+    public record RunTotal(String currency, BigDecimal unresolvedAmount) {}
+
+    public record MatchRow(UUID id, UUID leftRecordId, UUID rightRecordId, String ruleId, String ruleVersion,
+                           int stage, String detail) {}
+
     private final JdbcTemplate jdbc;
 
     public CaseworkStore(JdbcTemplate jdbc) {
@@ -226,7 +236,92 @@ public class CaseworkStore {
              ORDER BY r.record_key""", CaseworkStore::mapRecord, tenantId, caseId);
     }
 
+    // --- runs --------------------------------------------------------------------------------------
+
+    public Optional<RunRow> findRunByKey(UUID tenantId, String runKey) {
+        return one(jdbc.query("SELECT * FROM recon_runs WHERE tenant_id = ? AND run_key = ?", CaseworkStore::mapRun, tenantId, runKey));
+    }
+
+    public Optional<RunRow> findRun(UUID tenantId, UUID caseId, UUID runId) {
+        return one(jdbc.query("SELECT * FROM recon_runs WHERE tenant_id = ? AND case_id = ? AND id = ?",
+            CaseworkStore::mapRun, tenantId, caseId, runId));
+    }
+
+    public List<RunRow> listRuns(UUID tenantId, UUID caseId) {
+        return jdbc.query("SELECT * FROM recon_runs WHERE tenant_id = ? AND case_id = ? ORDER BY completed_at DESC, id",
+            CaseworkStore::mapRun, tenantId, caseId);
+    }
+
+    public void insertRun(UUID tenantId, RunRow r) {
+        jdbc.update("""
+            INSERT INTO recon_runs (id, tenant_id, case_id, run_key, ruleset_version, records_processed,
+                internal_payments, internal_matched, rejected_inputs, exception_count, summary, started_by,
+                correlation_id, started_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)""",
+            r.id(), tenantId, r.caseId(), r.runKey(), r.rulesetVersion(), r.recordsProcessed(), r.internalPayments(),
+            r.internalMatched(), r.rejectedInputs(), r.exceptionCount(), r.summary(), r.startedBy(), r.correlationId(),
+            ts(r.startedAt()), ts(r.completedAt()));
+    }
+
+    public void insertRunTotals(UUID runId, List<RunTotal> totals) {
+        jdbc.batchUpdate("INSERT INTO recon_run_currency_totals (run_id, currency, unresolved_amount) VALUES (?, ?, ?)",
+            totals, 100, (ps, t) -> {
+                ps.setObject(1, runId);
+                ps.setString(2, t.currency());
+                ps.setBigDecimal(3, t.unresolvedAmount());
+            });
+    }
+
+    /** Tenant-scoped through the run: totals carry no tenant column of their own. */
+    public List<RunTotal> runTotals(UUID tenantId, UUID runId) {
+        return jdbc.query("""
+            SELECT t.currency, t.unresolved_amount FROM recon_run_currency_totals t
+              JOIN recon_runs r ON r.id = t.run_id
+             WHERE r.tenant_id = ? AND t.run_id = ? ORDER BY t.currency""",
+            (rs, n) -> new RunTotal(rs.getString(1).trim(), rs.getBigDecimal(2)), tenantId, runId);
+    }
+
+    public void insertMatches(UUID tenantId, UUID runId, List<MatchRow> matches) {
+        jdbc.batchUpdate("""
+            INSERT INTO recon_matches (id, tenant_id, run_id, left_record_id, right_record_id, rule_id, rule_version,
+                stage, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)""",
+            matches, 500, (ps, m) -> {
+                ps.setObject(1, m.id());
+                ps.setObject(2, tenantId);
+                ps.setObject(3, runId);
+                ps.setObject(4, m.leftRecordId());
+                ps.setObject(5, m.rightRecordId());
+                ps.setString(6, m.ruleId());
+                ps.setString(7, m.ruleVersion());
+                ps.setInt(8, m.stage());
+                ps.setString(9, m.detail());
+            });
+    }
+
+    public List<MatchRow> listMatches(UUID tenantId, UUID runId, int limit, int offset) {
+        return jdbc.query("""
+            SELECT id, left_record_id, right_record_id, rule_id, rule_version, stage, detail FROM recon_matches
+             WHERE tenant_id = ? AND run_id = ? ORDER BY stage, left_record_id, right_record_id LIMIT ? OFFSET ?""",
+            (rs, n) -> new MatchRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
+                rs.getString(4), rs.getString(5), rs.getInt(6), rs.getString(7)), tenantId, runId, limit, offset);
+    }
+
+    /** The exception's first history entry. Later entries are written by the resolution service under the row lock. */
+    public void insertRaisedActivity(UUID tenantId, UUID issueId, String body, String correlationId) {
+        jdbc.update("""
+            INSERT INTO reconciliation_issue_activity (id, tenant_id, issue_id, seq, kind, to_state, body, correlation_id)
+            VALUES (?, ?, ?, 1, 'RAISED', 'OPEN', ?, ?)""", UUID.randomUUID(), tenantId, issueId, body, correlationId);
+    }
+
     // --- mapping -----------------------------------------------------------------------------------
+
+    private static RunRow mapRun(ResultSet rs, int n) throws SQLException {
+        return new RunRow(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class), rs.getString("run_key").trim(),
+            rs.getString("ruleset_version"), rs.getInt("records_processed"), rs.getInt("internal_payments"),
+            rs.getInt("internal_matched"), rs.getInt("rejected_inputs"), rs.getInt("exception_count"),
+            rs.getString("summary"), rs.getObject("started_by", UUID.class), rs.getString("correlation_id"),
+            instant(rs, "started_at"), instant(rs, "completed_at"));
+    }
 
     private static CaseRow mapCase(ResultSet rs, int n) throws SQLException {
         return new CaseRow(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),

@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiPredicate;
+import java.util.function.Function;
 
 /**
  * Deterministic reconciliation of one case's canonical records.
@@ -141,12 +143,17 @@ public final class ReconciliationEngine {
         Map<String, Integer> byRule = new TreeMap<>();
         List<CanonicalRecord[]> pairs = new ArrayList<>();
         pair(internalPayments, reps, usedInternal, usedCharge, pairs, matches, byRule, R1, 1,
+            r -> r.provider() == null || r.stableRef() == null ? null : r.provider() + "|" + r.stableRef(),
             (i, c) -> i.stableRef() != null && sameProvider(i, c) && i.stableRef().equals(c.stableRef()),
             Map.of("compared", "provider + stable transaction reference"));
         pair(internalPayments, reps, usedInternal, usedCharge, pairs, matches, byRule, R2, 2,
+            r -> r.provider() == null || r.internalRef() == null ? null : r.provider() + "|" + r.internalRef(),
             (i, c) -> c.internalRef() != null && sameProvider(i, c) && c.internalRef().equals(i.internalRef()),
             Map.of("compared", "provider + merchant reference carried by the provider = internal reference"));
         pair(internalPayments, reps, usedInternal, usedCharge, pairs, matches, byRule, R4, 4,
+            // stripTrailingZeros: 100.00 and 100.0000 are the same amount and must land in the same block.
+            r -> r.provider() == null || r.grossAmount() == null ? null
+                : r.provider() + "|" + r.currency() + "|" + r.grossAmount().stripTrailingZeros().toPlainString(),
             (i, c) -> sameProvider(i, c) && i.currency().equals(c.currency()) && i.grossAmount().compareTo(c.grossAmount()) == 0
                 && i.occurredAt() != null && c.occurredAt() != null
                 && Duration.between(i.occurredAt(), c.occurredAt()).abs().compareTo(cfg.compositeWindow()) <= 0,
@@ -188,6 +195,7 @@ public final class ReconciliationEngine {
         // --- Refunds and reversals: money going back must exist on both sides.
         Set<String> usedRefund = new HashSet<>();
         for (CanonicalRecord m : moneyBack) {
+            // ponytail: linear scan per refund. Fine while refunds are a small share of a case; index by reference if not.
             Optional<CanonicalRecord> counterpart = internalRefunds.stream()
                 .filter(r -> !usedRefund.contains(r.recordKey()) && sameProvider(r, m)
                     && ((r.stableRef() != null && r.stableRef().equals(m.stableRef()))
@@ -263,15 +271,28 @@ public final class ReconciliationEngine {
      */
     private static void pair(List<CanonicalRecord> internal, List<CanonicalRecord> charges, Set<String> usedInternal,
                              Set<String> usedCharge, List<CanonicalRecord[]> pairs, List<Match> matches, Map<String, Integer> byRule,
-                             String ruleId, int stage, BiPredicate<CanonicalRecord, CanonicalRecord> rule, Map<String, String> detail) {
+                             String ruleId, int stage, Function<CanonicalRecord, String> block,
+                             BiPredicate<CanonicalRecord, CanonicalRecord> rule, Map<String, String> detail) {
+        // {@code block} is a key both sides must share for {@code rule} to hold, so candidates are looked up
+        // instead of scanned: O(n) per stage. Comparing every internal record with every charge is 10^10 tests
+        // at 100k payments and does not finish. The rule still decides; the block only narrows where to look.
+        Map<String, List<CanonicalRecord>> chargesByBlock = new HashMap<>(), internalByBlock = new HashMap<>();
+        for (CanonicalRecord c : charges) {
+            String k = usedCharge.contains(c.recordKey()) ? null : block.apply(c);
+            if (k != null) chargesByBlock.computeIfAbsent(k, x -> new ArrayList<>()).add(c);
+        }
+        for (CanonicalRecord i : internal) {
+            String k = usedInternal.contains(i.recordKey()) ? null : block.apply(i);
+            if (k != null) internalByBlock.computeIfAbsent(k, x -> new ArrayList<>()).add(i);
+        }
         List<CanonicalRecord[]> found = new ArrayList<>();
         for (CanonicalRecord i : internal) {
-            if (usedInternal.contains(i.recordKey())) continue;
-            List<CanonicalRecord> candidates = charges.stream()
-                .filter(c -> !usedCharge.contains(c.recordKey()) && rule.test(i, c)).toList();
+            String k = usedInternal.contains(i.recordKey()) ? null : block.apply(i);
+            if (k == null) continue;
+            List<CanonicalRecord> candidates = chargesByBlock.getOrDefault(k, List.of()).stream().filter(c -> rule.test(i, c)).toList();
             if (candidates.size() != 1) continue;
             CanonicalRecord c = candidates.get(0);
-            long rivals = internal.stream().filter(o -> !usedInternal.contains(o.recordKey()) && rule.test(o, c)).count();
+            long rivals = internalByBlock.get(k).stream().filter(o -> rule.test(o, c)).count();
             if (rivals == 1) found.add(new CanonicalRecord[] {i, c});
         }
         // Collected first, applied after: a match made early in the loop must not change what a later
