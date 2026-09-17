@@ -186,7 +186,16 @@ public class ReconciliationIssueEntity {
     public String getSeverity() { return severity; }
     public UUID getEntityId() { return entityId; }
     public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    /**
+     * The coarse flag. Kept in step with {@code lifecycleState} so this setter cannot produce a row the
+     * database refuses (chk_recon_issue_closed_agrees). Operator actions go through {@link #moveTo} instead.
+     */
+    public void setStatus(String status) {
+        this.status = status;
+        boolean closed = "RESOLVED".equals(lifecycleState) || "DISMISSED".equals(lifecycleState);
+        if ("RESOLVED".equals(status) && !closed) this.lifecycleState = "RESOLVED";
+        else if (!"RESOLVED".equals(status) && closed) this.lifecycleState = "OPEN";
+    }
     public UUID getTenantId() { return tenantId; }
     public String getEntityType() { return entityType; }
     public String getExpectedState() { return expectedState; }
