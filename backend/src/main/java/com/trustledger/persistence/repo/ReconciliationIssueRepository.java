@@ -36,6 +36,11 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
 
     Optional<ReconciliationIssueEntity> findByIdAndTenantId(UUID id, UUID tenantId);
 
+    /** A case's exceptions in a fixed order, so a bundle built from them is byte-for-byte repeatable. */
+    List<ReconciliationIssueEntity> findByTenantIdAndCaseIdOrderByTypeAscEntityIdAsc(UUID tenantId, UUID caseId);
+
+    long countByTenantIdAndCaseIdAndStatus(UUID tenantId, UUID caseId, String status);
+
     /** Bounded, optionally filtered issue list for a tenant (pass null to skip a filter). */
     @Query("select i from ReconciliationIssueEntity i where i.tenantId = :tenantId "
         + "and (:status is null or i.status = :status) and (:severity is null or i.severity = :severity) "

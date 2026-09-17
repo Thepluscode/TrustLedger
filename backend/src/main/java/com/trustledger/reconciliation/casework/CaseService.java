@@ -27,12 +27,16 @@ public class CaseService {
 
     public record Created(CaseRow reconciliationCase, boolean replayed) {}
 
+    private final com.trustledger.persistence.repo.ReconciliationIssueRepository issues;
+
     private final CaseworkStore store;
     private final AuditLogRepository auditLogs;
     private final ReconMetrics metrics;
     private final ObjectMapper json;
 
-    public CaseService(CaseworkStore store, AuditLogRepository auditLogs, ReconMetrics metrics, ObjectMapper json) {
+    public CaseService(CaseworkStore store, AuditLogRepository auditLogs, ReconMetrics metrics, ObjectMapper json,
+                       com.trustledger.persistence.repo.ReconciliationIssueRepository issues) {
+        this.issues = issues;
         this.store = store;
         this.auditLogs = auditLogs;
         this.metrics = metrics;
@@ -70,6 +74,23 @@ public class CaseService {
             "RECON_CASE", c.id(), json.writeValueAsString(Map.of("caseRef", c.caseRef(), "settlementSlaDays", sla))));
         log.info("recon.case.created case={} tenant={}", c.id(), tenantId);
         return new Created(store.findCase(tenantId, c.id()).orElseThrow(), false);
+    }
+
+    /**
+     * Closes a reconciled case once every exception it raised has been decided. A closed case accepts no
+     * more imports or runs, which is what lets its bundle be called final.
+     */
+    @Transactional
+    public CaseRow close(UUID tenantId, UUID actorId, UUID caseId) {
+        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> new NotFoundException("Reconciliation case not found: " + caseId));
+        if ("CLOSED".equals(c.status())) return c;
+        if (!"RECONCILED".equals(c.status())) throw new ConflictException("the case has not been reconciled yet");
+        long open = issues.countByTenantIdAndCaseIdAndStatus(tenantId, caseId, "OPEN");
+        if (open > 0) throw new ConflictException(open + " exception(s) are still open; resolve or dismiss them first");
+        store.setCaseStatus(tenantId, caseId, "CLOSED");
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId, "RECON_CASE_CLOSED",
+            "RECON_CASE", caseId, json.writeValueAsString(Map.of("caseRef", c.caseRef()))));
+        return store.findCase(tenantId, caseId).orElseThrow();
     }
 
     public CaseRow require(UUID tenantId, UUID caseId) {

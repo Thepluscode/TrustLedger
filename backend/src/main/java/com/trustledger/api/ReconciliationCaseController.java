@@ -1,6 +1,7 @@
 package com.trustledger.api;
 
 import com.trustledger.app.AccessControlService;
+import com.trustledger.reconciliation.casework.CaseBundleService;
 import com.trustledger.reconciliation.casework.CaseService;
 import com.trustledger.reconciliation.casework.CaseworkStore;
 import com.trustledger.reconciliation.casework.CaseworkStore.CaseRow;
@@ -48,6 +49,10 @@ public class ReconciliationCaseController {
 
     public record CreateResponse(CaseRow reconciliationCase, boolean replayed) {}
 
+    /** Download and signature verification reuse the evidence endpoints: {@code /api/v1/evidence/exports/{exportId}}. */
+    public record BundleResponse(UUID exportId, String bundleStatus, String contentHash, String fileChecksum,
+                                 long byteSize, boolean signed) {}
+
     private static final int MAX_PAGE = 500;
 
     private final AccessControlService access;
@@ -55,10 +60,12 @@ public class ReconciliationCaseController {
     private final ImportService imports;
     private final CaseworkStore store;
     private final RunService runs;
+    private final CaseBundleService bundles;
 
     public ReconciliationCaseController(AccessControlService access, CaseService cases, ImportService imports,
-                                        CaseworkStore store, RunService runs) {
+                                        CaseworkStore store, RunService runs, CaseBundleService bundles) {
         this.runs = runs;
+        this.bundles = bundles;
         this.access = access;
         this.cases = cases;
         this.imports = imports;
@@ -166,5 +173,21 @@ public class ReconciliationCaseController {
         runs.get(CurrentUser.tenantId(), caseId, runId);
         int limit = Math.max(1, Math.min(size, MAX_PAGE));
         return store.listMatches(CurrentUser.tenantId(), runId, limit, Math.max(0, page) * limit);
+    }
+
+    @PostMapping("/{caseId}/close")
+    public CaseRow close(@PathVariable UUID caseId) {
+        access.require(Permission.RECON_CASE_MANAGE);
+        return cases.close(CurrentUser.tenantId(), CurrentUser.userId(), caseId);
+    }
+
+    /** INTERIM while the case is open, FINAL once it is closed. The same case state always gives the same contentHash. */
+    @PostMapping("/{caseId}/bundle")
+    public ResponseEntity<BundleResponse> bundle(@PathVariable UUID caseId) {
+        access.require(Permission.EVIDENCE_EXPORT);
+        access.require(Permission.RECON_VIEW);
+        CaseBundleService.Exported e = bundles.export(CurrentUser.tenantId(), CurrentUser.userId(), caseId);
+        return ResponseEntity.status(201).body(new BundleResponse(e.export().getId(), e.bundleStatus(), e.contentHash(),
+            e.export().getChecksum(), e.export().getByteSize(), e.export().getSignature() != null));
     }
 }
