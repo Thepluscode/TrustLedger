@@ -232,6 +232,108 @@ export interface ReconciliationIssue {
   exposureAmount: string | null;
   exposureCurrency: string | null;
   dueAt: string;
+  /** Working state. `status` stays the coarse OPEN/RESOLVED flag. */
+  lifecycleState: string;
+  caseId: string | null;
+  runId: string | null;
+  ruleId: string | null;
+  ruleVersion: string | null;
+  reasonCode: string | null;
+  resolutionNote: string | null;
+  resolutionEvidenceRef: string | null;
+  resolvedBy: string | null;
+  /** Echo back as expectedVersion so a stale tab is refused instead of overwriting someone's work. */
+  version: number;
+}
+
+export interface ReconIssueActivity {
+  seq: number;
+  kind: string;
+  fromState: string | null;
+  toState: string | null;
+  actorId: string | null;
+  body: string | null;
+  evidenceStorageKey: string | null;
+  evidenceSha256: string | null;
+  evidenceFilename: string | null;
+  createdAt: string | null;
+}
+
+export interface ReconCase {
+  id: string;
+  caseRef: string;
+  title: string;
+  periodStart: string;
+  periodEnd: string;
+  settlementSlaDays: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface ReconImportManifest {
+  id: string;
+  sourceType: string;
+  sourceIdentity: string;
+  originalFilename: string;
+  fileSha256: string;
+  byteSize: number;
+  profile: string;
+  profileVersion: number;
+  status: string;
+  failureReason: string | null;
+  recordCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  duplicateCount: number;
+  rejectionsAcknowledgedBy: string | null;
+  actorId: string;
+  correlationId: string | null;
+  importedAt: string;
+}
+
+export interface ReconCurrencyTotal { currency: string; grossTotal: string; rowCount: number }
+
+export interface ReconImportView { manifest: ReconImportManifest; currencyTotals: ReconCurrencyTotal[] }
+
+export interface ReconCaseView { reconciliationCase: ReconCase; imports: ReconImportView[]; blockers: string[] }
+
+export interface ReconSourceRow {
+  rowNumber: number;
+  rawRow: string;
+  status: string;
+  rejectionCode: string | null;
+  rejectionMessage: string | null;
+}
+
+export interface ReconRun {
+  id: string;
+  runKey: string;
+  rulesetVersion: string;
+  recordsProcessed: number;
+  internalPayments: number;
+  internalMatched: number;
+  rejectedInputs: number;
+  exceptionCount: number;
+  /** JSON: exceptionsByType, matchesByRule, settlementCoveredProviders, providersWithoutSettlementFile. */
+  summary: string;
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface ReconRunView {
+  run: ReconRun;
+  unresolvedByCurrency: { currency: string; unresolvedAmount: string }[];
+  matchRate: string | null;
+  replayed: boolean;
+}
+
+export interface ReconBundle {
+  exportId: string;
+  bundleStatus: string;
+  contentHash: string;
+  fileChecksum: string;
+  byteSize: number;
+  signed: boolean;
 }
 
 export interface ReconciliationAuditEntry {

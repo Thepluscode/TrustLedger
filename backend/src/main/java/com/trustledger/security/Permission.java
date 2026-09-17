@@ -21,5 +21,13 @@ public final class Permission {
     public static final String API_KEY_MANAGE = "API_KEY_MANAGE";
     public static final String MONITORING_VIEW = "MONITORING_VIEW";
     public static final String BILLING_VIEW = "BILLING_VIEW";
+    /** Read reconciliation cases, runs and exceptions. */
+    public static final String RECON_VIEW = "RECON_VIEW";
+    /** Create a case, import sources, run reconciliation. */
+    public static final String RECON_CASE_MANAGE = "RECON_CASE_MANAGE";
+    /** Assign, move through the lifecycle, comment, attach evidence. */
+    public static final String RECON_ISSUE_WORK = "RECON_ISSUE_WORK";
+    /** Close an exception: resolve or dismiss. */
+    public static final String RECON_ISSUE_RESOLVE = "RECON_ISSUE_RESOLVE";
     public static final String TENANT_ADMIN = "TENANT_ADMIN";
 }

@@ -34,11 +34,27 @@ public interface ReconciliationIssueRepository extends JpaRepository<Reconciliat
     long countByTenantIdAndStatus(UUID tenantId, String status);
     long countByTenantIdAndStatusAndSeverity(UUID tenantId, String status, String severity);
 
-    /** Bounded, optionally status/severity-filtered issue list for a tenant (pass null to skip a filter). */
+    Optional<ReconciliationIssueEntity> findByIdAndTenantId(UUID id, UUID tenantId);
+
+    /** A case's exceptions in a fixed order, so a bundle built from them is byte-for-byte repeatable. */
+    List<ReconciliationIssueEntity> findByTenantIdAndCaseIdOrderByTypeAscEntityIdAsc(UUID tenantId, UUID caseId);
+
+    long countByTenantIdAndCaseIdAndStatus(UUID tenantId, UUID caseId, String status);
+
+    /** Bounded, optionally filtered issue list for a tenant (pass null to skip a filter). */
     @Query("select i from ReconciliationIssueEntity i where i.tenantId = :tenantId "
-        + "and (:status is null or i.status = :status) and (:severity is null or i.severity = :severity)")
+        + "and (:status is null or i.status = :status) and (:severity is null or i.severity = :severity) "
+        + "and (:lifecycleState is null or i.lifecycleState = :lifecycleState) "
+        + "and (:caseId is null or i.caseId = :caseId) and (:type is null or i.type = :type) "
+        + "and (:currency is null or i.exposureCurrency = :currency) "
+        + "and (:owner is null or i.ownerUserId = :owner) "
+        + "and (cast(:overdueAt as timestamp) is null or (i.status = 'OPEN' and i.dueAt < :overdueAt))")
     List<ReconciliationIssueEntity> search(@Param("tenantId") UUID tenantId, @Param("status") String status,
-                                           @Param("severity") String severity, Pageable pageable);
+                                           @Param("severity") String severity,
+                                           @Param("lifecycleState") String lifecycleState, @Param("caseId") UUID caseId,
+                                           @Param("type") String type, @Param("currency") String currency,
+                                           @Param("owner") UUID owner, @Param("overdueAt") Instant overdueAt,
+                                           Pageable pageable);
     java.util.List<ReconciliationIssueEntity> findByStatus(String status);
     java.util.List<ReconciliationIssueEntity> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 

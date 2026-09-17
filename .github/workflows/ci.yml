@@ -50,7 +50,7 @@ jobs:
           retention-days: 3
 
   frontend:
-    name: Frontend (Next.js build)
+    name: Frontend (typecheck + tests + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,11 +59,22 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: npm ci + build
+      - name: npm ci
         working-directory: frontend
-        run: |
-          npm ci
-          npm run build
+        run: npm ci
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Unit tests (Vitest)
+        working-directory: frontend
+        # No retry and no --passWithNoTests: a runner that finds nothing must fail, not pass.
+        run: npm test
+      - name: Public showcase exposure guard
+        working-directory: frontend
+        run: npm run test:public-exposure
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
 
   infra-and-repo:
     name: Compose config + repo validation
