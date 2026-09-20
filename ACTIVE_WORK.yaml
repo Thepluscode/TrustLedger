@@ -1,0 +1,85 @@
+# The authorised task. Nothing else is in progress, whatever the last session discussed.
+#
+# Dynamic counts are NOT written here. PROJECT_STATE.json is generated
+# (`make project-state`); this file is edited by hand and would rot.
+
+schema: trustledger-active-work.v1
+project: TrustLedger — the Payment Reliability OS
+canonical_path: ~/projects/fintech/TrustLedger_v2
+
+active:
+  task: cross_provider_reconciliation_casework
+  priority: P3
+  status: IN_REVIEW
+  claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
+  branch: feat/recon-casework
+  pull_request: 152            # DRAFT at the time of writing; merge is the founder's decision
+  feature_flag: RECON_CASEWORK_ENABLED   # default off
+  source: FEATURE_TRACKER.md  ("Cross-provider reconciliation casework", 2026-09-17)
+  corroborated_by:
+    - "docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md §20"
+    - CaseworkBoundaryTest  # fails the build if the module imports the ledger, a rail or the outbox
+    - migrations V50-V55
+  scope: >
+    Read-only pilot slice: import files -> canonical records -> deterministic reconciliation ->
+    governed exceptions -> evidence bundle -> operator console. Nothing here moves, routes or
+    posts money.
+  known_limits:
+    - not production-observed; no customer has used it
+    - the full backend suite was never run locally on this branch (the host swapped); only
+      scoped runs, largest 91 tests
+    - CI on the pushed branch is the only complete verdict
+
+# Standing conditions, true regardless of the active task. Not work items.
+invariants_in_force:
+  - execution_surface: OFF in the pilot — ingestion, reconciliation, exceptions and evidence only
+  - money_type: always `Money` (BigDecimal scale-4, HALF_EVEN, currency-safe); never raw double
+  - ledger: the source of financial truth; balances are derived views
+  - corrections: reversal entries, never edits — financial history is append-only
+  - idempotency: same transfer request cannot be processed twice; a duplicate webhook must not
+      duplicate a state transition
+  - ambiguity: an ambiguous provider response is never treated as a confirmed failure
+  - reconciliation: differences stay visible until explicitly resolved
+  - tenancy: every query is tenant-scoped, no exceptions
+  - evidence: never label VERIFIED without pasted evidence; never present synthetic or demo
+      data as production or customer evidence
+
+standing_gates:
+  - id: market_gate
+    command: python3 pilot/score_kill_test.py
+    state: INCOMPLETE — exit 3; read the current figure from PROJECT_STATE.json, not from here
+    blocks: new post-gate exception-operations infrastructure (Rule 0)
+    discharged_by: qualified customer conversations, not code
+  - id: data_resilience
+    command: ~/.claude/scripts/data-resilience-gate scan .
+    blocks: calling any persisting feature pilot-ready or production-ready
+    note: a drill older than 90 days is stale; see PARKING_LOT.md for the four open gaps
+
+parked:
+  - id: opening_balances_bypass_the_ledger
+    why: a money-semantics decision for the product owner, not an agent refactor
+  - id: pre_existing_defects_from_casework
+    why: found while doing something else; real, but not authorised
+  - id: flyway_ssl_flake
+    why: unexplained and unreproducible; a retry would hide it rather than fix it
+  - id: data_resilience_gaps
+    why: required before real money, not before the read-only pilot
+  - id: market_gate_incomplete
+    why: a standing gate, discharged by conversations, not something to build around
+
+dated_gates: []   # none found in the repository; an invented date is worse than an absent one
+
+task_switch_requires:
+  - FOUNDER_OVERRIDE
+  - CURRENT_TASK_COMPLETED
+  - RELEASE_CONDITION_MET
+  - VERIFIED_P0_P1_INTERRUPT
+
+history:
+  - date: 2026-09-20
+    change: file created during the portfolio continuity rollout
+    previous_task: none recorded
+    new_task: cross_provider_reconciliation_casework
+    reason: the task was already in progress; this records it rather than changing it
+    evidence: "FEATURE_TRACKER.md 2026-09-17 section; branch feat/recon-casework; PR 152"
+    approved_by: FOUNDER (portfolio continuity rollout directive)
