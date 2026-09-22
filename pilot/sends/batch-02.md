@@ -166,8 +166,28 @@ or conducting independent research?” This is a reply, not yet an incident-reco
 > your calendar.
 
 LinkedIn recorded the exact response in Artem's conversation with `Sent at 8/21/2026, 7:06 AM` and
-cleared the composer. This is a sent scheduling ask, not an accepted interview or completed
-incident-reconstruction conversation.
+cleared the composer.
+
+**Interview accepted 2026-08-21 at 07:12:** Artem replied, “Yes, let’s do next week.” LinkedIn also
+showed the message as seen at 07:12. This is explicit agreement to the interview, but no date or time
+has been fixed and no incident has been reconstructed. The next action is to offer three exact slots
+with time zones and send a calendar invitation once one is accepted.
+
+**Time fixed 2026-08-27:** Artem replied, “Let's arrange on Monday 13:00 Dubai.” Interpreted as the
+next Monday, 2026-08-31, at 13:00 Dubai / 10:00 London. The next action is to confirm the date and
+time in writing, send the 20-minute calendar invitation, and prepare the incident-reconstruction
+worksheet. The interview count remains zero until the call is completed and recorded.
+
+**Interview held 2026-08-31; accuracy-check sent 2026-09-02.** The conversation established a
+class of provider-identifier incidents, existing internal tooling and no available follow-up data,
+but did not establish one named incident, ledger/provider state, timing, frequency or quantified
+exposure.
+
+**Final reconstruction sent 2026-09-17 at 17:28 BST:** after action-time approval, LinkedIn showed
+the complete unknown-preserving reconstruction in Artem's conversation with the platform time
+`5:28 PM`, and the composer cleared. This closes the overdue delivery obligation only. It does not
+qualify the interview, change the 0/3 or 0/25 gates, or establish a reply. Any later correction must
+be saved verbatim; the aggregated findings remain owed when the research concludes.
 
 ---
 
