@@ -217,6 +217,15 @@ export const api = {
     if (note) form.set("note", note);
     return request<ReconIssueActivity>(`/api/v1/reconciliation/issues/${id}/evidence`, { method: "POST", body: form });
   },
+  reconciliationAssignees: () => request<{ id: string; email: string; role: string }[]>("/api/v1/reconciliation/issues/assignees"),
+  /** Needs the bearer token, so it cannot be a plain link. Always served as a download. */
+  downloadReconciliationIssueEvidence: async (id: string, seq: number): Promise<Blob> => {
+    const res = await fetch(`${BASE}/api/v1/reconciliation/issues/${id}/evidence/${seq}`, {
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    if (!res.ok) throw new Error(`Evidence download failed (${res.status})`);
+    return res.blob();
+  },
   reconciliationIssueActivity: (id: string) =>
     request<ReconIssueActivity[]>(`/api/v1/reconciliation/issues/${id}/activity`),
 

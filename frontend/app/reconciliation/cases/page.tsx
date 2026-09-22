@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EmptyState, SkeletonRows, StatusPill } from "../../components/ui";
 import Shell from "../../components/Shell";
@@ -9,6 +10,7 @@ import { dateTime } from "../../lib/format";
 import type { ReconCase } from "../../lib/types";
 
 export default function ReconCasesPage() {
+  const router = useRouter();
   const [cases, setCases] = useState<ReconCase[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +33,7 @@ export default function ReconCasesPage() {
         periodEnd: `${form.periodEnd}T00:00:00Z`,
         settlementSlaDays: Number(form.settlementSlaDays),
       });
-      window.location.href = `/reconciliation/cases/${created.reconciliationCase.id}`;
+      router.push(`/reconciliation/cases/${created.reconciliationCase.id}`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

@@ -51,14 +51,18 @@ final class Fields {
         }
     }
 
-    /** ISO-8601 instant, or a plain date taken as the start of that day in UTC. */
+    /**
+     * ISO-8601: an instant ({@code Z}), a date-time with an offset ({@code +01:00}), or a plain date taken
+     * as the start of that day in UTC. A local date-time with no zone is rejected: it has no single instant.
+     */
     static Instant instant(Map<String, String> row, String name, boolean required) {
         String v = required ? required(row, name) : optional(row, name);
         if (v == null) return null;
         try {
-            return v.length() == 10 ? LocalDate.parse(v).atStartOfDay().toInstant(ZoneOffset.UTC) : Instant.parse(v);
+            if (v.length() == 10) return LocalDate.parse(v).atStartOfDay().toInstant(ZoneOffset.UTC);
+            return java.time.OffsetDateTime.parse(v).toInstant();
         } catch (DateTimeParseException e) {
-            throw new RowRejected("INVALID_TIMESTAMP", name + " is not ISO-8601 (2026-08-03 or 2026-08-03T10:15:00Z): " + v);
+            throw new RowRejected("INVALID_TIMESTAMP", name + " is not ISO-8601 with a zone (2026-08-03, 2026-08-03T10:15:00Z or 2026-08-03T11:15:00+01:00): " + v);
         }
     }
 

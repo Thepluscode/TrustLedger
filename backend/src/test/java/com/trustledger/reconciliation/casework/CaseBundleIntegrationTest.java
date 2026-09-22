@@ -128,6 +128,8 @@ class CaseBundleIntegrationTest {
         assertEquals("recon-rules/1.0.0", c.get("run").get("rulesetVersion").asString());
         assertEquals(2, c.get("run").get("unresolvedAtRunByCurrency").size());
         assertEquals(16, c.get("matches").size());
+        assertFalse(c.get("matchesTruncated").asBoolean());
+        for (JsonNode src : c.get("sources")) assertEquals(0, src.get("rejectedRowsOmitted").asInt());
         assertEquals(7, c.get("exceptions").size());
         for (JsonNode e : c.get("exceptions")) {
             assertEquals("RAISED", e.get("history").get(0).get("kind").asString());

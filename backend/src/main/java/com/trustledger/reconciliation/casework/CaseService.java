@@ -82,7 +82,7 @@ public class CaseService {
      */
     @Transactional
     public CaseRow close(UUID tenantId, UUID actorId, UUID caseId) {
-        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> new NotFoundException("Reconciliation case not found: " + caseId));
+        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> notFound(caseId));
         if ("CLOSED".equals(c.status())) return c;
         if (!"RECONCILED".equals(c.status())) throw new ConflictException("the case has not been reconciled yet");
         long open = issues.countByTenantIdAndCaseIdAndStatus(tenantId, caseId, "OPEN");
@@ -95,7 +95,13 @@ public class CaseService {
 
     public CaseRow require(UUID tenantId, UUID caseId) {
         // Unknown and foreign ids are indistinguishable on purpose.
-        return store.findCase(tenantId, caseId).orElseThrow(() -> new NotFoundException("Reconciliation case not found: " + caseId));
+        return store.findCase(tenantId, caseId).orElseThrow(() -> notFound(caseId));
+    }
+
+    /** The same 404 whether the case is unknown or another tenant's; only the metric knows the difference. */
+    public NotFoundException notFound(UUID caseId) {
+        if (store.caseExistsAnywhere(caseId)) metrics.tenantDenied();
+        return new NotFoundException("Reconciliation case not found: " + caseId);
     }
 
     /**

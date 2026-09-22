@@ -32,6 +32,8 @@ content
   run                      run key, ruleset version, counts, summary (exceptions by type, matches by rule,
                            settlement coverage), unresolved value per currency when the run completed
   matches[]                left and right record keys, rule id, rule version, stage, what was compared
+                           (at most 20,000 inline; `matchesTruncated` says whether more exist; each source
+                           likewise carries `rejectedRowsOmitted`)
   exceptions[]             type, classification, expected, actual, exposure, rule and version, links to the
                            source rows (file hash, row hash, row number), full working history, and the
                            closing decision (reason code, explanation, evidence reference, actor, time)

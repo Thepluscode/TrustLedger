@@ -89,7 +89,7 @@ public class RunService {
         Instant startedAt = Instant.now();
         // The lock serialises runs and imports on one case, so the records read below cannot change mid-run.
         CaseRow c = store.lockCase(tenantId, caseId)
-            .orElseThrow(() -> new NotFoundException("Reconciliation case not found: " + caseId));
+            .orElseThrow(() -> cases.notFound(caseId));
         if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; its results are final");
         List<String> blockers = cases.blockers(tenantId, caseId);
         if (!blockers.isEmpty()) throw new NotReady(blockers);

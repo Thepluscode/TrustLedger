@@ -61,6 +61,7 @@ class ReconciliationIssueLifecycleIntegrationTest {
     @Autowired ReconciliationIssueRepository issues;
     @Autowired AuditLogRepository auditLogs;
     @Autowired JdbcTemplate jdbc;
+    @Autowired io.micrometer.core.instrument.MeterRegistry meters;
 
     CaseworkHttp http;
 
@@ -275,5 +276,95 @@ class ReconciliationIssueLifecycleIntegrationTest {
         assertThrows(DataAccessException.class,
             () -> jdbc.update("update reconciliation_issues set lifecycle_state = 'REOPENED' where id = ?", id));
         assertEquals("original", jdbc.queryForObject("select body from reconciliation_issue_activity where issue_id = ?", String.class, id));
+    }
+
+    @Test
+    void anOperatorGetsTheAssigneeListWithoutUserAdministrationRights() throws Exception {
+        AuthResponse owner = http.register();
+        AuthResponse operator = http.inviteAndLogin(owner, "RECON_OPERATOR");
+        http.inviteAndLogin(owner, "VIEWER");
+        assertEquals(403, http.get("/api/v1/users", operator.token()).statusCode(), "the user-admin list is still closed to the role");
+        HttpResponse<String> r = http.get(BASE + "assignees", operator.token());
+        assertEquals(200, r.statusCode(), r.body());
+        List<String> roles = new ArrayList<>();
+        for (JsonNode u : http.tree(r)) {
+            roles.add(u.get("role").asString());
+            assertNull(u.get("passwordHash"));
+            assertNotNull(u.get("email"));
+        }
+        assertTrue(roles.contains("OWNER") && roles.contains("RECON_OPERATOR"), roles.toString());
+        assertFalse(roles.contains("VIEWER"), "someone who cannot work an exception is not offered as its owner");
+        assertEquals(403, http.get(BASE + "assignees", http.inviteAndLogin(owner, "AUDITOR").token()).statusCode());
+    }
+
+    @Test
+    void attachedEvidenceCanBeDownloadedScopedAndIsRefusedIfItNoLongerMatchesItsHash() throws Exception {
+        AuthResponse owner = http.register();
+        UUID id = openIssue(owner.tenantId()).getId();
+        byte[] bytes = "<html>credit note</html>".getBytes(StandardCharsets.UTF_8);
+        HttpResponse<String> ev = http.multipart(BASE + id + "/evidence", owner.token(), Map.of(), "note.html", bytes);
+        assertEquals(200, ev.statusCode(), ev.body());
+        int seq = http.tree(ev).get("seq").asInt();
+
+        java.net.http.HttpResponse<byte[]> dl = java.net.http.HttpClient.newHttpClient().send(
+            java.net.http.HttpRequest.newBuilder(http.uri(BASE + id + "/evidence/" + seq))
+                .header("Authorization", "Bearer " + owner.token()).GET().build(),
+            java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, dl.statusCode());
+        assertArrayEquals(bytes, dl.body());
+        assertEquals("application/octet-stream", dl.headers().firstValue("Content-Type").orElse(""), "never rendered, whatever was uploaded");
+        assertTrue(dl.headers().firstValue("Content-Disposition").orElse("").startsWith("attachment"));
+        assertEquals(Hashes.sha256(bytes), dl.headers().firstValue("X-Evidence-Sha256").orElse(""));
+
+        assertEquals(404, http.get(BASE + id + "/evidence/" + seq, http.register().token()).statusCode());
+        assertEquals(404, http.get(BASE + id + "/evidence/" + (seq + 5), owner.token()).statusCode());
+        assertEquals(200, http.get(BASE + id + "/evidence/" + seq, http.inviteAndLogin(owner, "AUDITOR").token()).statusCode(), "an auditor may read evidence");
+
+        // The object store is write-once at the database; simulate a privileged edit by replacing the trigger's target.
+        jdbc.execute("ALTER TABLE evidence_objects DISABLE TRIGGER evidence_objects_write_once");
+        try {
+            jdbc.update("UPDATE evidence_objects SET content = ? WHERE sha256 = ?", "<html>edited</html>".getBytes(StandardCharsets.UTF_8), Hashes.sha256(bytes));
+            HttpResponse<String> tampered = http.get(BASE + id + "/evidence/" + seq, owner.token());
+            assertEquals(422, tampered.statusCode(), "content that no longer hashes to the record is not served: " + tampered.body());
+        } finally {
+            jdbc.execute("ALTER TABLE evidence_objects ENABLE TRIGGER evidence_objects_write_once");
+        }
+    }
+
+    @Test
+    void aForeignIdIsCountedAsATenantDenialAndAnUnknownOneIsNot() throws Exception {
+        AuthResponse owner = http.register();
+        AuthResponse stranger = http.register();
+        UUID id = openIssue(owner.tenantId()).getId();
+        double before = meters.counter("trustledger.recon.tenant.denied").count();
+        assertEquals(404, http.get(BASE + UUID.randomUUID(), stranger.token()).statusCode());
+        assertEquals(404, act(stranger.token(), UUID.randomUUID(), "comments", body("body", "x")).statusCode());
+        assertEquals(before, meters.counter("trustledger.recon.tenant.denied").count(), "an unknown id is not a denial, on a read or a write");
+        assertEquals(404, http.get(BASE + id, stranger.token()).statusCode());
+        assertEquals(404, act(stranger.token(), id, "comments", body("body", "x")).statusCode());
+        assertEquals(before + 2, meters.counter("trustledger.recon.tenant.denied").count(), "a read and a write across the boundary");
+    }
+
+    @Test
+    void removingTheOwnerOfAnUnownedExceptionIsRefusedAndLeavesNoHistory() throws Exception {
+        AuthResponse owner = http.register();
+        UUID id = openIssue(owner.tenantId()).getId();
+        assertEquals(409, act(owner.token(), id, "assign", body()).statusCode());
+        assertEquals(List.of(), activityKinds(owner.token(), id));
+    }
+
+    @Test
+    void theOverdueFilterReturnsOnlyOpenExceptionsPastTheirDeadline() throws Exception {
+        AuthResponse owner = http.register();
+        UUID late = openIssue(owner.tenantId()).getId();
+        UUID onTime = openIssue(owner.tenantId()).getId();
+        UUID lateButClosed = openIssue(owner.tenantId()).getId();
+        jdbc.update("UPDATE reconciliation_issues SET due_at = now() - interval '1 hour' WHERE id IN (?, ?)", late, lateButClosed);
+        assertEquals(200, act(owner.token(), lateButClosed, "resolve", body("outcome", "RECOVERED", "note", "x")).statusCode());
+        List<String> ids = new ArrayList<>();
+        for (JsonNode i : http.tree(http.get("/api/v1/reconciliation/issues?overdue=true", owner.token())).get("items")) ids.add(i.get("id").asString());
+        assertEquals(List.of(late.toString()), ids);
+        assertEquals(3, http.tree(http.get("/api/v1/reconciliation/issues", owner.token())).get("items").size(), "positive twin: all three exist");
+        assertTrue(onTime != null);
     }
 }

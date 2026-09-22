@@ -79,9 +79,12 @@ public class ReconciliationController {
     private final AccessControlService access;
     private final ReconciliationResolutionService resolution;
     private final AuditLogRepository auditLogs;
+    private final com.trustledger.reconciliation.casework.ReconMetrics reconMetrics;
 
     public ReconciliationController(ReconciliationIssueRepository issues, AccessControlService access,
-                                    ReconciliationResolutionService resolution, AuditLogRepository auditLogs) {
+                                    ReconciliationResolutionService resolution, AuditLogRepository auditLogs,
+                                    com.trustledger.reconciliation.casework.ReconMetrics reconMetrics) {
+        this.reconMetrics = reconMetrics;
         this.issues = issues;
         this.access = access;
         this.resolution = resolution;
@@ -189,8 +192,32 @@ public class ReconciliationController {
 
     /** Tenant is in the query, so another tenant's issue and an unknown id give the same 404. */
     private ReconciliationIssueEntity require(UUID id) {
-        return issues.findByIdAndTenantId(id, CurrentUser.tenantId())
-            .orElseThrow(() -> new NotFoundException("Reconciliation issue not found: " + id));
+        return issues.findByIdAndTenantId(id, CurrentUser.tenantId()).orElseThrow(() -> {
+            if (issues.existsById(id)) reconMetrics.tenantDenied(); // exists elsewhere: a boundary denial, still a 404
+            return new NotFoundException("Reconciliation issue not found: " + id);
+        });
+    }
+
+    /** Who can be given an exception. Gated on the same permission as assigning, not on user administration. */
+    @GetMapping("/assignees")
+    public List<Map<String, String>> assignees() {
+        access.require(Permission.RECON_ISSUE_WORK);
+        return resolution.assignees(CurrentUser.tenantId());
+    }
+
+    /** The file attached at history position {@code seq}. Always a download, never rendered, whatever was uploaded. */
+    @GetMapping("/{id}/evidence/{seq}")
+    public org.springframework.http.ResponseEntity<byte[]> evidence(@PathVariable UUID id, @PathVariable int seq) {
+        access.require(Permission.RECON_VIEW);
+        require(id);
+        ReconciliationResolutionService.EvidenceFile f = resolution.evidence(CurrentUser.tenantId(), id, seq);
+        String name = f.filename() == null ? "evidence" : f.filename().replace("\"", "");
+        return org.springframework.http.ResponseEntity.ok()
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Disposition", "attachment; filename=\"" + name + "\"")
+            .header("X-Content-Type-Options", "nosniff")
+            .header("X-Evidence-Sha256", f.sha256())
+            .body(f.content());
     }
 
     private static ReconciliationIssueView view(ReconciliationIssueEntity i) {

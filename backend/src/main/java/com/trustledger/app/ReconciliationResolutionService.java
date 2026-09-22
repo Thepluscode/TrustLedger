@@ -60,10 +60,13 @@ public class ReconciliationResolutionService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final io.micrometer.core.instrument.MeterRegistry meters;
+    private final com.trustledger.reconciliation.casework.ReconMetrics reconMetrics;
 
     public ReconciliationResolutionService(ReconciliationIssueRepository issues, AuditLogRepository auditLogs,
                                            UserRepository users, EvidenceStorage storage, JdbcTemplate jdbc,
-                                           ObjectMapper json, io.micrometer.core.instrument.MeterRegistry meters) {
+                                           ObjectMapper json, io.micrometer.core.instrument.MeterRegistry meters,
+                                           com.trustledger.reconciliation.casework.ReconMetrics reconMetrics) {
+        this.reconMetrics = reconMetrics;
         this.issues = issues;
         this.auditLogs = auditLogs;
         this.users = users;
@@ -105,6 +108,9 @@ public class ReconciliationResolutionService {
         if (to != from || from == State.ASSIGNED) assertLegal(from, to);
 
         UUID previousOwner = issue.getOwnerUserId();
+        if (ownerUserId == null && previousOwner == null) {
+            throw new ConflictException("the exception has no owner to remove");
+        }
         issue.setOwnerUserId(ownerUserId);
         issue.moveTo(to);
         issues.save(issue);
@@ -184,6 +190,45 @@ public class ReconciliationResolutionService {
             tenantId, issueId);
     }
 
+    /** One attached file, by its position in the history. Scoped by tenant and issue, so a storage key is never accepted from a caller. */
+    public record EvidenceFile(String filename, String sha256, byte[] content) {}
+
+    public EvidenceFile evidence(UUID tenantId, UUID issueId, int seq) {
+        List<Activity> hits = jdbc.query("""
+            SELECT seq, kind, from_state, to_state, actor_id, body, evidence_storage_key, evidence_sha256,
+                   evidence_filename, created_at
+              FROM reconciliation_issue_activity
+             WHERE tenant_id = ? AND issue_id = ? AND seq = ? AND evidence_storage_key IS NOT NULL""",
+            (rs, n) -> new Activity(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), rs.getString(8).trim(), rs.getString(9),
+                rs.getTimestamp(10).toInstant()), tenantId, issueId, seq);
+        if (hits.isEmpty()) throw new com.trustledger.security.NotFoundException("No evidence at position " + seq + " on this exception");
+        Activity a = hits.get(0);
+        byte[] content = storage.retrieve(a.evidenceStorageKey());
+        // Serve nothing that no longer hashes to what the history says was attached.
+        String actual = Checksums.sha256(content).substring("sha256:".length());
+        if (!actual.equals(a.evidenceSha256())) {
+            throw new IllegalStateException("stored evidence does not match its recorded hash; refusing to serve it");
+        }
+        return new EvidenceFile(a.evidenceFilename(), a.evidenceSha256(), content);
+    }
+
+    /** Users of the caller's tenant who may be given an exception, for the assign control. No hashes, no timestamps. */
+    public List<Map<String, String>> assignees(UUID tenantId) {
+        return users.findByTenantIdOrderByCreatedAt(tenantId).stream()
+            .filter(u -> com.trustledger.security.RolePermissions.has(u.getRole(), com.trustledger.security.Permission.RECON_ISSUE_WORK))
+            .map(u -> Map.of("id", u.getId().toString(), "email", u.getEmail(), "role", u.getRole())).toList();
+    }
+
+    /**
+     * A scoped miss. If the id exists under another tenant this was a boundary denial and is counted
+     * as one; the caller still gets the same "not found" either way.
+     */
+    private RuntimeException denied(UUID issueId) {
+        if (issues.existsById(issueId)) reconMetrics.tenantDenied();
+        return new com.trustledger.security.NotFoundException("Reconciliation issue not found: " + issueId);
+    }
+
     // --- closing -------------------------------------------------------------------------------------
 
     /** The request body that predates reason codes and versions: {@code {outcome, note}}. */
@@ -256,7 +301,7 @@ public class ReconciliationResolutionService {
     private ReconciliationIssueEntity lock(UUID tenantId, UUID issueId, Long expectedVersion) {
         // The tenant predicate is in the locking query, so another tenant's id looks exactly like an unknown one.
         ReconciliationIssueEntity issue = issues.findByIdAndTenantIdForUpdate(issueId, tenantId)
-            .orElseThrow(() -> new IllegalArgumentException("Reconciliation issue not found: " + issueId));
+            .orElseThrow(() -> denied(issueId));
         if (expectedVersion != null && !expectedVersion.equals(issue.getVersion())) {
             throw new ConflictException("the exception changed since you loaded it (you have version " + expectedVersion
                 + ", it is now " + issue.getVersion() + "); reload and try again");

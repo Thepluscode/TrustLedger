@@ -45,7 +45,12 @@ import tools.jackson.databind.ObjectMapper;
 public class CaseBundleService {
 
     public static final String BUNDLE_VERSION = "recon-case-bundle/1";
-    private static final int MAX_LISTED = 200_000;
+    /**
+     * Rows listed inline per section. Above this the bundle records how many were omitted and where the
+     * full set lives (the import's row endpoint, the run's match endpoint); the hash still covers what is
+     * listed. Keeps a 200k-row case from producing a bundle no browser or verifier can open.
+     */
+    static final int MAX_LISTED = 20_000;
 
     /** What this bundle is not. Stated inside the artefact, so it travels with every copy. */
     static final List<String> LIMITATIONS = List.of(
@@ -158,6 +163,7 @@ public class CaseBundleService {
             totals.sort(Comparator.comparing(m -> (String) m.get("currency")));
             s.put("currencyTotals", totals);
             List<Map<String, Object>> rejected = new ArrayList<>();
+            s.put("rejectedRowsOmitted", Math.max(0, i.rejectedCount() - MAX_LISTED));
             if (i.rejectedCount() > 0) {
                 for (SourceRow r : store.listSourceRows(tenantId, i.id(), "REJECTED", MAX_LISTED, 0)) {
                     Map<String, Object> rm = new LinkedHashMap<>();
@@ -203,7 +209,10 @@ public class CaseBundleService {
         Map<UUID, String> keyById = new HashMap<>();
         for (StoredRecord s : store.loadRecords(tenantId, c.id())) keyById.put(s.id(), s.record().recordKey());
         List<Map<String, Object>> matches = new ArrayList<>();
-        for (MatchRow m : store.listMatches(tenantId, run.id(), MAX_LISTED, 0)) {
+        List<MatchRow> matchRows = store.listMatches(tenantId, run.id(), MAX_LISTED + 1, 0);
+        boolean matchesTruncated = matchRows.size() > MAX_LISTED;
+        if (matchesTruncated) matchRows = matchRows.subList(0, MAX_LISTED);
+        for (MatchRow m : matchRows) {
             Map<String, Object> mm = new LinkedHashMap<>();
             mm.put("leftRecordKey", keyById.get(m.leftRecordId()));
             mm.put("rightRecordKey", keyById.get(m.rightRecordId()));
@@ -216,6 +225,7 @@ public class CaseBundleService {
         matches.sort(Comparator.comparing((Map<String, Object> m) -> (Integer) m.get("stage"))
             .thenComparing(m -> (String) m.get("leftRecordKey")).thenComparing(m -> (String) m.get("rightRecordKey")));
         content.put("matches", matches);
+        content.put("matchesTruncated", matchesTruncated);
 
         // ponytail: one history query per exception. Fine for a case's worth; batch by case_id if bundles get slow.
         List<ReconciliationIssueEntity> caseIssues = issues.findByTenantIdAndCaseIdOrderByTypeAscEntityIdAsc(tenantId, c.id());

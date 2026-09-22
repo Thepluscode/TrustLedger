@@ -18,8 +18,11 @@ import org.springframework.stereotype.Repository;
  * All SQL for reconciliation casework. JdbcTemplate rather than JPA because imports are bulk writes of
  * write-once rows, where batching matters and an entity lifecycle does not.
  *
- * <p>Every query that reads or writes tenant data carries {@code tenant_id} in its WHERE clause
- * (invariant 12). There is deliberately no method that finds a case, import or run by id alone.
+ * <p>Every query that finds tenant data carries {@code tenant_id} in its WHERE clause (invariant 12);
+ * there is no method that finds a case, import or run by id alone. The three exceptions read or write
+ * child rows of an id the caller has already obtained through a scoped query (currency totals of an
+ * import, unresolved totals of a run). {@link #caseExistsAnywhere} is the one deliberate unscoped read,
+ * and it returns a boolean only.
  */
 @Repository
 public class CaseworkStore {
@@ -72,6 +75,11 @@ public class CaseworkStore {
 
     public Optional<CaseRow> findCase(UUID tenantId, UUID caseId) {
         return one(jdbc.query("SELECT * FROM recon_cases WHERE tenant_id = ? AND id = ?", CaseworkStore::mapCase, tenantId, caseId));
+    }
+
+    /** For the tenant-denial metric only: a scoped miss on an id that exists elsewhere is a boundary denial. */
+    public boolean caseExistsAnywhere(UUID caseId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM recon_cases WHERE id = ?)", Boolean.class, caseId));
     }
 
     /** Row lock: serialises imports and runs on one case. */

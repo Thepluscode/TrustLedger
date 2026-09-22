@@ -81,7 +81,9 @@ create case → import files (raw bytes stored first, SHA-256, manifest, row-lev
 | `provider-settlement` | SETTLEMENT | batch_id, transaction_ref, currency, gross, fee, net, settled_at |
 
 Generic, documented CSV shapes. There is no integration with any real provider's API or file format, and
-none is claimed. Limits: 25 MB and 200,000 rows per file. A malformed row is rejected and listed with its
+none is claimed. Timestamps: ISO-8601 with a zone (`Z` or `+01:00`) or a plain date (start of day, UTC);
+a local date-time with no zone is rejected because it names no single instant. Limits: 25 MB and
+200,000 rows per file. A malformed row is rejected and listed with its
 reason; a file that cannot be read as a whole is recorded as FAILED with zero rows.
 
 ### Matching stages (`recon-rules/1.0.0`)
@@ -125,6 +127,11 @@ A pair not in the table is refused (409) and writes nothing. Closed is final: a 
 exception. `status` remains the coarse OPEN/RESOLVED flag existing consumers use; `lifecycle_state` holds
 the working state, and a database CHECK keeps the two in agreement.
 
+Attached evidence is downloaded through `GET /issues/{id}/evidence/{seq}` (tenant- and issue-scoped, always
+`application/octet-stream` with `attachment`, refused with 422 if the stored bytes no longer hash to what
+the history recorded). The assign control lists `GET /issues/assignees`: users of the tenant who hold
+`RECON_ISSUE_WORK`, gated on that same permission rather than on user administration.
+
 Permissions: `RECON_VIEW`, `RECON_CASE_MANAGE`, `RECON_ISSUE_WORK`, `RECON_ISSUE_RESOLVE`. Role
 `RECON_OPERATOR` holds all four plus `EVIDENCE_EXPORT`; `AUDITOR` holds `RECON_VIEW`; admin roles hold all.
 
@@ -159,13 +166,16 @@ Each invariant, where it is enforced, and the test that fails when it is broken.
 `trustledger.recon.import{source_type,outcome}` · `…import.rows` · `…run.duration{outcome}` ·
 `…records{outcome,rule}` · `…exceptions{exception_type,severity}` · `…unresolved.value{currency}` ·
 `…resolution.cycle{exception_type}` · `…bundle.export{outcome}` · `…replay{operation}` ·
-`…tenant.denied`. Every label comes from a closed set. Tenant, case, import, issue and user ids are never
+`…tenant.denied` (a scoped lookup that missed on an id present under another tenant; an unknown id is
+not counted). Every label comes from a closed set. Tenant, case, import, issue and user ids are never
 labels; they go in logs and audit rows, joined by correlation id.
 
 ### Known limits
 
 - Whole file in memory (bounded by the 25 MB cap). Stream if the cap is raised.
 - Refund matching scans internal refunds linearly per provider refund. Fine while refunds are a small share.
-- The bundle makes one history query per exception.
+- The bundle makes one history query per exception, and lists at most 20,000 rejected rows per file and
+  20,000 matches inline; beyond that it records `rejectedRowsOmitted` / `matchesTruncated` and the full
+  sets stay behind the row and match endpoints.
 - Settlement is checked only for providers whose settlement file was supplied; the run and the bundle say which.
 - Not run in production. No customer data has been through it.

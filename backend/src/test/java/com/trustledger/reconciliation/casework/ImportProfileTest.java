@@ -103,6 +103,16 @@ class ImportProfileTest {
     }
 
     @Test
+    void anOffsetTimestampIsTheSameInstantAndALocalOneWithNoZoneIsRejected() {
+        Map<String, String> row = providerRow();
+        row.put("occurred_at", "2026-08-03T11:15:00+01:00");
+        assertEquals(Instant.parse("2026-08-03T10:15:00Z"),
+            ImportProfile.forName("provider-transactions").normalise(row, 1, "p").occurredAt());
+        Map<String, String> local = providerRow(); local.put("occurred_at", "2026-08-03T11:15:00");
+        assertEquals("INVALID_TIMESTAMP", code(local), "no zone means no single instant");
+    }
+
+    @Test
     void internalAndSettlementProfilesMapToTheirEventTypes() {
         Map<String, String> internal = new HashMap<>(Map.of("internal_ref", "P01", "provider", "Provider-B",
             "currency", "GBP", "amount", "100.00", "expected_at", "2026-08-03T09:55:00Z"));

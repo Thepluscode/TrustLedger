@@ -47,14 +47,16 @@ public class ImportService {
     public record Result(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed) {}
 
     private final CaseworkStore store;
+    private final CaseService cases;
     private final EvidenceStorage storage;
     private final AuditLogRepository auditLogs;
     private final ReconMetrics metrics;
     private final ObjectMapper json;
 
-    public ImportService(CaseworkStore store, EvidenceStorage storage, AuditLogRepository auditLogs,
+    public ImportService(CaseworkStore store, CaseService cases, EvidenceStorage storage, AuditLogRepository auditLogs,
                          ReconMetrics metrics, ObjectMapper json) {
         this.store = store;
+        this.cases = cases;
         this.storage = storage;
         this.auditLogs = auditLogs;
         this.metrics = metrics;
@@ -77,7 +79,7 @@ public class ImportService {
 
         // The case row lock serialises concurrent uploads of the same file: the second one waits, then
         // finds the first one's manifest and replays it.
-        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> new NotFoundException("Reconciliation case not found: " + caseId));
+        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> cases.notFound(caseId));
         if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; no further imports are accepted");
 
         String fileSha = Hashes.sha256(content);

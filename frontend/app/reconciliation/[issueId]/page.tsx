@@ -114,9 +114,27 @@ export default function ReconciliationIssuePage() {
       .catch((e) => setError((e as Error).message));
     void loadAudit();
     if (canManage) {
-      api.listUsers().then(setMembers).catch((e) => setError(`Unable to load assignable owners: ${(e as Error).message}`));
+      // The assignee list is gated on RECON_ISSUE_WORK, not on user administration, so an operator can use it.
+      api.reconciliationAssignees()
+        .then((list) => setMembers(list.map((u) => ({ ...u, createdAt: "" }))))
+        .catch((e) => setError(`Unable to load assignable owners: ${(e as Error).message}`));
     }
   }, [canManage, id]);
+
+  async function downloadEvidence(seq: number, filename: string) {
+    if (!id) return;
+    try {
+      const blob = await api.downloadReconciliationIssueEvidence(id, seq);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   const assign = () => change((v) => api.assignReconciliationIssue(id, ownerChoice || null, v));
 
@@ -276,7 +294,7 @@ export default function ReconciliationIssuePage() {
                   <div key={a.seq} className="entry" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
                     <span><b>{a.seq}. {a.kind.replace(/_/g, " ").toLowerCase()}</b>
                       {a.fromState && a.toState && a.fromState !== a.toState && <> — {a.fromState.toLowerCase().replace(/_/g, " ")} → {a.toState.toLowerCase().replace(/_/g, " ")}</>}
-                      {a.evidenceFilename && <> — <span className="mono">{a.evidenceFilename}</span> <span className="muted mono">{a.evidenceSha256?.slice(0, 12)}…</span></>}</span>
+                      {a.evidenceFilename && <> — <button className="linklike" onClick={() => downloadEvidence(a.seq, a.evidenceFilename ?? "evidence")}>{a.evidenceFilename}</button> <span className="muted mono">{a.evidenceSha256?.slice(0, 12)}…</span></>}</span>
                     {a.body && (a.kind === "COMMENT" || a.kind === "EVIDENCE_ADDED" || a.kind === "RAISED") && <span className="muted">{a.body}</span>}
                     <span className="muted" style={{ fontSize: 12 }}>{dateTime(a.createdAt)}{a.actorId ? ` · ${shortId(a.actorId)}` : " · system"}</span>
                   </div>
