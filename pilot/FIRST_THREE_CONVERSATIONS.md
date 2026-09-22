@@ -1,33 +1,39 @@
 # First Three Conversations
 
-## Status — updated 2026-09-06
+## Status — updated 2026-09-22
 
 | Question | Answer |
 |---|---|
 | Interview 1 held (Exness, Artem Ermakov) | **YES** — the scheduled 2026-08-31 call took place |
 | Accuracy-check message sent | 2026-09-02 |
-| Incident fully reconstructed | **NOT YET** |
+| Final unknown-preserving reconstruction sent | **2026-09-17 at 17:28 BST** — LinkedIn displayed the message in Artem's conversation |
+| Incident fully reconstructed | **NO** — no named incident, ledger/provider states, timing, frequency or quantified exposure |
+| Reconstruction agreed by interviewee | **2026-09-22 at 20:54** — 👍 to the 2026-09-17 message, no corrections; every `unknown` is final. Record CLOSED, no gate credit |
 | Data access granted | **NO** |
 | Counted by `score_kill_test.py` | **NO** — see below |
+| Public architecture post, 2026-09-08 | **RECORDED SEPARATELY; NO INTERVIEW CREDIT** — it describes trading-feed deduplication, not the requested incident |
 
 **Why the scorer still reads 0 of 25.** It only counts a row carrying `date_interviewed`, and it
 fails closed: that field may not be set until all twelve `REQUIRED_INTERVIEW_FIELDS` and the four
-yes/no `QUALIFICATION_FIELDS` are present. None of the incident content has been recorded yet, so
-the row deliberately carries no interview date. **The blank means "evidence not yet recorded", not
-"the call did not happen"** — the distinction is written into the tracker's notes so a later reader
-cannot mistake one for the other.
+yes/no `QUALIFICATION_FIELDS` are present. The delivered reconstruction records what was known and
+preserves every missing field as `unknown`; it does not create the absent evidence. The row
+therefore deliberately carries no interview date. **The blank means "not a qualified completed
+incident reconstruction", not "the call did not happen"** — the distinction is written into the
+tracker's notes so a later reader cannot mistake one for the other.
 
 This is a real modelling gap and it is stated rather than patched: the tracker has no way to
-represent *held, reconstruction pending*. A conversation that happened is currently invisible to
-the gate. Do not resolve it by loosening the scorer — that is the threshold-renegotiation the
-scorer exists to prevent.
+represent *held, final unknown-preserving reconstruction sent, but not qualified*. A conversation
+that happened is currently invisible to the gate. Do not resolve it by loosening the scorer — that
+is the threshold-renegotiation the scorer exists to prevent.
 
-**Standing rule from the founder, 2026-09-06.** If Artem does not reply, keep every missing field
-as `unknown` and send the final anonymised reconstruction without inventing details. Save his
-response verbatim.
+**Standing rule from the founder, 2026-09-06 — fulfilled 2026-09-17.** Artem had not replied, so
+every missing field remained `unknown` and the final anonymised reconstruction was sent without
+inventing details. Save any later response verbatim.
 
-**The deadline has passed.** The corrected reconstruction was due Friday 2026-09-04. Today is
-Sunday 2026-09-06, so the fallback above is now the live path, two days overdue.
+**The overdue delivery is closed.** The corrected reconstruction was due Friday 2026-09-04 and was
+sent on 2026-09-17. Artem's public trading-feed architecture post did not satisfy or replace this
+obligation; it remains recorded in `public-research/` and none of its content filled the interview
+row. The remaining obligation is to share the aggregated findings when the research concludes.
 
 ---
 
@@ -68,14 +74,17 @@ Ask permission before recording. Written notes are sufficient.
 
 1. What first indicated that something was wrong?
 2. What did each source say: provider, bank, settlement file, webhook and internal record?
-3. Which systems did you open, and in what order?
-4. Who became involved and what did each person need to establish?
-5. How long passed before somebody could support a conclusion with evidence?
-6. What money was missing, delayed, duplicated, disputed or otherwise exposed?
-7. Which evidence was unavailable, ambiguous or difficult to join?
-8. How was the discrepancy resolved, and how was that outcome recorded?
-9. How often does this class of discrepancy occur?
-10. What happens today when the cause remains unknown?
+3. When the same financial event can arrive through multiple sources or retries, where does the
+   organisation enforce idempotency—and what happens when those sources disagree rather than merely
+   duplicate one another?
+4. Which systems did you open, and in what order?
+5. Who became involved and what did each person need to establish?
+6. How long passed before somebody could support a conclusion with evidence?
+7. What money was missing, delayed, duplicated, disputed or otherwise exposed?
+8. Which evidence was unavailable, ambiguous or difficult to join?
+9. How was the discrepancy resolved, and how was that outcome recorded?
+10. How often does this class of discrepancy occur?
+11. What happens today when the cause remains unknown?
 
 Do not ask whether they would use TrustLedger. Ask what they did, what it cost and what happened.
 

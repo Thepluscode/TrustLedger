@@ -1,15 +1,11 @@
 # Exness — final anonymised reconstruction
 
-**STATUS: STAGED, NOT SENT.**
+**STATUS: SENT 2026-09-17 at 17:28 BST. AGREED BY INTERVIEWEE 2026-09-22 (👍, no corrections). CLOSED.**
 
-Approved by the founder on 2026-09-06 for sending early **Monday 2026-09-07**, by hand.
-Not sent by an agent: Rule 0.6 puts customer contact on the external surface, where the agent
-drafts and stops.
-
-**This file must not be read as evidence of contact.** When it is actually sent, rename it to
-`exness-final-reconstruction-<send-date>.md`, record the real send date, and only then update
-`kill-test-tracker.csv`. Nothing downstream may treat a staged draft as a delivery — a message
-that exists is not a message that arrived.
+The founder approved this exact message and then gave action-time approval to send it. LinkedIn
+showed the complete message in Artem Ermakov's conversation under `TODAY` with the platform time
+`5:28 PM`; the composer cleared after Send. This proves delivery to the conversation, not a reply,
+correction, qualified incident or commercial commitment.
 
 **Contact:** Artem Ermakov, Senior Technical Product Manager — Core Ledger, Balances &
 Reconciliation, Exness (Dubai). **Channel:** LinkedIn.
@@ -45,7 +41,7 @@ Thank you again for your time, Artem.
 
 ---
 
-## What must NOT be recorded when this is sent
+## What was not recorded on send
 
 The founder's standing instruction, 2026-09-06, carried here so it travels with the artifact:
 
@@ -53,8 +49,8 @@ The founder's standing instruction, 2026-09-06, carried here so it travels with 
 > exposure-measured. The evidence remains disconfirming: existing internal tooling and funded
 > engineering appear to handle the workflow, while no specific unmet need was established.
 
-Concretely, on send: `date_interviewed` stays **empty**, `pain_bar` stays empty, `money_bar` stays
-empty, `data_bar` stays `n`, and the `disconfirmer` column stands. Twelve of the fields in this
+Concretely, `date_interviewed` stays **empty**, `pain_bar` stays empty, `money_bar` stays empty,
+`data_bar` stays `n`, and the `disconfirmer` column stands. Twelve of the fields in this
 reconstruction read `unknown`, which is the honest count and the reason the row cannot qualify.
 
 ## The commitment this message creates
@@ -64,3 +60,7 @@ reconstruction read `unknown`, which is the honest count and the reason the row 
 A future obligation to a named contact, owed once the kill-test reaches its conclusion. Recorded
 here because the last commitment in this thread — a reconstruction by Friday 2026-09-04 — was
 missed by two days, and an unrecorded promise is how that happens.
+
+---
+
+**Status 2026-09-22.** Artem replied 👍 at 20:54 (LinkedIn) to the message above, with no corrections. The record is final as written; every "Unknown" stays unknown. No further contact until the aggregated findings are shared. Gate credit: none (no quantified pain, no frequency, no data access), per `kill-test-tracker.csv`.
