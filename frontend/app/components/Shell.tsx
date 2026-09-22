@@ -74,6 +74,7 @@ const NAV: { label: string; links: [string, string, IconName][] }[] = [
       ["Transfers", "/transfers", "transfer"],
       ["Ledger", "/ledger", "ledger"],
       ["Reconciliation", "/reconciliation", "reconcile"],
+      ["Recon cases", "/reconciliation/cases", "evidence"],
       ["Settlements", "/reconciliation/statements", "settlement"],
     ],
   },

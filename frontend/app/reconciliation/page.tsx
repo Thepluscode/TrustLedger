@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState, SeverityPill, SkeletonRows, StatusPill } from "../components/ui";
 import Shell from "../components/Shell";
-import { api } from "../lib/api";
+import { api, getSession } from "../lib/api";
 import { dateTime, money, shortId } from "../lib/format";
 import type { ReconciliationIssue, ReconciliationIssueList } from "../lib/types";
 
@@ -25,11 +25,30 @@ export default function ReconciliationPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [severity, setSeverity] = useState("");
+  const [lifecycleState, setLifecycleState] = useState("");
+  const [type, setType] = useState("");
+  const [currency, setCurrency] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [mine, setMine] = useState(false);
+  // null until the query string has been read, so the first request already carries the case filter.
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [myId, setMyId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    setCaseId(q.get("caseId") ?? "");
+    setType(q.get("type") ?? "");
+    setMyId(getSession()?.userId);
+  }, []);
+
+  useEffect(() => {
+    if (caseId === null) return;
     setData(null);
-    api.listReconciliationIssues(status, severity).then(setData).catch((e) => setError((e as Error).message));
-  }, [status, severity]);
+    api.listReconciliationIssues(status, severity, {
+      caseId, type, lifecycleState, currency: currency.trim().toUpperCase(),
+      overdue: overdueOnly ? "true" : "", owner: mine ? myId ?? "" : "",
+    }).then(setData).catch((e) => setError((e as Error).message));
+  }, [status, severity, lifecycleState, type, currency, overdueOnly, mine, caseId, myId]);
 
   const s = data?.summary;
   // Exposure gets one card per currency. Adding them together would be arithmetic on incomparable
@@ -62,7 +81,9 @@ export default function ReconciliationPage() {
           <h1>Reconciliation</h1>
           <p className="sub">Financial and operational mismatches the worker found — resolve them or trace the evidence.</p>
         </div>
+        <Link href="/reconciliation/cases" className="btn" style={{ textDecoration: "none" }}>Reconciliation cases</Link>
       </header>
+      {caseId && <p className="notice">Showing exceptions raised by one case. <Link href={`/reconciliation/cases/${caseId}`}>Back to the case</Link> · <Link href="/reconciliation" onClick={() => setCaseId("")}>show all</Link></p>}
       {error && <p className="error">{error}</p>}
 
       <section className="grid metrics reconciliation-metrics">
@@ -81,7 +102,17 @@ export default function ReconciliationPage() {
       <section className="panel">
         <div className="panelHeader">
           <div><h2>Issues</h2></div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <select value={lifecycleState} onChange={(e) => setLifecycleState(e.target.value)} aria-label="Filter by working state">
+              <option value="">All working states</option>
+              {["OPEN", "ASSIGNED", "INVESTIGATING", "AWAITING_EVIDENCE", "RESOLVED", "DISMISSED"].map((st) => (
+                <option key={st} value={st}>{st.replace(/_/g, " ").toLowerCase()}</option>))}
+            </select>
+            <input value={type} onChange={(e) => setType(e.target.value.trim().toUpperCase())} placeholder="Type, e.g. FEE_MISMATCH" aria-label="Filter by type" style={{ width: 190 }} />
+            <input value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="CCY" maxLength={3} aria-label="Filter by currency" style={{ width: 64 }} />
+            <label className="muted"><input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} /> overdue</label>
+            <label className="muted" title={myId ? undefined : "Sign in again to enable this filter"}>
+              <input type="checkbox" checked={mine} disabled={!myId} onChange={(e) => setMine(e.target.checked)} /> mine</label>
             <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
               <option value="">All statuses</option>
               <option value="OPEN">Open</option>
@@ -98,7 +129,7 @@ export default function ReconciliationPage() {
         </div>
         <table className="desktop-table">
           <thead>
-            <tr><th>Severity</th><th>Type</th><th>Affected entity</th><th>At risk</th><th>Due</th><th>Status</th><th>Created</th></tr>
+            <tr><th>Severity</th><th>Type</th><th>Affected entity</th><th>At risk</th><th>Due</th><th>State</th><th>Created</th></tr>
           </thead>
           <tbody>
             {items === null && <SkeletonRows cols={7} />}
@@ -111,7 +142,7 @@ export default function ReconciliationPage() {
                 <td className={isOverdue(i) ? "error" : "muted"} style={{ whiteSpace: "nowrap" }}>
                   {dateTime(i.dueAt)}{isOverdue(i) ? " · overdue" : ""}
                 </td>
-                <td><StatusPill value={i.status} /></td>
+                <td><StatusPill value={i.lifecycleState ?? i.status} /></td>
                 <td className="muted" style={{ whiteSpace: "nowrap" }}>{dateTime(i.createdAt)}</td>
               </tr>
             ))}

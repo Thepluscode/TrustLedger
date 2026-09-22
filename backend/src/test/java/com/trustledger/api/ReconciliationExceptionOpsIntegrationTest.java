@@ -185,8 +185,8 @@ class ReconciliationExceptionOpsIntegrationTest {
         AuthResponse other = register();
         ReconciliationIssueEntity theirs = issue(other.tenantId(), "CRITICAL", "OPEN", "5.0000", "GBP");
 
-        // 400 (not found), never 403: the response must not confirm that the id exists.
-        assertEquals(400, assign(theirs.getId(), mine.token(), mine.userId()).statusCode());
+        // 404, the same as an unknown id and the same as a read: the response must not confirm that the id exists.
+        assertEquals(404, assign(theirs.getId(), mine.token(), mine.userId()).statusCode());
         assertNull(issues.findById(theirs.getId()).orElseThrow().getOwnerUserId());
     }
 

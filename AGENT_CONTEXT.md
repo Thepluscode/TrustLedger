@@ -36,12 +36,18 @@ decisions, thirty connectors, a fraud-detection platform, crypto, ERP replacemen
 accounting, a consumer payment app, a microservice estate. Full framing: `docs/PRODUCT_BLUEPRINT.md`
 §1 (wedge + MVP boundary), §9 (packaging), §10 (expansion sequence).
 
-### Feature decision rule
-Before adding anything, it must do at least one of: (1) help a user understand where money is,
-(2) prevent a financial/operational mistake, (3) improve safe execution or recovery,
-(4) reduce reconciliation work, (5) produce defensible evidence, (6) strengthen identity/policy/
-audit/evidence/observability. If not → defer. Explicitly **not now**: consumer wallets, lending,
-crypto, rewards/loyalty, generic AI assistants, social features.
+### Feature decision rule (founder, 2026-09-22)
+One question, asked of every feature, PR, integration, dashboard and research task:
+
+> **Does this make TrustLedger materially better at establishing, explaining, protecting or acting
+> on financial truth when payment systems disagree?**
+
+If the answer is no, it is not core; defer it. The earlier six criteria are examples of a yes: help a
+user understand where money is; prevent a financial or operational mistake; improve safe execution or
+recovery; reduce reconciliation work; produce defensible evidence; strengthen identity, policy, audit,
+evidence or observability. Explicitly **not now**: consumer wallets, lending, crypto, rewards/loyalty,
+generic AI assistants, social features. `PENDING_UNKNOWN` is the philosophy, not a detail: if the
+system does not know, it says it does not know. Full statement: knowledge base strategy §37.
 
 ### Status labels (use these, not "done")
 `PLANNED` → `SCAFFOLDED` (structure, no behaviour) → `IMPLEMENTED` (code, no runtime proof) →

@@ -1,0 +1,5 @@
+# Test fixture, not a credential: the historical value was the literal alphabet run
+# "sk_test_" + "abcdefghijklmnop" (16 distinct lowercase letters in order), in a unit test that
+# mocks the credential resolver. It was replaced at HEAD by "sk_test_not-real". gitleaks scans full
+# history, so the old commit keeps failing the scan. Verified 2026-09-17.
+fcdeeb0ace9423b1cda34ad6b9730b9e3691e493:backend/src/test/java/com/trustledger/rails/stripe/StripePayoutRailAdapterTest.java:stripe-access-token:28

@@ -24,7 +24,7 @@ public class UserService {
 
     /** Assignable roles (subset of RolePermissions; TENANT_ADMIN is an internal alias, not assignable). */
     public static final Set<String> ASSIGNABLE_ROLES = Set.of("OWNER", "ADMIN", "FRAUD_MANAGER",
-        "FRAUD_ANALYST", "FINANCE_OPERATOR", "AUDITOR", "VIEWER", "DEVELOPER");
+        "FRAUD_ANALYST", "FINANCE_OPERATOR", "RECON_OPERATOR", "AUDITOR", "VIEWER", "DEVELOPER");
 
     private final UserRepository users;
     private final PasswordEncoder encoder;

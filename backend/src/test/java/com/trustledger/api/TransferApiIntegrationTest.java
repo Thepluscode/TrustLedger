@@ -296,7 +296,7 @@ class TransferApiIntegrationTest {
         assertEquals("RESOLVED", rd.get("status"));
         assertNotNull(rd.get("resolvedAt"), "resolvedAt is stamped");
 
-        assertEquals(403, get(register().token(), "/api/v1/reconciliation/issues/" + issueId).statusCode());
+        assertEquals(404, get(register().token(), "/api/v1/reconciliation/issues/" + issueId).statusCode());
     }
 
     private HttpResponse<String> get(String token, String path) throws Exception {
