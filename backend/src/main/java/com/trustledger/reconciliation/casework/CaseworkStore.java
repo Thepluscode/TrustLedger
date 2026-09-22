@@ -35,7 +35,11 @@ public class CaseworkStore {
                             String originalFilename, String fileSha256, long byteSize, String storageKey,
                             String profile, int profileVersion, String status, String failureReason,
                             int recordCount, int acceptedCount, int rejectedCount, int duplicateCount,
-                            UUID rejectionsAcknowledgedBy, UUID actorId, String correlationId, Instant importedAt) {}
+                            UUID rejectionsAcknowledgedBy, UUID actorId, String correlationId, Instant importedAt,
+                            int deliveryCount, UUID feedId) {}
+
+    public record FeedRow(UUID id, UUID tenantId, UUID caseId, String providerIdentity, String profile, String status,
+                          UUID createdBy, Instant createdAt, Instant revokedAt) {}
 
     public record CurrencyTotal(String currency, BigDecimal grossTotal, int rowCount) {}
 
@@ -121,12 +125,17 @@ public class CaseworkStore {
         jdbc.update("""
             INSERT INTO recon_imports (id, tenant_id, case_id, source_type, source_identity, original_filename,
                 file_sha256, byte_size, storage_key, profile, profile_version, status, failure_reason,
-                record_count, accepted_count, rejected_count, duplicate_count, actor_id, correlation_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                record_count, accepted_count, rejected_count, duplicate_count, actor_id, correlation_id, feed_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             i.id(), tenantId, i.caseId(), i.sourceType(), i.sourceIdentity(), i.originalFilename(),
             i.fileSha256(), i.byteSize(), i.storageKey(), i.profile(), i.profileVersion(), i.status(),
             i.failureReason(), i.recordCount(), i.acceptedCount(), i.rejectedCount(), i.duplicateCount(),
-            i.actorId(), i.correlationId());
+            i.actorId(), i.correlationId(), i.feedId());
+    }
+
+    /** The same bytes arrived again. Nothing derived changes; the count is the evidence of redelivery. */
+    public void countDelivery(UUID tenantId, UUID importId) {
+        jdbc.update("UPDATE recon_imports SET delivery_count = delivery_count + 1 WHERE tenant_id = ? AND id = ?", tenantId, importId);
     }
 
     public int acknowledgeRejections(UUID tenantId, UUID caseId, UUID importId, UUID actorId) {
@@ -244,6 +253,34 @@ public class CaseworkStore {
              ORDER BY r.record_key""", CaseworkStore::mapRecord, tenantId, caseId);
     }
 
+    // --- feeds -------------------------------------------------------------------------------------
+
+    public void insertFeed(FeedRow f, String tokenSha256) {
+        jdbc.update("""
+            INSERT INTO recon_feeds (id, tenant_id, case_id, provider_identity, profile, token_sha256, status, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)""",
+            f.id(), f.tenantId(), f.caseId(), f.providerIdentity(), f.profile(), tokenSha256, f.createdBy());
+    }
+
+    /** The one lookup that starts from a caller-supplied id with no tenant: the token hash is checked by the caller. */
+    public Optional<FeedRow> findFeedForDelivery(UUID feedId) {
+        return one(jdbc.query("SELECT * FROM recon_feeds WHERE id = ?", CaseworkStore::mapFeed, feedId));
+    }
+
+    public String feedTokenHash(UUID feedId) {
+        return jdbc.queryForObject("SELECT token_sha256 FROM recon_feeds WHERE id = ?", String.class, feedId).trim();
+    }
+
+    public List<FeedRow> listFeeds(UUID tenantId, UUID caseId) {
+        return jdbc.query("SELECT * FROM recon_feeds WHERE tenant_id = ? AND case_id = ? ORDER BY created_at, id",
+            CaseworkStore::mapFeed, tenantId, caseId);
+    }
+
+    public int revokeFeed(UUID tenantId, UUID feedId) {
+        return jdbc.update("UPDATE recon_feeds SET status = 'REVOKED', revoked_at = now() WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
+            tenantId, feedId);
+    }
+
     // --- runs --------------------------------------------------------------------------------------
 
     public Optional<RunRow> findRunByKey(UUID tenantId, String runKey) {
@@ -323,6 +360,12 @@ public class CaseworkStore {
 
     // --- mapping -----------------------------------------------------------------------------------
 
+    private static FeedRow mapFeed(ResultSet rs, int n) throws SQLException {
+        return new FeedRow(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class), rs.getObject("case_id", UUID.class),
+            rs.getString("provider_identity"), rs.getString("profile"), rs.getString("status"),
+            rs.getObject("created_by", UUID.class), instant(rs, "created_at"), instant(rs, "revoked_at"));
+    }
+
     private static RunRow mapRun(ResultSet rs, int n) throws SQLException {
         return new RunRow(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class), rs.getString("run_key").trim(),
             rs.getString("ruleset_version"), rs.getInt("records_processed"), rs.getInt("internal_payments"),
@@ -346,7 +389,8 @@ public class CaseworkStore {
             rs.getString("failure_reason"), rs.getInt("record_count"), rs.getInt("accepted_count"),
             rs.getInt("rejected_count"), rs.getInt("duplicate_count"),
             rs.getObject("rejections_acknowledged_by", UUID.class), rs.getObject("actor_id", UUID.class),
-            rs.getString("correlation_id"), instant(rs, "imported_at"));
+            rs.getString("correlation_id"), instant(rs, "imported_at"), rs.getInt("delivery_count"),
+            rs.getObject("feed_id", UUID.class));
     }
 
     private static StoredRecord mapRecord(ResultSet rs, int n) throws SQLException {

@@ -125,7 +125,7 @@ class CaseBundleIntegrationTest {
             assertTrue(fileHashes.contains(Hashes.sha256(CaseworkHttp.fixture(f))), f);
         }
         assertEquals(1, rejectedListed);
-        assertEquals("recon-rules/1.0.0", c.get("run").get("rulesetVersion").asString());
+        assertEquals("recon-rules/1.1.0", c.get("run").get("rulesetVersion").asString());
         assertEquals(2, c.get("run").get("unresolvedAtRunByCurrency").size());
         assertEquals(16, c.get("matches").size());
         assertFalse(c.get("matchesTruncated").asBoolean());

@@ -33,8 +33,10 @@ public interface ImportProfile {
             case InternalExpectedV1.NAME -> new InternalExpectedV1();
             case ProviderTransactionsV1.NAME -> new ProviderTransactionsV1();
             case ProviderSettlementV1.NAME -> new ProviderSettlementV1();
+            case ProviderEventJsonV1.NAME -> new ProviderEventJsonV1();
             default -> throw new IllegalArgumentException("unknown import profile: " + name + " (known: "
-                + InternalExpectedV1.NAME + ", " + ProviderTransactionsV1.NAME + ", " + ProviderSettlementV1.NAME + ")");
+                + InternalExpectedV1.NAME + ", " + ProviderTransactionsV1.NAME + ", " + ProviderSettlementV1.NAME
+                + ", " + ProviderEventJsonV1.NAME + ")");
         };
     }
 }

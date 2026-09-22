@@ -68,7 +68,10 @@ public enum ReconciliationClassification {
         Map.entry("MISSING_SETTLEMENT", MISSING_SETTLEMENT),
         Map.entry("LATE_SETTLEMENT", LATE_SETTLEMENT),
         Map.entry("UNEXPECTED_STATUS_TRANSITION", INVALID_STATE_TRANSITION),
-        Map.entry("PAYMENT_STATUS_MISMATCH", INVALID_STATE_TRANSITION));
+        Map.entry("PAYMENT_STATUS_MISMATCH", INVALID_STATE_TRANSITION),
+        // The provider has not decided. UNKNOWN is the taxonomy's "ambiguity preserved, stays visible" value,
+        // and it is the one deliberate UNKNOWN a casework run can raise.
+        Map.entry("PENDING_UNKNOWN", UNKNOWN));
 
     public static ReconciliationClassification forType(String type) {
         // Map.ofEntries maps reject null keys even in getOrDefault.

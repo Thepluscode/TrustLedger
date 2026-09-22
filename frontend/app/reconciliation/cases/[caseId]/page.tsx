@@ -8,7 +8,7 @@ import Shell from "../../../components/Shell";
 import { api } from "../../../lib/api";
 import { bytes, dateTime, money } from "../../../lib/format";
 import { IMPORT_PROFILES, matchRatePercent, parseRunSummary } from "../../../lib/recon";
-import type { ReconBundle, ReconCaseView, ReconImportView, ReconRunView, ReconSourceRow } from "../../../lib/types";
+import type { ReconBundle, ReconCaseView, ReconFeed, ReconFeedCreated, ReconImportView, ReconRunView, ReconSourceRow } from "../../../lib/types";
 
 function words(value: string): string {
   return value.replace(/_/g, " ").toLowerCase();
@@ -26,12 +26,16 @@ export default function ReconCasePage() {
   const [profile, setProfile] = useState(IMPORT_PROFILES[0].profile);
   const [identity, setIdentity] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [feedList, setFeedList] = useState<ReconFeed[]>([]);
+  const [feedIdentity, setFeedIdentity] = useState("");
+  const [newFeed, setNewFeed] = useState<ReconFeedCreated | null>(null);
 
   const load = useCallback(async () => {
     if (!caseId) return;
     try {
-      const [loaded, runs] = await Promise.all([api.getReconCase(caseId), api.listReconRuns(caseId)]);
+      const [loaded, runs, feedRows] = await Promise.all([api.getReconCase(caseId), api.listReconRuns(caseId), api.listReconFeeds(caseId)]);
       setView(loaded);
+      setFeedList(feedRows);
       // A DRAFT case has changed since its last run, so that run no longer describes it.
       setRun(runs.length > 0 && loaded.reconciliationCase.status !== "DRAFT" ? await api.getReconRun(caseId, runs[0].id) : null);
     } catch (e) {
@@ -146,9 +150,9 @@ export default function ReconCasePage() {
                       <td>{m.originalFilename}<br /><span className="muted">{bytes(m.byteSize)} · {m.profile} v{m.profileVersion}</span><br />
                         <span className="muted mono" style={{ fontSize: 12 }} title={m.fileSha256}>sha256 {m.fileSha256.slice(0, 16)}…</span><br />
                         <span className="muted" style={{ fontSize: 12 }}>{dateTime(m.importedAt)}</span></td>
-                      <td>{words(m.sourceType)}<br /><span className="muted mono">{m.sourceIdentity}</span></td>
+                      <td>{words(m.sourceType)}{m.feedId && <span className="muted"> · event</span>}<br /><span className="muted mono">{m.sourceIdentity}</span></td>
                       <td><StatusPill value={m.status} />{m.failureReason && <><br /><span className="error">{m.failureReason}</span></>}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{m.acceptedCount} accepted<br />
+                      <td style={{ whiteSpace: "nowrap" }}>{m.acceptedCount} accepted{m.deliveryCount > 1 && <span className="muted"> · delivered {m.deliveryCount}×</span>}<br />
                         <span className={m.rejectedCount > 0 ? "error" : "muted"}>{m.rejectedCount} rejected</span> · <span className="muted">{m.duplicateCount} duplicate</span></td>
                       <td className="mono">{i.currencyTotals.length === 0 ? "—" : i.currencyTotals.map((t) => <div key={t.currency}>{money(t.grossTotal, t.currency)}</div>)}</td>
                       <td>
@@ -180,6 +184,49 @@ export default function ReconCasePage() {
                 </table>
               </div>
             ))}
+          </section>
+
+          <section className="panel" style={{ marginTop: 18 }}>
+            <div className="panelHeader"><div><h2>1b · Live event feeds</h2><p className="sub">A provider posts one JSON event per delivery. Each becomes a one-row import on the same path as a file: stored raw, hashed, deduplicated, reconciled by the same rules.</p></div></div>
+            {!closed && (
+              <form className="panelBody" onSubmit={(e) => { e.preventDefault(); void act("feed", async () => {
+                const created = await api.createReconFeed(caseId, feedIdentity.trim());
+                setNewFeed(created);
+                setFeedIdentity("");
+                return "Feed created. Copy the token now; it is not shown again.";
+              }); }}>
+                <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <label>Provider identity<br /><input value={feedIdentity} onChange={(e) => setFeedIdentity(e.target.value)} placeholder="provider-b" pattern="[A-Za-z0-9._\-]{1,64}" required /></label>
+                  <button className="secondary" disabled={!feedIdentity.trim() || busy !== null}>{busy === "feed" ? "Creating…" : "Create feed"}</button>
+                </div>
+              </form>
+            )}
+            {newFeed && (
+              <div className="panelBody">
+                <p className="notice" style={{ margin: 0 }}>
+                  <b>Token (shown once):</b> <span className="mono" style={{ wordBreak: "break-all" }}>{newFeed.token}</span><br />
+                  <span className="muted">POST one JSON object per event to <span className="mono">{newFeed.deliveryPath}</span> with header <span className="mono">X-Recon-Feed-Token</span>. Fields: event_id, transaction_ref, merchant_ref, event_type, status, currency, gross, fee, net, occurred_at, received_at.</span>
+                </p>
+              </div>
+            )}
+            <table>
+              <thead><tr><th>Feed</th><th>Provider</th><th>Profile</th><th>Status</th><th>Created</th><th /></tr></thead>
+              <tbody>
+                {feedList.map((f) => (
+                  <tr key={f.id}>
+                    <td className="mono muted" title={f.id}>{f.id.slice(0, 8)}…</td>
+                    <td className="mono">{f.providerIdentity}</td>
+                    <td className="muted">{f.profile}</td>
+                    <td><StatusPill value={f.status} /></td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>{dateTime(f.createdAt)}</td>
+                    <td>{f.status === "ACTIVE" && !closed && (
+                      <button className="secondary" disabled={busy !== null} onClick={() => act("revoke", async () => { await api.revokeReconFeed(caseId, f.id); })}>Revoke</button>
+                    )}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {feedList.length === 0 && <EmptyState title="No feeds" hint="Optional. A feed lets a provider deliver events continuously instead of a month-end file. Both reconcile the same way." />}
           </section>
 
           <section className="panel" style={{ marginTop: 18 }}>

@@ -40,7 +40,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         // Include the public, unauthenticated provider-webhook ingest: without a limit a single source
         // can flood the durable inbox with distinct rows, each burning a worker verify cycle + storage.
         if (path.startsWith("/api/v1/auth") || path.startsWith("/api/v1/transfers")
-                || path.startsWith("/api/v1/payment-rails/webhooks")) {
+                || path.startsWith("/api/v1/payment-rails/webhooks")
+                || path.startsWith("/api/v1/reconciliation/events")) {
             String key = request.getRemoteAddr() + "|" + path + "|" + (Instant.now().getEpochSecond() / 60);
             int count = windows.computeIfAbsent(key, k -> new AtomicInteger()).incrementAndGet();
             if (count > requestsPerMinute) {

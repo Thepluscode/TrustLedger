@@ -109,6 +109,17 @@ class EngineRulesTest {
     }
 
     @Test
+    void aPendingChargeIsPendingUnknownNotAMismatchAndStillCountsAsUnresolved() {
+        Result r = run("P1,prov,tx1,PAYMENT,GBP,10.00,2026-08-03T10:00:00Z\n",
+            "e1,tx1,,CHARGE,PENDING,GBP,10.00,,,2026-08-03T10:00:00Z,\n", null);
+        assertEquals(List.of("PENDING_UNKNOWN"), types(r));
+        Finding f = r.findings().get(0);
+        assertEquals("MEDIUM", f.severity());
+        assertEquals(0, new java.math.BigDecimal("10.00").compareTo(f.exposure()), "money in doubt is unresolved, not zero");
+        assertEquals(1, r.internalMatched(), "the pair still matched; only its outcome is unknown");
+    }
+
+    @Test
     void aProviderChargeThatDidNotSucceedIsAStatusMismatch() {
         Result r = run("P1,prov,tx1,PAYMENT,GBP,10.00,2026-08-03T10:00:00Z\n",
             "e1,tx1,,CHARGE,FAILED,GBP,10.00,,,2026-08-03T10:00:00Z,\n", null);

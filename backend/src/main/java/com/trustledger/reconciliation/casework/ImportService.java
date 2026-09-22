@@ -11,6 +11,7 @@ import com.trustledger.reconciliation.casework.CaseworkStore.SourceRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.StoredRecord;
 import com.trustledger.reconciliation.casework.csv.CsvTable;
 import com.trustledger.reconciliation.casework.profile.ImportProfile;
+import com.trustledger.reconciliation.casework.profile.ProviderEventJsonV1;
 import com.trustledger.reconciliation.casework.profile.RowRejected;
 import com.trustledger.security.ConflictException;
 import com.trustledger.security.NotFoundException;
@@ -63,9 +64,71 @@ public class ImportService {
         this.json = json;
     }
 
+    /** A parsed row: {@code values} null means the row could not be split into the expected columns. */
+    public record ParsedRow(int number, Map<String, String> values, String raw) {}
+
+    /** What one source contributes once its bytes are stored: rows to classify, or a file-level refusal. */
+    public record Parsed(List<ParsedRow> rows, String refusalCode, String refusalMessage) {
+        static Parsed refused(String code, String message) { return new Parsed(List.of(), code, message); }
+        boolean refused() { return refusalCode != null; }
+    }
+
     @Transactional
     public Result importFile(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType, String sourceIdentity,
                              String profileName, String filename, byte[] content) {
+        return ingest(tenantId, actorId, caseId, sourceType, sourceIdentity, profileName, filename, content, null,
+            "recon-import", ImportService::parseCsv);
+    }
+
+    /**
+     * One provider event delivered to a feed. The same governed path as a file: the raw body is stored
+     * first, identical bytes replay, one manifest with one row, the case returns to DRAFT. The engine
+     * never learns whether a record came from a file or a feed; the manifest's profile says.
+     */
+    @Transactional
+    public Result importEvent(UUID tenantId, UUID feedId, UUID caseId, String sourceIdentity, String profileName,
+                              byte[] body) {
+        ImportProfile profile = ImportProfile.forName(profileName);
+        if (!(profile instanceof ProviderEventJsonV1 events)) {
+            throw new IllegalArgumentException("profile " + profile.name() + " is a file profile, not an event profile");
+        }
+        return ingest(tenantId, null, caseId, profile.sourceType(), sourceIdentity, profileName, null, body, feedId,
+            "recon-event", (bytes, unused) -> {
+                try {
+                    Map<String, String> fields = events.fields(bytes);
+                    return new Parsed(List.of(new ParsedRow(1, fields, new String(bytes, java.nio.charset.StandardCharsets.UTF_8))),
+                        null, null);
+                } catch (RowRejected e) {
+                    // A body that is not one usable object is still one delivery with one rejected row, never
+                    // a silently dropped event: it blocks the run until somebody acknowledges it.
+                    return new Parsed(List.of(new ParsedRow(1, null, new String(bytes, java.nio.charset.StandardCharsets.UTF_8))),
+                        null, e.code() + ": " + e.getMessage());
+                }
+            });
+    }
+
+    /** The CSV front: file-level rules here, row rules in the shared path. */
+    private static Parsed parseCsv(byte[] content, ImportProfile profile) {
+        try {
+            CsvTable table = CsvTable.parse(content);
+            for (String required : profile.requiredHeaders()) {
+                if (!table.headers().contains(required)) {
+                    return Parsed.refused("MISSING_COLUMN", "required column missing: " + required
+                        + " (profile " + profile.name() + " v" + profile.version() + " needs " + profile.requiredHeaders() + ")");
+                }
+            }
+            return new Parsed(table.rows().stream().map(r -> new ParsedRow(r.number(), r.values(), r.raw())).toList(), null, null);
+        } catch (CsvTable.FileRejected e) {
+            return Parsed.refused(e.code(), e.getMessage());
+        }
+    }
+
+    private interface Front {
+        Parsed parse(byte[] content, ImportProfile profile);
+    }
+
+    private Result ingest(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType, String sourceIdentity,
+                          String profileName, String filename, byte[] content, UUID feedId, String keySegment, Front front) {
         if (sourceType == null) throw new IllegalArgumentException("sourceType is required");
         if (sourceIdentity == null || !sourceIdentity.matches("[A-Za-z0-9._-]{1,64}")) {
             throw new IllegalArgumentException("sourceIdentity (the provider, or the internal system) is required: letters, digits, dot, underscore, hyphen");
@@ -77,7 +140,7 @@ public class ImportService {
             throw new IllegalArgumentException("profile " + profile.name() + " reads " + profile.sourceType() + " files, not " + sourceType);
         }
 
-        // The case row lock serialises concurrent uploads of the same file: the second one waits, then
+        // The case row lock serialises concurrent deliveries of the same bytes: the second one waits, then
         // finds the first one's manifest and replays it.
         CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> cases.notFound(caseId));
         if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; no further imports are accepted");
@@ -85,31 +148,25 @@ public class ImportService {
         String fileSha = Hashes.sha256(content);
         var existing = store.findImportByHash(tenantId, caseId, fileSha);
         if (existing.isPresent()) {
-            metrics.replay("import");
+            store.countDelivery(tenantId, existing.get().id());
+            metrics.replay(feedId == null ? "import" : "event");
             metrics.importFinished(sourceType, "replayed");
             log.info("recon.import.replayed import={} case={}", existing.get().id(), caseId);
-            return new Result(existing.get(), store.currencyTotals(existing.get().id()), true);
+            ImportRow replayed = store.findImport(tenantId, caseId, existing.get().id()).orElseThrow();
+            return new Result(replayed, store.currencyTotals(replayed.id()), true);
         }
 
-        log.info("recon.import.started case={} sourceType={} bytes={}", caseId, sourceType, content.length);
-        // Raw evidence first. If this throws, nothing derived from the file exists either.
-        String storageKey = "evidence/" + tenantId + "/recon-import/" + caseId + "/" + fileSha + ".csv";
+        log.info("recon.import.started case={} sourceType={} bytes={} feed={}", caseId, sourceType, content.length, feedId);
+        // Raw evidence first. If this throws, nothing derived from the bytes exists either.
+        String storageKey = "evidence/" + tenantId + "/" + keySegment + "/" + (feedId == null ? caseId : feedId) + "/" + fileSha
+            + (feedId == null ? ".csv" : ".json");
         storage.store(storageKey, content);
 
         UUID importId = UUID.randomUUID();
-        String safeName = safeFilename(filename);
-        CsvTable table;
-        try {
-            table = CsvTable.parse(content);
-            for (String required : profile.requiredHeaders()) {
-                if (!table.headers().contains(required)) {
-                    throw new CsvTable.FileRejected("MISSING_COLUMN", "required column missing: " + required
-                        + " (profile " + profile.name() + " v" + profile.version() + " needs " + profile.requiredHeaders() + ")");
-                }
-            }
-        } catch (CsvTable.FileRejected e) {
-            return failed(tenantId, actorId, caseId, importId, sourceType, sourceIdentity, safeName, fileSha,
-                content.length, storageKey, profile, e.code() + ": " + e.getMessage());
+        Parsed parsed = front.parse(content, profile);
+        if (parsed.refused()) {
+            return failed(tenantId, actorId, caseId, importId, sourceType, sourceIdentity, safeFilename(filename), fileSha,
+                content.length, storageKey, profile, feedId, parsed.refusalCode() + ": " + parsed.refusalMessage());
         }
 
         Set<String> alreadyAccepted = store.acceptedRowHashes(tenantId, caseId);
@@ -119,15 +176,18 @@ public class ImportService {
         Map<String, BigDecimal> gross = new TreeMap<>();
         Map<String, Integer> counts = new TreeMap<>();
         int accepted = 0, rejected = 0, duplicate = 0;
+        String eventName = null;
 
-        for (CsvTable.Row row : table.rows()) {
+        for (ParsedRow row : parsed.rows()) {
             UUID rowId = UUID.randomUUID();
             // The hash covers the source as well as the content, so an identical line in the internal
             // file and in a provider file are two facts, not a duplicate.
             String rowSha = Hashes.sha256(sourceType.name(), sourceIdentity, row.raw());
             if (row.values() == null) {
-                sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "REJECTED", "WRONG_COLUMN_COUNT",
-                    "the row does not have " + table.headers().size() + " columns"));
+                String code = parsed.refusalMessage() != null ? parsed.refusalMessage().substring(0, parsed.refusalMessage().indexOf(':')) : "WRONG_COLUMN_COUNT";
+                String message = parsed.refusalMessage() != null ? parsed.refusalMessage().substring(parsed.refusalMessage().indexOf(':') + 2)
+                    : "the row does not have the expected number of columns";
+                sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "REJECTED", code, truncate(message, 300)));
                 rejected++;
                 continue;
             }
@@ -137,11 +197,12 @@ public class ImportService {
                 continue;
             }
             try {
-                CanonicalRecord parsed = profile.normalise(row.values(), row.number(), sourceIdentity);
-                String identity = parsed.providerEventId() != null ? parsed.providerEventId()
-                    : parsed.stableRef() != null ? parsed.stableRef() : parsed.internalRef();
-                CanonicalRecord keyed = parsed.withKey(Hashes.sha256(tenantId.toString(), caseId.toString(),
-                    sourceType.name(), sourceIdentity, identity, parsed.eventType().name(), rowSha));
+                CanonicalRecord parsedRecord = profile.normalise(row.values(), row.number(), sourceIdentity);
+                String identity = parsedRecord.providerEventId() != null ? parsedRecord.providerEventId()
+                    : parsedRecord.stableRef() != null ? parsedRecord.stableRef() : parsedRecord.internalRef();
+                if (eventName == null) eventName = identity;
+                CanonicalRecord keyed = parsedRecord.withKey(Hashes.sha256(tenantId.toString(), caseId.toString(),
+                    sourceType.name(), sourceIdentity, identity, parsedRecord.eventType().name(), rowSha));
                 sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "ACCEPTED", null, null));
                 rowIdByNumber.put(row.number(), rowId);
                 records.add(new StoredRecord(UUID.randomUUID(), importId, keyed, storageKey, fileSha, rowSha));
@@ -155,9 +216,11 @@ public class ImportService {
             }
         }
 
+        // A feed delivery is named by its event id, so an operator reading the manifest list sees events, not hashes.
+        String safeName = feedId == null ? safeFilename(filename) : safeFilename(eventName != null ? eventName + ".json" : "event.json");
         ImportRow manifest = new ImportRow(importId, caseId, sourceType.name(), sourceIdentity, safeName, fileSha,
             content.length, storageKey, profile.name(), profile.version(), "COMPLETED", null,
-            table.rows().size(), accepted, rejected, duplicate, null, actorId, CorrelationId.current(), null);
+            parsed.rows().size(), accepted, rejected, duplicate, null, actorId, CorrelationId.current(), null, 1, feedId);
         store.insertImport(tenantId, manifest);
         store.insertSourceRows(tenantId, importId, sourceRows);
         store.insertRecords(tenantId, caseId, importId, records, rowIdByNumber, CorrelationId.current());
@@ -174,11 +237,12 @@ public class ImportService {
         meta.put("filename", safeName);
         meta.put("fileSha256", fileSha);
         meta.put("profile", profile.name() + "/v" + profile.version());
+        if (feedId != null) meta.put("feedId", feedId.toString());
         meta.put("accepted", accepted);
         meta.put("rejected", rejected);
         meta.put("duplicate", duplicate);
-        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId, "RECON_IMPORT_COMPLETED",
-            "RECON_CASE", caseId, json.writeValueAsString(meta)));
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, feedId == null ? "USER" : "SYSTEM", actorId,
+            feedId == null ? "RECON_IMPORT_COMPLETED" : "RECON_EVENT_RECEIVED", "RECON_CASE", caseId, json.writeValueAsString(meta)));
         metrics.importFinished(sourceType, "completed");
         metrics.rows(sourceType, "accepted", accepted);
         metrics.rows(sourceType, "rejected", rejected);
@@ -191,12 +255,12 @@ public class ImportService {
     /** A file-level failure is a committed fact with zero rows, not a rollback: the operator must see it. */
     private Result failed(UUID tenantId, UUID actorId, UUID caseId, UUID importId, SourceType sourceType,
                           String sourceIdentity, String filename, String fileSha, long size, String storageKey,
-                          ImportProfile profile, String reason) {
+                          ImportProfile profile, UUID feedId, String reason) {
         String r = truncate(reason, 500);
         store.insertImport(tenantId, new ImportRow(importId, caseId, sourceType.name(), sourceIdentity, filename,
             fileSha, size, storageKey, profile.name(), profile.version(), "FAILED", r, 0, 0, 0, 0, null, actorId,
-            CorrelationId.current(), null));
-        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId, "RECON_IMPORT_FAILED",
+            CorrelationId.current(), null, 1, feedId));
+        auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, feedId == null ? "USER" : "SYSTEM", actorId, "RECON_IMPORT_FAILED",
             "RECON_CASE", caseId, json.writeValueAsString(Map.of("importId", importId.toString(), "filename", filename,
                 "fileSha256", fileSha, "reason", r))).outcome(AuditLogEntity.FAILURE, "IMPORT_VALIDATION"));
         metrics.importFinished(sourceType, "failed");

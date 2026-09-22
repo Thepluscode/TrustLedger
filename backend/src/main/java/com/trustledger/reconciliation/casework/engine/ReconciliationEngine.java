@@ -36,7 +36,7 @@ public final class ReconciliationEngine {
     private ReconciliationEngine() {}
 
     /** Bump on ANY change to a rule, a tolerance or a detector. It is part of the run key and of every decision. */
-    public static final String RULESET_VERSION = "recon-rules/1.0.0";
+    public static final String RULESET_VERSION = "recon-rules/1.1.0";
 
     public static final String R1 = "R1-STABLE-ID", R2 = "R2-CROSS-REF", R3 = "R3-SETTLEMENT-BATCH",
         R4 = "R4-COMPOSITE", R5 = "R5-UNMATCHED";
@@ -318,7 +318,14 @@ public final class ReconciliationEngine {
                 money(internal).toString(), money(charge).toString(),
                 "Internal record " + internal.internalRef() + " expects " + money(internal) + ", and the provider charged " + money(charge) + "."));
         }
-        if (!"SUCCESS".equals(charge.paymentStatus())) {
+        if ("PENDING".equals(charge.paymentStatus())) {
+            // 1.1.0: a provider that has not decided is not a mismatch and not a success. The money is in doubt,
+            // so it is counted as unresolved, and the finding says exactly that and nothing more.
+            findings.add(new Finding("PENDING_UNKNOWN", "MEDIUM", internal.currency(), internal.grossAmount(), keys, "D-STATUS",
+                "a final provider status", "PENDING",
+                "Internal record " + internal.internalRef() + " expects a completed payment; the provider's latest word is PENDING. "
+                    + "TrustLedger does not know the outcome and will not guess it."));
+        } else if (!"SUCCESS".equals(charge.paymentStatus())) {
             findings.add(new Finding("PAYMENT_STATUS_MISMATCH", "HIGH", internal.currency(), internal.grossAmount(), keys, "D-STATUS",
                 "SUCCESS", String.valueOf(charge.paymentStatus()),
                 "Internal record " + internal.internalRef() + " expects a completed payment, and the provider reports " + charge.paymentStatus() + "."));

@@ -289,7 +289,23 @@ export interface ReconImportManifest {
   actorId: string;
   correlationId: string | null;
   importedAt: string;
+  /** How many times these exact bytes arrived. 1 for a file; a redelivered event counts up. */
+  deliveryCount: number;
+  feedId: string | null;
 }
+
+export interface ReconFeed {
+  id: string;
+  caseId: string;
+  providerIdentity: string;
+  profile: string;
+  status: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+/** `token` is present only in the creation response and never again. */
+export interface ReconFeedCreated { feed: ReconFeed; token: string; deliveryPath: string }
 
 export interface ReconCurrencyTotal { currency: string; grossTotal: string; rowCount: number }
 

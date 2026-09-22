@@ -91,7 +91,7 @@ class AcmeAcceptanceIntegrationTest {
         assertEquals(201, r.statusCode(), r.body());
         JsonNode v = http.tree(r);
         JsonNode run = v.get("run");
-        assertEquals("recon-rules/1.0.0", run.get("rulesetVersion").asString());
+        assertEquals("recon-rules/1.1.0", run.get("rulesetVersion").asString());
         assertEquals(30, run.get("recordsProcessed").asInt());
         assertEquals(1, run.get("rejectedInputs").asInt());
         assertEquals(11, run.get("internalPayments").asInt());
@@ -131,7 +131,7 @@ class AcmeAcceptanceIntegrationTest {
         assertEquals(7, queue.size());
         for (JsonNode issue : queue) {
             assertEquals("OPEN", issue.get("lifecycleState").asString());
-            assertEquals("recon-rules/1.0.0", issue.get("ruleVersion").asString());
+            assertEquals("recon-rules/1.1.0", issue.get("ruleVersion").asString());
             assertEquals(runId.toString(), issue.get("runId").asString());
             assertFalse(issue.get("ruleId").asString().isBlank());
             assertNotEquals("UNKNOWN", issue.get("classification").asString(), issue.get("type").asString());

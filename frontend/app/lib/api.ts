@@ -24,6 +24,8 @@ import type {
   ProviderConfigView,
   ReconBundle,
   ReconCase,
+  ReconFeed,
+  ReconFeedCreated,
   ReconCaseView,
   ReconIssueActivity,
   ReconRunView,
@@ -250,6 +252,11 @@ export const api = {
   runReconCase: (caseId: string) => request<ReconRunView>(`/api/v1/reconciliation/cases/${caseId}/runs`, { method: "POST" }),
   listReconRuns: (caseId: string) => request<ReconRun[]>(`/api/v1/reconciliation/cases/${caseId}/runs`),
   getReconRun: (caseId: string, runId: string) => request<ReconRunView>(`/api/v1/reconciliation/cases/${caseId}/runs/${runId}`),
+  listReconFeeds: (caseId: string) => request<ReconFeed[]>(`/api/v1/reconciliation/cases/${caseId}/feeds`),
+  createReconFeed: (caseId: string, providerIdentity: string) =>
+    request<ReconFeedCreated>(`/api/v1/reconciliation/cases/${caseId}/feeds`, { method: "POST", body: JSON.stringify({ providerIdentity }) }),
+  revokeReconFeed: (caseId: string, feedId: string) =>
+    request<ReconFeed>(`/api/v1/reconciliation/cases/${caseId}/feeds/${feedId}/revoke`, { method: "POST" }),
   closeReconCase: (caseId: string) => request<ReconCase>(`/api/v1/reconciliation/cases/${caseId}/close`, { method: "POST" }),
   exportReconBundle: (caseId: string) => request<ReconBundle>(`/api/v1/reconciliation/cases/${caseId}/bundle`, { method: "POST" }),
   /** The download needs the bearer token, so it cannot be a plain link. */

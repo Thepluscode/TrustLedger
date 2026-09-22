@@ -8,6 +8,7 @@ import com.trustledger.reconciliation.casework.CaseworkStore.CaseRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.CurrencyTotal;
 import com.trustledger.reconciliation.casework.CaseworkStore.ImportRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.SourceRow;
+import com.trustledger.reconciliation.casework.FeedService;
 import com.trustledger.reconciliation.casework.ImportService;
 import com.trustledger.reconciliation.casework.RunService;
 import com.trustledger.reconciliation.casework.RunService.RunView;
@@ -49,6 +50,11 @@ public class ReconciliationCaseController {
 
     public record CreateResponse(CaseRow reconciliationCase, boolean replayed) {}
 
+    public record CreateFeedRequest(String providerIdentity, String profile) {}
+
+    /** {@code token} is present only in the creation response and never again. */
+    public record FeedResponse(CaseworkStore.FeedRow feed, String token, String deliveryPath) {}
+
     /** Download and signature verification reuse the evidence endpoints: {@code /api/v1/evidence/exports/{exportId}}. */
     public record BundleResponse(UUID exportId, String bundleStatus, String contentHash, String fileChecksum,
                                  long byteSize, boolean signed) {}
@@ -61,9 +67,11 @@ public class ReconciliationCaseController {
     private final CaseworkStore store;
     private final RunService runs;
     private final CaseBundleService bundles;
+    private final FeedService feeds;
 
     public ReconciliationCaseController(AccessControlService access, CaseService cases, ImportService imports,
-                                        CaseworkStore store, RunService runs, CaseBundleService bundles) {
+                                        CaseworkStore store, RunService runs, CaseBundleService bundles, FeedService feeds) {
+        this.feeds = feeds;
         this.runs = runs;
         this.bundles = bundles;
         this.access = access;
@@ -189,5 +197,26 @@ public class ReconciliationCaseController {
         CaseBundleService.Exported e = bundles.export(CurrentUser.tenantId(), CurrentUser.userId(), caseId);
         return ResponseEntity.status(201).body(new BundleResponse(e.export().getId(), e.bundleStatus(), e.contentHash(),
             e.export().getChecksum(), e.export().getByteSize(), e.export().getSignature() != null));
+    }
+
+    /** A tenant-bound, case-bound inbound channel for provider events. The token is shown once. */
+    @PostMapping("/{caseId}/feeds")
+    public ResponseEntity<FeedResponse> createFeed(@PathVariable UUID caseId, @RequestBody(required = false) CreateFeedRequest body) {
+        access.require(Permission.RECON_CASE_MANAGE);
+        FeedService.CreatedFeed c = feeds.create(CurrentUser.tenantId(), CurrentUser.userId(), caseId,
+            body == null ? null : body.providerIdentity(), body == null ? null : body.profile());
+        return ResponseEntity.status(201).body(new FeedResponse(c.feed(), c.token(), "/api/v1/reconciliation/events/" + c.feed().id()));
+    }
+
+    @GetMapping("/{caseId}/feeds")
+    public List<CaseworkStore.FeedRow> listFeeds(@PathVariable UUID caseId) {
+        access.require(Permission.RECON_VIEW);
+        return feeds.list(CurrentUser.tenantId(), caseId);
+    }
+
+    @PostMapping("/{caseId}/feeds/{feedId}/revoke")
+    public CaseworkStore.FeedRow revokeFeed(@PathVariable UUID caseId, @PathVariable UUID feedId) {
+        access.require(Permission.RECON_CASE_MANAGE);
+        return feeds.revoke(CurrentUser.tenantId(), CurrentUser.userId(), caseId, feedId);
     }
 }

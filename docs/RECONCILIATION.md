@@ -86,7 +86,26 @@ a local date-time with no zone is rejected because it names no single instant. L
 200,000 rows per file. A malformed row is rejected and listed with its
 reason; a file that cannot be read as a whole is recorded as FAILED with zero rows.
 
-### Matching stages (`recon-rules/1.0.0`)
+### Live events: a webhook is a one-row import
+
+A feed (`POST /api/v1/reconciliation/cases/{caseId}/feeds`, `RECON_CASE_MANAGE`) binds a case and a
+provider identity to a bearer token shown once. A provider then posts one JSON object per event to
+`POST /api/v1/reconciliation/events/{feedId}` with `X-Recon-Feed-Token`. Each delivery is a governed
+import with one row: raw body stored write-once first, identical bytes replay (`delivery_count`), one
+manifest (`profile` provider-event-json) with one row accepted, rejected or duplicate, the case back to
+DRAFT, the same run key, engine, exception and bundle as a file. A refused delivery (unknown feed, bad or
+revoked token, closed case, empty or oversized body) is kept in `payment_webhook_envelopes` and writes
+nothing under any tenant.
+
+| Profile | Source type | Shape |
+|---|---|---|
+| `provider-event-json` | PROVIDER_TRANSACTION | one flat JSON object with the `provider-transactions` field names; scalars only; unknown keys ignored |
+
+This is TrustLedger's canonical event shape, not any provider's. Translating a provider's native
+payload into it is an adapter written against that provider's real specification; none is wired here.
+Token authentication proves the interface; provider-native signature checks belong to the adapter.
+
+### Matching stages (`recon-rules/1.1.0`)
 
 | Stage | Rule | Matches when |
 |---|---|---|
@@ -114,6 +133,7 @@ every run key, match and exception.
 | MISSING_SETTLEMENT | MISSING_SETTLEMENT |
 | LATE_SETTLEMENT | LATE_SETTLEMENT |
 | UNEXPECTED_STATUS_TRANSITION, PAYMENT_STATUS_MISMATCH | INVALID_STATE_TRANSITION |
+| PENDING_UNKNOWN (1.1.0: a matched charge the provider still reports as PENDING; exposure = the amount) | UNKNOWN — ambiguity preserved, never guessed |
 
 ### Exception lifecycle
 
@@ -142,13 +162,13 @@ Each invariant, where it is enforced, and the test that fails when it is broken.
 | # | Invariant | Enforced by | Proven by |
 |---|---|---|---|
 | 1 | Tenant isolation | tenant id in every casework query; scoped row locks; 404 for foreign ids | `CaseImportIntegrationTest.anotherTenant…`, `ReconciliationIssueLifecycleIntegrationTest.anotherTenant…`, `AcmeAcceptanceIntegrationTest.aCaseWithBlockers…`, `CaseBundleIntegrationTest.exportNeeds…` |
-| 2 | Idempotent imports | unique (tenant, case, file SHA-256); replay returns the first manifest | `CaseImportIntegrationTest.uploadingTheSameBytesAgain…` |
+| 2 | Idempotent imports and event processing | unique (tenant, case, file SHA-256); replay returns the first manifest and counts the delivery | `CaseImportIntegrationTest.uploadingTheSameBytesAgain…`, `AcmeFeedConvergenceIntegrationTest.redeliveryChangedBytesAndLateEvents…` |
 | 3 | Idempotent runs | unique (tenant, run_key) over files + ruleset + settings + fee schedules | `AcmeAcceptanceIntegrationTest.rerunningAndReuploading…`, `…changedRulesInputs…` |
-| 4 | No duplicate financial effect | duplicate events collapsed to the first delivery; extra successes raised, never applied | `EngineRulesTest.twoSuccessfulCharges…`, ACME P08 |
+| 4 | No duplicate financial effect | identical bytes never create a second record; same event id with different bytes is stored and raised as DUPLICATE_PROVIDER_EVENT, first delivery used | `EngineRulesTest.twoSuccessfulCharges…`, ACME P08, `AcmeFeedConvergenceIntegrationTest.redelivery…` (mutant: dedup removed → red) |
 | 5 | Exact decimals | `BigDecimal`/`Money`, NUMERIC(19,4), amounts as strings in the bundle | `ImportProfileTest`, `EngineRulesTest.theCompositeLookup…` |
 | 6 | Currency separation | per-currency totals in imports, runs, bundle and console; no cross-currency sum exists | `AcmeAcceptanceIntegrationTest.theFixture…` (mutant: currencies combined → red) |
 | 7 | Stable identity | record key = SHA-256 of tenant, case, source, identity, ids, event type, row hash | `CaseImportIntegrationTest.theSameFilename…` |
-| 8 | Raw evidence before derivation | file stored in write-once `evidence_objects` before parsing | `CaseImportIntegrationTest.theRawFileIsPreserved…`, `…evidenceObjectsAndCanonicalRecordsAreWriteOnce…` |
+| 8 | Raw evidence before derivation | file or event body stored in write-once `evidence_objects` before parsing | `CaseImportIntegrationTest.theRawFileIsPreserved…`, `…aFileThatCannotBeRead…` (mutant: store after parse → red), `AcmeFeedConvergenceIntegrationTest.eventsAndFilesConverge…` |
 | 9 | Versioned decisions | ruleset version on every run, match and exception; CHECK `chk_recon_issue_rule_versioned` | `AcmeAcceptanceIntegrationTest.theFixture…` |
 | 10 | Repeatability | pure engine, total sort, matches collected before applied | `AcmeEngineAcceptanceTest`, `EngineRulesTest.whenTwoInternalRefundsCompete…` |
 | 11 | Immutable audit and history | append-only triggers on `audit_logs`, `reconciliation_issue_activity`, `recon_records`, `evidence_objects` | `ReconciliationIssueLifecycleIntegrationTest.theDatabaseRefuses…` |
@@ -159,6 +179,8 @@ Each invariant, where it is enforced, and the test that fails when it is broken.
 | 16 | Safe concurrency | case row lock for imports and runs; issue row lock + optional `expectedVersion` | `…concurrentClosesProduceExactlyOneDecision`, `…aStaleWriterIsRefused` |
 | 17 | Failed import leaves no partial result | FAILED manifest with zero rows, CHECK `failed import is empty` | `CaseImportIntegrationTest.aFileThatCannotBeRead…` |
 | 18 | Failed run leaves no partial result | one transaction | `AcmeAcceptanceIntegrationTest.aRunThatFailsPartWay…` |
+| 19 | Files and events converge on one path | a delivery is a one-row import through `ImportService.ingest`; no second parser, matcher or store | `AcmeFeedConvergenceIntegrationTest.eventsAndFilesConverge…` asserts the §20 numbers with provider-b streamed |
+| 20 | A feed's bytes have no owner until its token matches | refusals go to the tenant-less envelope table; tenant writes happen only after the constant-time token check | `…refusedDeliveriesLeaveAnEnvelope…`, `…aFeedBelongsToOneTenant…` (mutant: token check removed → red) |
 | — | Casework cannot reach the money path | no import of ledger, transfer, rails, fraud, outbox or Kafka | `CaseworkBoundaryTest` |
 
 ### Metrics

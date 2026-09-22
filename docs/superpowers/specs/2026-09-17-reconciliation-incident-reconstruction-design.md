@@ -781,3 +781,72 @@ change and no expected value was adjusted to fit.
 | 9 | `InvariantRegisterTest` | An invariant register in `docs/RECONCILIATION.md` mapping each invariant to the tests that already fail when it breaks | A test that re-asserts other tests adds a name, not a check. |
 | 10 | Foreign-tenant read of an exception stays 403 | 404 | 403 confirmed the id existed. Two existing assertions were updated deliberately. |
 | 11 | Pairing scans candidates | Candidates are looked up by a key both sides must share | The scan was O(n²) and did not finish at 100k payments. Found by measurement, not by review. |
+
+## 25. Canonical event ingestion — a webhook is a one-row import (approved 2026-09-22)
+
+**Premise.** A live provider event and an uploaded provider file must reconcile through one path,
+or the pilot is a file tool. The cheapest construction that makes that true: **a webhook delivery
+is a governed import with one row.** It gets the same manifest, raw-evidence-first storage, row
+hash, record key, duplicate rule, rejection rule, blockers, run key, engine, exception and bundle
+as a CSV. Nothing is added to the engine's inputs; nothing is matched a second way.
+
+**Feed.** `recon_feeds(id, tenant_id, case_id, provider_identity, profile, token_sha256, status,
+created_by, created_at, revoked_at)`. A feed is created by `RECON_CASE_MANAGE` and bound to a case
+and a provider identity. Its token is returned once and stored as SHA-256. Ingress:
+`POST /api/v1/reconciliation/events/{feedId}` with `X-Recon-Feed-Token`. Unauthenticated at the
+framework level, token-authenticated in the handler, rate-limited like the payment-rail webhooks.
+Token authentication proves the canonical interface; provider-native signature verification is the
+adapter's job when a real provider is wired, and none is wired here (no speculative connectors).
+
+**Profile.** `provider-event-json/1`: a flat JSON object with the same twelve field names as
+`provider-transactions/1` (event_id, transaction_ref, merchant_ref, event_type, status, currency,
+gross, fee, net, occurred_at, received_at, event_version). Parsing turns scalars into the string map
+the CSV profile already consumes; every field rule is shared, so a value the CSV rejects the feed
+rejects too. Unknown keys are ignored and recorded in the rejection message when a required one is
+missing.
+
+**Order of operations per delivery.** Resolve feed → verify token → lock the case → refuse if
+CLOSED → store raw bytes write-once under
+`evidence/{tenant}/recon-event/{feed}/{sha256}.json` → transport-duplicate check by body hash
+(same bytes again = replay, `delivery_count` on the manifest, nothing new) → parse → one manifest
+(`source_type` PROVIDER_TRANSACTION, `profile` provider-event-json, `original_filename` = event id
+or `event`, `record_count` 1) with one row ACCEPTED, REJECTED or DUPLICATE → record → case back to
+DRAFT. A refused delivery (unknown feed, bad token, closed case, oversized body) is recorded in the
+existing forensic `payment_webhook_envelopes` table with its outcome, and nothing is written under
+any tenant.
+
+**Failure semantics, all already governed.**
+| Case | Result |
+|---|---|
+| Same bytes delivered again | replay; `delivery_count` increments; no new record |
+| Same event id, different bytes | second record stored; engine raises `DUPLICATE_PROVIDER_EVENT`; first delivery used, the rest evidence |
+| Out of order / delayed | records carry `occurred_at`; the engine sorts; a late event returns the case to DRAFT and the next run includes it |
+| Malformed | one REJECTED row with its code; blocks the run until acknowledged, like a CSV row |
+| Unknown status value | rejected row, never guessed |
+| Unknown feed / bad token | 404 / 401, envelope recorded, no tenant write |
+| Case CLOSED | 409, envelope recorded |
+| Provider says PENDING | see below |
+
+**PENDING_UNKNOWN.** `recon-rules/1.0.0` raised `PAYMENT_STATUS_MISMATCH` for any matched charge
+not in SUCCESS, which for a live feed manufactures certainty out of a transient. `1.1.0`: a matched
+charge whose latest status is PENDING raises `PENDING_UNKNOWN` (severity MEDIUM, exposure = the
+amount, classification `UNKNOWN` — the taxonomy's "ambiguity preserved, stays visible" value);
+FAILED still raises `PAYMENT_STATUS_MISMATCH`. The version bump is part of every run key, match and
+exception. The §20 fixture has no PENDING pair, so its numbers are unchanged; the ruleset string in
+the acceptance tests moves to 1.1.0.
+
+**Traceability.** Unchanged and complete: manifest → raw object (sha) → row (sha) → record (key) →
+match / exception (record keys, rule, version) → bundle. A feed event is distinguishable from a CSV
+row by the manifest's profile; both are cited the same way.
+
+**Out of scope.** Provider-specific parsing, retries, replay into the money path, any write outside
+the casework tables. `CaseworkBoundaryTest` still fails the build on a forbidden import.
+
+**Acceptance.** `AcmeFeedConvergenceIntegrationTest`: deliver provider-b's seven transactions as
+seven events (one malformed) instead of the CSV, upload the other three files, acknowledge, run →
+the same 30 records, 16 matches, 7 exceptions and per-currency totals as §20; a bundle whose
+exception set equals the file-based bundle's. Plus: triple delivery creates nothing; a re-sent event
+with changed bytes raises exactly one `DUPLICATE_PROVIDER_EVENT`; a late event reopens the case and
+the rerun matches it; bad token / unknown feed / closed case write nothing under the tenant and one
+envelope each; tenant B cannot read or use tenant A's feed. Mutants: token check removed;
+raw-store moved after parse; transport dedup removed.

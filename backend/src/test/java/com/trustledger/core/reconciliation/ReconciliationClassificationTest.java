@@ -38,7 +38,9 @@ class ReconciliationClassificationTest {
         "MISSING_SETTLEMENT,             MISSING_SETTLEMENT",
         "LATE_SETTLEMENT,                LATE_SETTLEMENT",
         "UNEXPECTED_STATUS_TRANSITION,   INVALID_STATE_TRANSITION",
-        "PAYMENT_STATUS_MISMATCH,        INVALID_STATE_TRANSITION"
+        "PAYMENT_STATUS_MISMATCH,        INVALID_STATE_TRANSITION",
+        // The one deliberate UNKNOWN: the provider has not decided, and TrustLedger will not decide for it.
+        "PENDING_UNKNOWN,                UNKNOWN"
     })
     void everyKnownTypeMapsToItsCanonicalCode(String type, ReconciliationClassification expected) {
         assertEquals(expected, forType(type));
