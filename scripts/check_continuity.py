@@ -82,6 +82,43 @@ def check_authority_files() -> None:
         ck(f"{name} holds no test or migration count", not counts, str(counts[:3]))
 
 
+# Wording that turns the market gate from a steering signal into a stop. Each pattern was a real
+# sentence in this repository on 2026-09-22, and together they stopped a session. A governance file
+# that says any of these again fails the build.
+GOVERNOR_FILES = ("AGENT_CONTEXT.md", "ACTIVE_WORK.yaml", "FEATURE_TRACKER.md", "PARKING_LOT.md",
+                  "pilot/SELL_LEARN_QUEUE.md", "pilot/README.md", "CLAUDE.md")
+STALE_GOVERNOR = [
+    ("gate blocks post-gate infrastructure",
+     r"(?i)(?<!~~)\bblocks?\s+new\s+post-gate\s+exception-operations\s+infrastructure\b"),
+    ("build replaced by sell/learn",
+     r"(?i)(?<!~~)\bchanged\s+from\s+BUILD\s+to\s+SELL/LEARN\b"),
+    ("gate closes the work queue",
+     r"(?i)(?<!~~)market gate status:\s*\*\*CLOSED\*\*"),
+    ("build resumes only after the gate",
+     r"(?i)(?<!~~)after the market gate passes,\s*cluster .* before resuming product work"),
+    ("blanket do-not-add rule",
+     r"(?i)(?<!~~)do not add connectors, dashboards, orchestration"),
+]
+
+
+def _unstruck(text: str) -> str:
+    """Struck-through wording is a kept correction, not a live rule. Remove it before scanning."""
+    return re.sub(r"~~.*?~~", "", text, flags=re.S)
+
+
+def check_governor() -> None:
+    charter = _read(ROOT / "AGENT_CONTEXT.md")
+    ck("charter states the governor: DEFAULT CONTINUE", "**DEFAULT: CONTINUE.**" in charter)
+    ck("charter says waiting for interviews is not a reason to stop",
+       "Waiting for interview responses alone is not a reason to stop" in charter)
+    ck("charter lists what the gate blocks and what it does not",
+       "It blocks only:" in charter and "It does **not** block:" in charter)
+    for rel in GOVERNOR_FILES:
+        text = _unstruck(_read(ROOT / rel))
+        for label, pattern in STALE_GOVERNOR:
+            ck(f"{rel}: no stale governor — {label}", re.search(pattern, text) is None)
+
+
 def check_active_work() -> None:
     import yaml
 
@@ -380,15 +417,31 @@ def selftest() -> int:
         if int(v) >= (500 if "TESTS" in k else 110):
             bad.append("floor negative control is not actually lower")
 
+    # The governor check must fire on the sentences that were actually in the repository on
+    # 2026-09-22, and must ignore the same sentences once struck through as a kept correction.
+    stale_samples = [
+        "Per Rule 0 this blocks new post-gate exception-operations infrastructure.",
+        "| Active work queue changed from BUILD to SELL/LEARN | **IMPLEMENTED** |",
+        "Market gate status: **CLOSED** until `score_kill_test.py` returns `GO`.",
+        "After the market gate passes, cluster the recorded incidents before resuming product work.",
+        "Do not add connectors, dashboards, orchestration, AI functionality",
+    ]
+    for (label, pattern), sample in zip(STALE_GOVERNOR, stale_samples):
+        if re.search(pattern, sample) is None:
+            bad.append(f"governor: '{label}' does not match the sentence it was written for")
+        if re.search(pattern, _unstruck(f"~~{sample}~~ Superseded.")) is not None:
+            bad.append(f"governor: '{label}' still fires on a struck-through correction")
+
     for line in bad:
         print(f"FAIL  {line}")
-    total = len(SQL_INVARIANTS) + len(JAVA_INVARIANTS) + 2
+    total = len(SQL_INVARIANTS) + len(JAVA_INVARIANTS) + 2 + len(STALE_GOVERNOR)
     print(f"check_continuity selftest: {total - len(bad)}/{total} negative controls passed")
     return 1 if bad else 0
 
 
 def run_all() -> int:
     check_authority_files()
+    check_governor()
     check_active_work()
     check_generated_state()
     check_preflight()

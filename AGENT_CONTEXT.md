@@ -120,6 +120,39 @@ entities must match) · Kafka/Redpanda (outbox) · Redis · OpenSearch · MinIO 
 - **Tests:** pure-domain logic → fast POJO JUnit (no Spring context). DB/Kafka → Testcontainers (`@Testcontainers`, real Postgres/Redpanda). Every claim needs `mvn test` evidence — a green build with zero tests is not evidence.
 - **No silent failures; structured audit on every sensitive action.**
 
+## The governor — BUILD + SELL + LEARN in parallel (founder, 2026-09-22)
+
+**DEFAULT: CONTINUE.** Essential implementation of the approved TrustLedger goal and golden
+workflow continues while interviews, outreach and sales run in parallel. Customer research is a
+steering wheel, not a red light: it reorders and can invalidate future work, and it never suspends
+essential implementation. **Waiting for interview responses alone is not a reason to stop
+implementing.**
+
+The market gate (`pilot/score_kill_test.py`) governs customer-proven expansion and production
+activation. It blocks only:
+
+- production money movement or activation;
+- speculative or customer-specific expansion the approved product goal does not require;
+- irreversible or materially expensive infrastructure or provider commitments;
+- autonomous financial actions (retries, reversals, corrections, routing);
+- unsupported customer, production or commercial claims (fit, ROI, readiness).
+
+It does **not** block: canonical ingestion · deterministic reconciliation · payment lifecycle
+reconstruction · stable identity and duplicate safety · idempotent financial effects · exception
+casework, ownership, SLA, escalation · evidence and audit · security · tenancy · correctness ·
+resilience · observability · testing · performance · operator UX · core Control Plane capabilities
+the approved golden workflow requires.
+
+Customer evidence decides *which* discrepancy class gets the deepest automation, which provider
+integration comes next, which segment gets a specialised workflow, and where the largest economic
+pain sits. It does not decide whether the core keeps being built.
+
+Stop only for: an explicit `STOP`, `PAUSE`, `NO-GO` or `KILL`; a critical security, financial,
+legal or compliance issue; material irreversible cost; invalidated customer pain; or loss of
+alignment with the approved product goal. Any file in this repository that says the market gate
+stops implementation is superseded by this section; `scripts/check_continuity.py` fails if such
+wording returns.
+
 ## Status & build order
 **`ACTIVE_WORK.yaml` says what is authorised; `FEATURE_TRACKER.md` is the single source of truth for status** — read it before investigating
 anything, and update it every session. Do not restate feature status or test counts here; this file
