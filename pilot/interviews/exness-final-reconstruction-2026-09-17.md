@@ -63,4 +63,4 @@ missed by two days, and an unrecorded promise is how that happens.
 
 ---
 
-**Status 2026-09-22.** Artem replied 👍 at 20:54 (LinkedIn) to the message above, with no corrections. The record is final as written; every "Unknown" stays unknown. No further contact until the aggregated findings are shared. Gate credit: none (no quantified pain, no frequency, no data access), per `kill-test-tracker.csv`.
+**Status 2026-09-22.** Artem replied 👍 (LinkedIn) to the message above, with no corrections. LinkedIn showed the reply as "8:54 PM" with no date and no timezone; that clock reading is not independently established and is deliberately not recorded as an event time. The date recorded is the date the reply was observed. The record is final as written; every "Unknown" stays unknown. No further contact until the aggregated findings are shared. Gate credit: none (no quantified pain, no frequency, no data access), per `kill-test-tracker.csv`.

@@ -8,7 +8,7 @@
 | Accuracy-check message sent | 2026-09-02 |
 | Final unknown-preserving reconstruction sent | **2026-09-17 at 17:28 BST** — LinkedIn displayed the message in Artem's conversation |
 | Incident fully reconstructed | **NO** — no named incident, ledger/provider states, timing, frequency or quantified exposure |
-| Reconstruction agreed by interviewee | **2026-09-22 at 20:54** — 👍 to the 2026-09-17 message, no corrections; every `unknown` is final. Record CLOSED, no gate credit |
+| Reconstruction agreed by interviewee | **2026-09-22 (date observed; clock time not established)** — 👍 to the 2026-09-17 message, no corrections; every `unknown` is final. Record CLOSED, no gate credit |
 | Data access granted | **NO** |
 | Counted by `score_kill_test.py` | **NO** — see below |
 | Public architecture post, 2026-09-08 | **RECORDED SEPARATELY; NO INTERVIEW CREDIT** — it describes trading-feed deduplication, not the requested incident |
