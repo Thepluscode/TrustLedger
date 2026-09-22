@@ -15,7 +15,7 @@ the platform expands.
 | Evidence samples | [sample-evidence/](sample-evidence/) |
 | Gate evidence | [kill-test-tracker.csv](kill-test-tracker.csv) · [product-gate-cases.csv](product-gate-cases.csv) · [product-gate-operations.csv](product-gate-operations.csv) · [product-gate-contract.csv](product-gate-contract.csv) |
 | Public research evidence | [public-research/](public-research/) — architecture and market signals that never substitute for interview evidence |
-| Active market work | [SELL_LEARN_QUEUE.md](SELL_LEARN_QUEUE.md) · [FIRST_THREE_CONVERSATIONS.md](FIRST_THREE_CONVERSATIONS.md) · [INTERVIEW_01_PALMPAY.md](INTERVIEW_01_PALMPAY.md) |
+| Active market work | [SELL_LEARN_QUEUE.md](SELL_LEARN_QUEUE.md) · [FIRST_THREE_CONVERSATIONS.md](FIRST_THREE_CONVERSATIONS.md) · [INTERVIEW_01_PALMPAY.md](INTERVIEW_01_PALMPAY.md) · [INCIDENT_RECONSTRUCTION_WORKSHEET.md](INCIDENT_RECONSTRUCTION_WORKSHEET.md) |
 
 ## What TrustLedger is (honest positioning)
 A **read-only payment-reliability layer** that reconstructs the payment lifecycle, detects
