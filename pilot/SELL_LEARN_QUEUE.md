@@ -1,6 +1,9 @@
-# Active Work Queue — SELL / LEARN
+# Market track — SELL / LEARN
 
-Market gate status: **CLOSED** until `score_kill_test.py` returns `GO`.
+One of three parallel tracks (implementation · market learning · sales). This queue governs the
+market track only. It does not pause the implementation track; see `AGENT_CONTEXT.md` → *The
+governor*. Market gate status: **INCOMPLETE** until `score_kill_test.py` returns `GO`; the gate
+governs customer-proven expansion and production activation, not whether the core is built.
 
 ## Now
 
@@ -28,15 +31,19 @@ Search globally for `reconciliation analyst`, `payments reconciliation`, `paymen
 
 Public signals qualify the target; only completed conversations count as market evidence.
 
-## Not authorised
+## Not authorised by this track
 
-Do not add connectors, dashboards, orchestration, AI functionality, enterprise hardening or
+~~Do not add connectors, dashboards, orchestration, AI functionality, enterprise hardening or
 post-gate exception operations unless a critical security/correctness defect or customer evidence
-requires it.
+requires it.~~ **Superseded 2026-09-22.** That sentence turned a priority signal into a stop, and it
+stopped a session. What the market gate actually blocks is listed once, in `AGENT_CONTEXT.md` →
+*The governor*: money movement, speculative or customer-specific expansion, irreversible cost,
+autonomous financial actions, unsupported claims. Everything the approved golden workflow needs
+continues by default.
 
 ## Evidence-driven architecture trigger
 
-After the market gate passes, cluster the recorded incidents before resuming product work. The
-dominant repeated failure chooses the pilot's golden workflow: fee/settlement mismatch, webhook and
-internal-state reconstruction, failed payout investigation or another evidenced class. Do not
-resume the old roadmap by default.
+As incidents are recorded, cluster them. The dominant repeated failure chooses which discrepancy
+class gets the deepest automation and which integration comes next; it reorders the roadmap and can
+invalidate parts of it. It does not gate the core: implementation of the approved golden workflow
+does not wait for the cluster to form. Do not resume an old roadmap item the evidence has invalidated.

@@ -74,6 +74,11 @@ jobs:
         run: docker compose -f infra/docker-compose.yml config -q
       - name: Repo validation
         run: python3 scripts/validate_repo.py
+      - name: Continuity contract (governor, active work, invariants)
+        run: |
+          pip install -q pyyaml
+          python3 scripts/check_continuity.py
+          python3 scripts/check_continuity.py --selftest
 
   migration-upgrade:
     name: Migrations over existing data

@@ -48,7 +48,11 @@ standing_gates:
   - id: market_gate
     command: python3 pilot/score_kill_test.py
     state: INCOMPLETE — exit 3; read the current figure from PROJECT_STATE.json, not from here
-    blocks: new post-gate exception-operations infrastructure (Rule 0)
+    governs: customer-proven expansion and production activation (AGENT_CONTEXT.md → The governor)
+    blocks: production money movement; speculative or customer-specific expansion; irreversible or
+      costly infrastructure or provider commitments; autonomous financial actions; unsupported
+      customer, production or commercial claims
+    does_not_block: essential implementation of the approved goal and golden workflow — DEFAULT CONTINUE
     discharged_by: qualified customer conversations, not code
   - id: data_resilience
     command: ~/.claude/scripts/data-resilience-gate scan .
@@ -65,7 +69,8 @@ parked:
   - id: data_resilience_gaps
     why: required before real money, not before the read-only pilot
   - id: market_gate_incomplete
-    why: a standing gate, discharged by conversations, not something to build around
+    why: a standing gate, discharged by conversations; it steers priority and does not stop the
+      implementation track (AGENT_CONTEXT.md → The governor)
 
 dated_gates: []   # none found in the repository; an invented date is worse than an absent one
 
@@ -75,7 +80,21 @@ task_switch_requires:
   - RELEASE_CONDITION_MET
   - VERIFIED_P0_P1_INTERRUPT
 
+governor: BUILD + SELL + LEARN in parallel; DEFAULT CONTINUE   # AGENT_CONTEXT.md → The governor
+
 history:
+  - date: 2026-09-22
+    change: governor corrected — the market gate steers, it does not stop implementation
+    previous_task: cross_provider_reconciliation_casework
+    new_task: cross_provider_reconciliation_casework
+    reason: >
+      Repository files (SELL_LEARN_QUEUE.md, FEATURE_TRACKER.md, PARKING_LOT.md, this file) said
+      SELL/LEARN had replaced BUILD until the market gate passed. The founder's operating doctrine is
+      BUILD + SELL + LEARN in parallel, and the stale wording had already stopped a session. The
+      active task is unchanged; the conflicting rules are superseded and a continuity check fails
+      if they return.
+    evidence: "AGENT_CONTEXT.md → The governor; scripts/check_continuity.py → check_governor"
+    approved_by: FOUNDER (governance-correction directive, 2026-09-22)
   - date: 2026-09-20
     change: file created during the portfolio continuity rollout
     previous_task: none recorded

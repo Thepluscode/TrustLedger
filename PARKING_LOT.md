@@ -47,9 +47,11 @@ sequence has never been rehearsed. RPO is still the backup interval — no PITR/
 **Resume when:** real money is in scope, or a pilot requires production recovery. PITR is
 required before the first; the drill schedule is the cheapest of the four.
 
-## Market gate is INCOMPLETE and blocking
+## Market gate is INCOMPLETE — it steers, it does not stop
 
-`pilot/score_kill_test.py` exits 3 at 0 of 25 qualified interviews. Per Rule 0 this blocks new
-post-gate exception-operations infrastructure. It is a standing gate, not a task — it is
-discharged by conversations, not by code, and it is recorded here so no session mistakes it
-for something to build around.
+`pilot/score_kill_test.py` exits 3 at 0 of 25 qualified interviews. It is a standing gate, not a
+task: discharged by conversations, not by code, and recorded here so no session mistakes it for
+something to build around. ~~Per Rule 0 this blocks new post-gate exception-operations
+infrastructure.~~ **Superseded 2026-09-22:** what it blocks is money movement, speculative
+expansion, irreversible cost, autonomous financial actions and unsupported claims
+(`AGENT_CONTEXT.md` → *The governor*). Essential implementation continues in parallel.
