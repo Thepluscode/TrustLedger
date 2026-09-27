@@ -5,6 +5,20 @@ Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 
 Last updated: 2026-08-23
 
+## Provider evidence ingestion — foundation + Adyen + Checkout.com readers (2026-09-27, branch `feat/provider-evidence-ingest`)
+
+Founder decision 2026-09-27: provider files enter a separate evidence domain (`reconciliation/casework/provider`) of typed, signed, full-precision monetary components; `core.model.Money` and the existing row profiles are unchanged. Design and findings: `docs/PROVIDER_SETTLEMENT_FORMATS.md`. Read-only; nothing moves money. **Not wired into `ImportService`, not persisted, not reachable from the API — the engine does not see provider files yet.**
+
+| Outcome | Status | Evidence |
+|---------|--------|----------|
+| Existing import path refuses real provider files | **MEASURED** | Official samples vs `Fields.java` rules (Python emulation): Adyen SDR 63/63 rows refused on timestamps; Checkout.com FA 55/55 on timestamps and 46/55 on amounts (signed, up to 8 dp). |
+| Provider evidence primitives: signed components with role/currency/field/raw, declared direction, timezone-evidenced times, stable row identity, by-reference aggregation, one rounding boundary | **VERIFIED (local, unit)** | `ProviderEvidenceTest` 15/15; `CaseworkBoundaryTest`, `ImportProfileTest`, `CsvTableTest` green in the same run. Expected values from an independent Python pass, hard-coded. |
+| Adyen Settlement details report reader | **VERIFIED (local, official sample)** | 63 rows, 0 rejected, 469 components, 58 payments + 5 batch-level; batch 134 nets to exactly 0.00; USD→EUR payment kept as two legs; `CEST` → +02:00. |
+| Checkout.com Financial actions reader | **VERIFIED (local, official sample)** | 55 rows, 0 rejected, 110 components, 14 payments; file total 1190.51311451 exact; `pay_nju2…` 959.54296 → 959.5430 once, citing all 14 rows; no zone evidence → every time `UNRESOLVED`. |
+| Negative controls | **VERIFIED (9/9 mutants killed)** | Green baseline, one mutation, restore (hash-identical), green final: rounding at ingest, no dedupe, cross-currency collapse, UTC fallback, silent DST resolution, provenance to first row, dropped Adyen component, debit direction ignored, dropped Checkout.com component. |
+| Stripe itemized payout reconciliation | **PLANNED** | Mapping designed from docs; not implemented until a real test-mode export passes through the importer. |
+| ImportService wiring, persistence (migration), aggregate → `CanonicalRecord` boundary, Checkout.com fee classification from its breakdown-types reference | **PLANNED** | Next slice. |
+
 ## Cross-provider reconciliation casework (2026-09-17, branch `feat/recon-casework`)
 
 Read-only pilot slice: import files → canonical records → deterministic reconciliation → governed exceptions → evidence bundle → operator console. Behind `RECON_CASEWORK_ENABLED` (default off). Design and preregistered fixture: `docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md` §20. Nothing here moves, routes or posts money; `CaseworkBoundaryTest` fails the build if the module imports the ledger, a rail or the outbox. **Not CI-verified until the branch's pipeline is green. Not production-observed. No customer has used it.**
