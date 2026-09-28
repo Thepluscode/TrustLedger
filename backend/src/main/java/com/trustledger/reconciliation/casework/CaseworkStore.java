@@ -193,6 +193,27 @@ public class CaseworkStore {
             tenantId, importId, status, status, limit, offset);
     }
 
+    /** A provider report row's evidence and outcome: {@code recordId} or {@code notReconciledReason}, never both. */
+    public record ProviderRowEvidence(UUID importRowId, String identity, String paymentRef, String kind,
+                                      String evidenceJson, UUID recordId, String notReconciledReason) {}
+
+    public void insertProviderRows(UUID tenantId, UUID importId, List<ProviderRowEvidence> rows) {
+        jdbc.batchUpdate("""
+            INSERT INTO recon_provider_rows (import_row_id, tenant_id, import_id, row_identity, payment_ref, kind,
+                                             evidence, record_id, not_reconciled_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)""", rows, 500, (ps, r) -> {
+                ps.setObject(1, r.importRowId());
+                ps.setObject(2, tenantId);
+                ps.setObject(3, importId);
+                ps.setString(4, r.identity());
+                ps.setString(5, r.paymentRef());
+                ps.setString(6, r.kind());
+                ps.setString(7, r.evidenceJson());
+                ps.setObject(8, r.recordId());
+                ps.setString(9, r.notReconciledReason());
+            });
+    }
+
     /** Hashes of rows already accepted in this case, for duplicate-row detection across re-exports. */
     public Set<String> acceptedRowHashes(UUID tenantId, UUID caseId) {
         return new HashSet<>(jdbc.query("""

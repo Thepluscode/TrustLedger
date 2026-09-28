@@ -155,6 +155,118 @@ class ProviderEvidenceTest {
         assertEquals(Instant.parse("2022-11-11T12:08:07Z"), declared.occurredAt().instant()); // GMT in November
     }
 
+    // ---- settlement lines: the boundary the engine reads ------------------------------------------------
+
+    private static Map<String, Integer> reasons(List<ProviderReportProfile.Derivation> ds) {
+        Map<String, Integer> out = new java.util.TreeMap<>();
+        ds.stream().filter(d -> d.line() == null).forEach(d -> out.merge(d.notReconciledReason(), d.sources().size(), Integer::sum));
+        return out;
+    }
+
+    private static void everyRowExactlyOnce(List<ProviderRow> rows, List<ProviderReportProfile.Derivation> ds) {
+        List<Integer> seen = ds.stream().flatMap(d -> d.sources().stream()).map(ProviderRow::rowNumber).sorted().toList();
+        assertEquals(rows.stream().map(ProviderRow::rowNumber).sorted().toList(), seen);
+    }
+
+    @Test
+    void adyenSettledRowsBecomeLinesInTheChargeCurrency() {
+        List<ProviderRow> rows = read(ADYEN, new AdyenSettlementDetailV1()).rows();
+        var ds = new AdyenSettlementDetailV1().settlementLines(ProviderEvidence.of(rows), "adyen");
+        everyRowExactlyOnce(rows, ds);
+        List<com.trustledger.reconciliation.casework.CanonicalRecord> lines = ds.stream().filter(d -> d.line() != null).map(d -> d.line()).toList();
+        assertEquals(58, lines.size());
+        assertEquals(27, lines.stream().filter(l -> l.currency().equals("USD")).count());
+        assertEquals(31, lines.stream().filter(l -> l.currency().equals("EUR")).count());
+        // Fee and net only where Adyen paid out in the charge currency: never EUR amounts on a USD line.
+        assertTrue(lines.stream().filter(l -> l.currency().equals("USD")).allMatch(l -> l.feeAmount() == null && l.netAmount() == null));
+        assertTrue(lines.stream().filter(l -> l.currency().equals("EUR")).allMatch(l -> l.feeAmount() != null && l.netAmount() != null));
+        assertEquals(new BigDecimal("471.0000"), lines.stream().filter(l -> l.currency().equals("USD")).map(l -> l.grossAmount()).reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertEquals(new BigDecimal("113.0000"), lines.stream().filter(l -> l.currency().equals("EUR")).map(l -> l.grossAmount()).reduce(BigDecimal.ZERO, BigDecimal::add));
+
+        var x = lines.stream().filter(l -> l.stableRef().equals("X4J8X927MZNPIFY2")).findFirst().orElseThrow();
+        assertEquals(new BigDecimal("5.0000"), x.grossAmount());
+        assertEquals(new BigDecimal("0.0900"), x.feeAmount());
+        assertEquals(new BigDecimal("4.9100"), x.netAmount());
+        assertEquals(Instant.parse("2023-08-01T14:59:59Z"), x.occurredAt()); // booking date, CEST
+        assertEquals("134", x.settlementBatch());
+        assertEquals(Map.of("BATCH_LEVEL_ENTRY: Balancetransfer", 2, "BATCH_LEVEL_ENTRY: Fee", 3), reasons(ds));
+    }
+
+    @Test
+    void checkoutConvertsOnlyPlainCaptureSettlementsAndSaysWhyForTheRest() {
+        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV1(null)).rows();
+        var ds = new CheckoutFinancialActionsV1(null).settlementLines(ProviderEvidence.of(rows), "checkout");
+        everyRowExactlyOnce(rows, ds);
+        var lines = ds.stream().filter(d -> d.line() != null).toList();
+        assertEquals(2, lines.size());
+        // Both are captures processed in one currency and held in USD: the line is in the capture currency,
+        // and fee and net are unknown rather than converted.
+        var eur = lines.stream().filter(d -> d.line().stableRef().equals("pay_ikhluv2i6x0rb1y316n666nkk6")).findFirst().orElseThrow();
+        assertEquals("EUR", eur.line().currency());
+        assertEquals(new BigDecimal("110.0000"), eur.line().grossAmount());
+        assertNull(eur.line().feeAmount());
+        assertNull(eur.line().netAmount());
+        assertNull(eur.line().occurredAt(), "this report carries no payout date");
+        assertEquals("000G7HDD96SH", eur.line().settlementBatch());
+        assertEquals(List.of(6, 7), eur.sources().stream().map(ProviderRow::rowNumber).toList());
+        var gbp = lines.stream().filter(d -> d.line().stableRef().equals("pay_ipgz2u06xb0bcvsodpgp943dqu")).findFirst().orElseThrow();
+        assertEquals("GBP", gbp.line().currency());
+        assertEquals(new BigDecimal("78.0000"), gbp.line().grossAmount());
+
+        // Rows by reason: 9 fee-only payments (12 rows), one capture partly unpaid (12), one refunded (13),
+        // one charged back (14). 51 = 55 rows - 4 in lines.
+        assertEquals(Map.of("NO_CAPTURE", 12, "NOT_PAID_OUT", 12, "NOT_A_CAPTURE_SETTLEMENT: Refund", 13,
+            "NOT_A_CAPTURE_SETTLEMENT: Chargeback (ADJM), Chargeback (ARBW)", 14), reasons(ds));
+    }
+
+    /** A profile that behaves like Adyen's, then applies {@code damage} to the derivations it returns. */
+    private static ProviderReportProfile faulty(java.util.function.UnaryOperator<List<ProviderReportProfile.Derivation>> damage) {
+        AdyenSettlementDetailV1 real = new AdyenSettlementDetailV1();
+        return new ProviderReportProfile() {
+            public String name() { return "faulty"; }
+            public int version() { return 1; }
+            public List<String> requiredHeaders() { return real.requiredHeaders(); }
+            public ProviderRow read(Map<String, String> row, int n) { return real.read(row, n); }
+            public List<Derivation> settlementLines(ProviderEvidence e, String p) { return damage.apply(real.settlementLines(e, p)); }
+        };
+    }
+
+    @Test
+    void aProfileThatDropsOrRepeatsARowIsRefusedBeforeAnythingIsWritten() {
+        ProviderEvidence e = ProviderEvidence.of(read(ADYEN, new AdyenSettlementDetailV1()).rows());
+        assertEquals(63, ProviderReportProfile.derive(faulty(ds -> ds), e, "adyen").stream().mapToInt(d -> d.sources().size()).sum());
+        IllegalStateException dropped = assertThrows(IllegalStateException.class,
+            () -> ProviderReportProfile.derive(faulty(ds -> ds.subList(1, ds.size())), e, "adyen"));
+        assertTrue(dropped.getMessage().contains("accounted for 62 of 63"), dropped.getMessage());
+        IllegalStateException twice = assertThrows(IllegalStateException.class, () -> ProviderReportProfile.derive(faulty(ds -> {
+            List<ProviderReportProfile.Derivation> more = new ArrayList<>(ds);
+            more.add(ds.get(0));
+            return more;
+        }), e, "adyen"));
+        assertTrue(twice.getMessage().contains("twice"), twice.getMessage());
+    }
+
+    @Test
+    void theImporterDerivesOnlyThroughTheCheckedPath() throws IOException {
+        // No real profile drops a row, so no HTTP test can show the importer skipping the check. This can.
+        String importer = Files.readString(Path.of("src/main/java/com/trustledger/reconciliation/casework/ImportService.java"));
+        assertTrue(importer.contains("ProviderReportProfile.derive(profile, evidence, sourceIdentity)"), "the importer must call derive()");
+        assertFalse(importer.contains("settlementLines(evidence"), "the importer must not call settlementLines() directly");
+    }
+
+    @Test
+    void checkoutBreakdownCategoriesFollowTheReferenceAndFailClosed() {
+        assertEquals(CheckoutFinancialActionsV1.Category.GROSS, CheckoutFinancialActionsV1.category("Capture"));
+        assertEquals(CheckoutFinancialActionsV1.Category.GROSS, CheckoutFinancialActionsV1.category("Partial Capture"));
+        assertEquals(CheckoutFinancialActionsV1.Category.FEE, CheckoutFinancialActionsV1.category("Scheme Variable Fee"));
+        assertEquals(CheckoutFinancialActionsV1.Category.FEE, CheckoutFinancialActionsV1.category("Minimum Billing Fee"));
+        assertEquals(CheckoutFinancialActionsV1.Category.TAX, CheckoutFinancialActionsV1.category("Scheme Fixed Fee Tax"));
+        assertEquals(CheckoutFinancialActionsV1.Category.RESERVE, CheckoutFinancialActionsV1.category("Rolling Reserve Deducted"));
+        for (String other : List.of("Refund", "Chargeback (ADJM)", "Card Payout", "Clearing Failed", "Top Up", "Something New")) {
+            assertEquals(CheckoutFinancialActionsV1.Category.OTHER, CheckoutFinancialActionsV1.category(other), other);
+        }
+    }
+
     // ---- negative controls ------------------------------------------------------------------------------
 
     @Test

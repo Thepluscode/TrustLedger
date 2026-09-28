@@ -23,7 +23,8 @@ active:
     one rounding boundary. Build order: primitives -> Adyen -> Checkout.com -> Stripe (only on a
     real test-mode export). Core Money and the ledger are untouched; nothing moves money.
   known_limits:
-    - not wired into ImportService, not persisted, not reachable from the API
+    - wired, persisted (V57) and read by the engine; not production-observed, no customer file yet
+    - provider evidence not shown in the operator console or evidence bundle yet
     - Stripe not implemented: no real export yet
     - full backend suite not run locally; CI is the only complete verdict
 

@@ -1,5 +1,8 @@
 package com.trustledger.reconciliation.casework.provider;
 
+import com.trustledger.reconciliation.casework.CanonicalRecord;
+import com.trustledger.reconciliation.casework.CanonicalRecord.EventType;
+import com.trustledger.reconciliation.casework.SourceType;
 import com.trustledger.reconciliation.casework.profile.RowRejected;
 import com.trustledger.reconciliation.casework.provider.MonetaryComponent.Direction;
 import com.trustledger.reconciliation.casework.provider.MonetaryComponent.Role;
@@ -7,6 +10,7 @@ import com.trustledger.reconciliation.casework.provider.SourceTime.TimezoneSourc
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -61,6 +65,49 @@ public final class AdyenSettlementDetailV1 implements ProviderReportProfile {
         String identity = String.join("|", "adyen", batch, type, Objects.toString(psp, ""),
             Objects.toString(row.get("modification reference"), ""), Objects.toString(row.get("booking date"), ""));
         return new ProviderRow(identity, rowNumber, type, psp, batch, created, booked, rate(row.get("exchange rate")), c);
+    }
+
+    /**
+     * Each {@code Settled} row is one settlement line, even when a payment has several: a payment settled
+     * twice must reach the engine twice. Every other journal type, and every batch-level row, is kept as
+     * evidence with its reason; this ruleset reconciles charge settlements only.
+     */
+    @Override
+    public List<Derivation> settlementLines(ProviderEvidence evidence, String provider) {
+        List<Derivation> out = new ArrayList<>();
+        for (ProviderRow r : evidence.batchLevel()) out.add(Derivation.notReconciled(r, "BATCH_LEVEL_ENTRY: " + r.kind()));
+        for (ProviderEvidence.PaymentAggregate p : evidence.payments()) {
+            for (ProviderRow r : p.sources()) {
+                out.add("Settled".equals(r.kind()) ? line(r, provider)
+                    : Derivation.notReconciled(r, "JOURNAL_TYPE_NOT_RECONCILED: " + r.kind()));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The line is in the currency the payment was charged in. Fee and net are stated only when Adyen paid
+     * out in that same currency; otherwise they stay unknown here and remain in the evidence, because a
+     * converted gross would be TrustLedger's arithmetic, not Adyen's.
+     */
+    private static Derivation line(ProviderRow row, String provider) {
+        List<ProviderRow> one = List.of(row);
+        Map<String, BigDecimal> gross = ProviderEvidence.sum(one, m -> m.role() == Role.TRANSACTION, false);
+        if (gross.size() != 1) return Derivation.notReconciled(row, "NO_SINGLE_GROSS_CURRENCY");
+        String currency = gross.keySet().iterator().next();
+        Map<String, BigDecimal> net = ProviderEvidence.sum(one, m -> m.role() == Role.SETTLEMENT, true);
+        Map<String, BigDecimal> fee = ProviderEvidence.sum(one, m -> m.role() == Role.FEE || m.role() == Role.COMMISSION, true);
+        boolean sameCurrency = net.keySet().equals(java.util.Set.of(currency))
+            && (fee.isEmpty() || fee.keySet().equals(java.util.Set.of(currency)));
+        BigDecimal feeAmount = sameCurrency ? fee.get(currency) : null;
+        if (feeAmount != null && feeAmount.signum() < 0) return Derivation.notReconciled(row, "NEGATIVE_FEE_TOTAL");
+        CanonicalRecord line = new CanonicalRecord(null, SourceType.SETTLEMENT, provider, provider.toLowerCase(Locale.ROOT),
+            null, row.paymentRef(), null, EventType.SETTLEMENT_LINE, null,
+            row.bookedAt() == null ? null : row.bookedAt().instant(), null, currency,
+            ProviderEvidence.toMonetaryScale(gross.get(currency)), ProviderEvidence.toMonetaryScale(feeAmount),
+            sameCurrency ? ProviderEvidence.toMonetaryScale(net.get(currency)) : null,
+            null, "SETTLED", row.batch(), row.rowNumber());
+        return new Derivation(line, one, null);
     }
 
     private static void add(List<MonetaryComponent> into, Role role, Direction direction, String field,

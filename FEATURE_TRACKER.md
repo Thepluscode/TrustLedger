@@ -7,7 +7,7 @@ Last updated: 2026-08-23
 
 ## Provider evidence ingestion — foundation + Adyen + Checkout.com readers (2026-09-27, branch `feat/provider-evidence-ingest`)
 
-Founder decision 2026-09-27: provider files enter a separate evidence domain (`reconciliation/casework/provider`) of typed, signed, full-precision monetary components; `core.model.Money` and the existing row profiles are unchanged. Design and findings: `docs/PROVIDER_SETTLEMENT_FORMATS.md`. Read-only; nothing moves money. **Not wired into `ImportService`, not persisted, not reachable from the API — the engine does not see provider files yet.**
+Founder decision 2026-09-27: provider files enter a separate evidence domain (`reconciliation/casework/provider`) of typed, signed, full-precision monetary components; `core.model.Money` and the existing row profiles are unchanged. Design and findings: `docs/PROVIDER_SETTLEMENT_FORMATS.md`. Read-only; nothing moves money. Wired into the governed import and read by the engine since 2026-09-28. **Not production-observed; no customer file has been through it.**
 
 | Outcome | Status | Evidence |
 |---------|--------|----------|
@@ -17,7 +17,12 @@ Founder decision 2026-09-27: provider files enter a separate evidence domain (`r
 | Checkout.com Financial actions reader | **VERIFIED (local, official sample)** | 55 rows, 0 rejected, 110 components, 14 payments; file total 1190.51311451 exact; `pay_nju2…` 959.54296 → 959.5430 once, citing all 14 rows; no zone evidence → every time `UNRESOLVED`. |
 | Negative controls | **VERIFIED (9/9 mutants killed)** | Green baseline, one mutation, restore (hash-identical), green final: rounding at ingest, no dedupe, cross-currency collapse, UTC fallback, silent DST resolution, provenance to first row, dropped Adyen component, debit direction ignored, dropped Checkout.com component. |
 | Stripe itemized payout reconciliation | **PLANNED** | Mapping designed from docs; not implemented until a real test-mode export passes through the importer. |
-| ImportService wiring, persistence (migration), aggregate → `CanonicalRecord` boundary, Checkout.com fee classification from its breakdown-types reference | **PLANNED** | Next slice. |
+| Import wiring + persistence: `profile=adyen-settlement-detail|checkout-financial-actions`, optional `accountTimezone`; V57 `recon_provider_rows` (write-once, one outcome per accepted row) | **VERIFIED (local, PostgreSQL)** | `ProviderReportImportIntegrationTest` 5/5 over HTTP: Adyen sample → 63 accepted, 58 records, 63 evidence rows (58 linked), gross EUR 113.0000 / USD 471.0000, no USD line with fee/net, raw `4.39` and `CEST` preserved in evidence, UPDATE refused, re-upload replays. Checkout.com → 2 lines, 51 rows kept with reasons, 55 rows with unresolved time; with `accountTimezone=Europe/London` 0. Identity duplicate with different bytes → DUPLICATE, 1 record. Misdirected zone / source type refused 400, nothing written. |
+| Settlement-line boundary (ruleset v1): one currency per record; Adyen `Settled` rows → lines; Checkout.com plain capture settlements only, categories from its breakdown-types reference, unknown fails closed | **VERIFIED (local)** | `ProviderEvidenceTest` 20/20 incl. Adyen 58 lines (27 USD gross-only, 31 EUR with fee/net) and Checkout.com 2 lines (EUR 110, GBP 78; reasons 12/12/13/14). Every row derived exactly once, enforced by `ProviderReportProfile.derive`. |
+| End-to-end run over an Adyen report | **VERIFIED (local, PostgreSQL)** | Two real charges (EUR `X4J8…`, USD `ZVA14…` paid out in EUR) + the Adyen sample → R3 matches 2, findings exactly `UNMATCHED_SETTLEMENT_ITEM`×56: no false `CURRENCY_MISMATCH`, no false `NET_SETTLEMENT_MISMATCH`. |
+| Negative controls, slice 2 | **VERIFIED** | Against green baselines, restored hash-identical: 14 mutants killed (dropped batch rows, fee/net taken from another currency ×3, refunds accepted as captures, tax as fee, unknown breakdown as fee, identity duplicates kept, coverage check removed ×2, importer bypassing it, unresolved count zeroed, zone parameter ignored). 1 equivalent mutant recorded (Adyen `sameCurrency` flag: the currency-keyed lookup is the real guard, and its mutants are killed). Reconciliation tree 116/116 green. |
+| Provider evidence in the operator console and evidence bundle | **PLANNED** | API and DB only today. |
+| Refunds, chargebacks, reserves, taxes as reconciled items | **PLANNED** | Preserved as evidence with reasons, not compared. |
 
 ## Cross-provider reconciliation casework (2026-09-17, branch `feat/recon-casework`)
 

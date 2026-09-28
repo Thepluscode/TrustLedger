@@ -46,7 +46,9 @@ public class ReconciliationCaseController {
 
     public record ImportView(ImportRow manifest, List<CurrencyTotal> currencyTotals) {}
 
-    public record ImportResponse(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed) {}
+    /** {@code provider} is present only for a provider report profile: what the report became, nothing dropped. */
+    public record ImportResponse(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed,
+                                 ImportService.ProviderSummary provider) {}
 
     public record CreateResponse(CaseRow reconciliationCase, boolean replayed) {}
 
@@ -109,7 +111,8 @@ public class ReconciliationCaseController {
                                                      @RequestParam("file") MultipartFile file,
                                                      @RequestParam String sourceType,
                                                      @RequestParam String sourceIdentity,
-                                                     @RequestParam String profile) throws IOException {
+                                                     @RequestParam String profile,
+                                                     @RequestParam(required = false) String accountTimezone) throws IOException {
         access.require(Permission.RECON_CASE_MANAGE);
         SourceType type;
         try {
@@ -117,12 +120,20 @@ public class ReconciliationCaseController {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("sourceType must be one of " + List.of(SourceType.values()));
         }
+        java.time.ZoneId zone = null;
+        if (accountTimezone != null && !accountTimezone.isBlank()) {
+            try {
+                zone = java.time.ZoneId.of(accountTimezone.trim());
+            } catch (java.time.DateTimeException e) {
+                throw new IllegalArgumentException("accountTimezone must be an IANA zone id such as Europe/London: " + accountTimezone);
+            }
+        }
         ImportService.Result r = imports.importFile(CurrentUser.tenantId(), CurrentUser.userId(), caseId, type,
-            sourceIdentity, profile, file.getOriginalFilename(), file.getBytes());
+            sourceIdentity, profile, file.getOriginalFilename(), file.getBytes(), zone);
         // 422 for a file refused as a whole: it was received and recorded, but nothing in it was usable.
         HttpStatus status = r.replayed() ? HttpStatus.OK
             : "FAILED".equals(r.manifest().status()) ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.CREATED;
-        return ResponseEntity.status(status).body(new ImportResponse(r.manifest(), r.currencyTotals(), r.replayed()));
+        return ResponseEntity.status(status).body(new ImportResponse(r.manifest(), r.currencyTotals(), r.replayed(), r.provider()));
     }
 
     @GetMapping("/{caseId}/imports/{importId}/rows")

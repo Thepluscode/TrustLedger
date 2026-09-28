@@ -77,8 +77,29 @@ public record ProviderEvidence(List<PaymentAggregate> payments, List<ProviderRow
             if (settlement.size() > 1) throw new CrossCurrencyRefused(paymentRef, settlement.keySet());
             if (settlement.isEmpty()) throw new IllegalStateException("payment " + paymentRef + " has no settlement component");
             var e = settlement.entrySet().iterator().next();
-            return new SettledAmount(e.getKey(), e.getValue(), e.getValue().setScale(MONETARY_SCALE, RoundingMode.HALF_EVEN));
+            return new SettledAmount(e.getKey(), e.getValue(), toMonetaryScale(e.getValue()));
         }
+    }
+
+    /** The monetary boundary, defined once: exact provider value to the ledger's scale, HALF_EVEN. */
+    public static BigDecimal toMonetaryScale(BigDecimal exact) {
+        return exact == null ? null : exact.setScale(MONETARY_SCALE, RoundingMode.HALF_EVEN);
+    }
+
+    /**
+     * Exact sums by currency of the components that {@code which} selects, over {@code rows}.
+     *
+     * @param signed true for {@link MonetaryComponent#signedAmount()}, false for the value as written
+     */
+    public static Map<String, BigDecimal> sum(List<ProviderRow> rows, java.util.function.Predicate<MonetaryComponent> which,
+                                              boolean signed) {
+        Map<String, BigDecimal> out = new TreeMap<>();
+        for (ProviderRow r : rows) {
+            for (MonetaryComponent m : r.components()) {
+                if (which.test(m)) out.merge(m.currency(), signed ? m.signedAmount() : m.amount(), BigDecimal::add);
+            }
+        }
+        return out;
     }
 
     /** {@code exact} is kept beside {@code rounded} as evidence of what the rounding gave up. */

@@ -71,15 +71,38 @@ ingest, no dedupe, cross-currency collapse, UTC fallback, DST ambiguity resolved
 reduced to the first row, a dropped Adyen component, debit direction ignored, a dropped Checkout.com
 component.
 
+## The boundary the engine reads (2026-09-28)
+
+`POST /api/v1/reconciliation/cases/{id}/imports` with `sourceType=SETTLEMENT`,
+`profile=adyen-settlement-detail | checkout-financial-actions`, and optional `accountTimezone`
+(an IANA id; refused for Adyen, whose rows name their own zone, and for every non-provider profile).
+Same governed order as every import. Each accepted row is stored in `recon_provider_rows` (V57,
+write-once) with its evidence as read and **exactly one outcome**: the settlement record it fed, or the
+reason it was not reconciled. The import fails if a profile accounts for fewer rows than it read. The
+response's `provider` block states lines derived, rows not reconciled by reason, and rows whose time
+could not be placed.
+
+Conversion rules, ruleset v1:
+- **One currency per record.** The line is in the currency the payment was charged/captured in. Fee and
+  net are set only when the provider paid out in that same currency; otherwise they stay unknown and the
+  payout amount lives in the evidence. TrustLedger never converts with the provider's rate.
+- **Adyen:** each `Settled` row is one line (a payment settled twice reaches the engine twice). Every
+  other journal type and every batch-level row is evidence with a reason. Settled time = booking date.
+- **Checkout.com:** one line per payment, only for a plain capture settlement — captures and fees
+  only, one payout, one held currency. Categories follow Checkout.com's breakdown-types reference;
+  an unlisted breakdown is OTHER and fails closed. The report has no payout date, so the line's settled
+  time is unknown and the late-settlement check does not run on it.
+
+On the official samples: Adyen → 58 lines (27 USD gross-only, 31 EUR with fee/net), 5 rows kept as
+batch-level evidence. Checkout.com → 2 lines (EUR 110 and GBP 78 captures held in USD, so gross only),
+51 rows kept with reasons: no capture 12, not paid out 12, refund 13, chargeback 14.
+
 ## Not built yet
 
-- **Wiring into `ImportService` and persistence** (components and aggregate→row references need a
-  migration), then the aggregate → `CanonicalRecord` boundary the engine reads. That boundary needs a
-  documented classification of Checkout.com breakdown types into fee vs amount — from Checkout.com's
-  breakdown-types reference, not from the sample.
-- **Stripe** — the mapping is designed from the docs, but it is not called implemented until a real
-  test-mode export has passed through the importer.
-- Adyen batch-level balance as a reconciliation finding (the invariant exists in tests only).
+- **Stripe** — mapping designed from the docs; not implemented until a real test-mode export passes.
+- Refunds, chargebacks, reserves and taxes as reconciled items (they are preserved, not compared).
+- The operator console and the evidence bundle do not show provider evidence rows yet (API and DB only).
+- Adyen batch balance (nets to zero) as a reconciliation finding; it is a test invariant only.
 
 ## Differentiation — corrected
 
