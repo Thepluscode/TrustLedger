@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -212,5 +213,72 @@ class ProviderReportImportIntegrationTest {
         // The USD charge paid out in EUR is not a currency mismatch; the EUR line's arithmetic holds; the
         // other 56 settled payments have no charge in this case.
         assertEquals(Map.of("UNMATCHED_SETTLEMENT_ITEM", 56), byType);
+
+        // The evidence bundle carries the provider evidence: every row, its outcome, its raw amounts.
+        HttpResponse<String> exported = http.post(CASES + caseId + "/bundle", op.token(), null);
+        assertEquals(201, exported.statusCode(), exported.body());
+        HttpResponse<String> file = http.get("/api/v1/evidence/exports/" + http.tree(exported).get("exportId").asString() + "/download", op.token());
+        assertEquals(200, file.statusCode(), file.body());
+        java.nio.file.Files.writeString(java.nio.file.Path.of("target/provider-evidence-bundle.json"), file.body());
+        JsonNode bundle = json.readTree(file.body());
+        assertEquals(bundle.get("contentHash").asString(),
+            "sha256:" + Hashes.sha256(json.writeValueAsString(bundle.get("content")).getBytes(StandardCharsets.UTF_8)));
+        JsonNode adyen = null;
+        for (JsonNode s : bundle.get("content").get("sources")) if ("adyen-settlement-detail".equals(s.get("profile").asString())) adyen = s;
+        assertNotNull(adyen);
+        for (JsonNode s : bundle.get("content").get("sources")) {
+            if (!"adyen-settlement-detail".equals(s.get("profile").asString())) assertNull(s.get("providerEvidence"), "only provider reports carry it");
+        }
+        JsonNode pe = adyen.get("providerEvidence");
+        assertEquals(58, pe.get("settlementLines").asInt());
+        assertEquals(63, pe.get("rows").size());
+        assertEquals(2, pe.get("notReconciledByReason").get("BATCH_LEVEL_ENTRY: Balancetransfer").asInt());
+        JsonNode first = pe.get("rows").get(0);
+        assertEquals(1, first.get("rowNumber").asInt());
+        assertEquals("BATCH_LEVEL_ENTRY: Balancetransfer", first.get("notReconciledReason").asString());
+        assertEquals("4014796.34", first.get("components").get(0).get("rawValue").asString());
+        assertEquals("CEST", first.get("bookedAt").get("zoneEvidence").asString());
+        JsonNode zva = pe.get("rows").get(1);
+        assertEquals("ZVA14XO8S0GYIJU2", zva.get("paymentRef").asString());
+        assertEquals(64, zva.get("recordKey").asString().length());
+        assertEquals("0.8969444665577660", zva.get("fxRate").asString(), "the provider's rate, digit for digit");
+        assertTrue(bundle.get("content").get("limitations").toString().contains("No amount was converted"));
+    }
+
+    @Test
+    void theCaseViewAndTheRowsEndpointShowWhatEachReportBecame() throws Exception {
+        AuthResponse op = http.register();
+        UUID caseId = http.createCase(op.token(), "VIEW-" + UUID.randomUUID());
+        assertEquals(201, uploadReport(op.token(), caseId, "adyen", "adyen-settlement-detail", null, ADYEN).statusCode());
+        assertEquals(201, uploadReport(op.token(), caseId, "checkout", "checkout-financial-actions", null, CHECKOUT).statusCode());
+
+        // Read back from the database, not from the import response.
+        Map<String, JsonNode> byProfile = new TreeMap<>();
+        UUID checkoutImport = null;
+        for (JsonNode i : http.tree(http.get(CASES + caseId, op.token())).get("imports")) {
+            byProfile.put(i.get("manifest").get("profile").asString(), i.get("provider"));
+            if ("checkout-financial-actions".equals(i.get("manifest").get("profile").asString())) {
+                checkoutImport = UUID.fromString(i.get("manifest").get("id").asString());
+            }
+        }
+        JsonNode a = byProfile.get("adyen-settlement-detail"), c = byProfile.get("checkout-financial-actions");
+        assertEquals(List.of(58, 5, 0), List.of(a.get("settlementLines").asInt(), a.get("rowsNotReconciled").asInt(), a.get("rowsWithUnresolvedTime").asInt()));
+        assertEquals(List.of(2, 51, 55), List.of(c.get("settlementLines").asInt(), c.get("rowsNotReconciled").asInt(), c.get("rowsWithUnresolvedTime").asInt()));
+        assertEquals(12, c.get("notReconciledByReason").get("NO_CAPTURE").asInt());
+
+        String rows = CASES + caseId + "/imports/" + checkoutImport + "/provider-rows";
+        JsonNode kept = http.tree(http.get(rows + "?outcome=NOT_RECONCILED&size=500", op.token()));
+        assertEquals(51, kept.size());
+        JsonNode fed = http.tree(http.get(rows + "?outcome=RECONCILED", op.token()));
+        assertEquals(4, fed.size());
+        assertEquals(List.of(6, 7, 20, 21), java.util.stream.StreamSupport.stream(fed.spliterator(), false).map(r -> r.get("rowNumber").asInt()).toList());
+        JsonNode fee = fed.get(1).get("evidence").get("components").get(1);
+        assertEquals("-1.58417", fee.get("rawValue").asString());
+        assertEquals(0, new BigDecimal("-1.58417").compareTo(fee.get("amount").decimalValue()));
+        assertEquals("UNRESOLVED", fed.get(0).get("evidence").get("occurredAt").get("source").asString());
+        assertEquals(400, http.get(rows + "?outcome=MAYBE", op.token()).statusCode());
+
+        AuthResponse stranger = http.register();
+        assertEquals(404, http.get(rows, stranger.token()).statusCode(), "another tenant cannot see the rows or learn they exist");
     }
 }

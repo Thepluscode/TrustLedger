@@ -214,6 +214,53 @@ public class CaseworkStore {
             });
     }
 
+    /**
+     * What a provider report became: settlement lines for the engine, rows kept as evidence only (by
+     * reason), and rows whose timestamps could not be placed in time. Nothing here is silently dropped.
+     */
+    public record ProviderSummary(int settlementLines, int rowsNotReconciled, Map<String, Integer> notReconciledByReason,
+                                  int rowsWithUnresolvedTime) {}
+
+    /** One provider row as stored, with its outcome: the record key it fed, or why it was not reconciled. */
+    public record ProviderRowView(int rowNumber, String rowSha256, String identity, String paymentRef, String kind,
+                                  String recordKey, String notReconciledReason, String evidenceJson) {}
+
+    /** @return null when the import has no provider rows (it was not a provider report). */
+    public ProviderSummary providerSummary(UUID tenantId, UUID importId) {
+        Map<String, Integer> reasons = new java.util.TreeMap<>();
+        jdbc.query("""
+            SELECT not_reconciled_reason, count(*) FROM recon_provider_rows
+             WHERE tenant_id = ? AND import_id = ? AND record_id IS NULL GROUP BY not_reconciled_reason""",
+            rs -> { reasons.put(rs.getString(1), rs.getInt(2)); }, tenantId, importId);
+        return jdbc.query("""
+            SELECT count(*), count(DISTINCT record_id),
+                   count(*) FILTER (WHERE evidence->'occurredAt'->>'source' = 'UNRESOLVED'
+                                       OR evidence->'bookedAt'->>'source' = 'UNRESOLVED')
+              FROM recon_provider_rows WHERE tenant_id = ? AND import_id = ?""",
+            rs -> {
+                rs.next();
+                if (rs.getInt(1) == 0) return null;
+                int notReconciled = reasons.values().stream().mapToInt(Integer::intValue).sum();
+                return new ProviderSummary(rs.getInt(2), notReconciled, Map.copyOf(reasons), rs.getInt(3));
+            }, tenantId, importId);
+    }
+
+    /** @param reconciled null for every row, true for rows that fed a record, false for rows kept as evidence only */
+    public List<ProviderRowView> listProviderRows(UUID tenantId, UUID importId, Boolean reconciled, int limit, int offset) {
+        return jdbc.query("""
+            SELECT ir.row_number, ir.row_sha256, pr.row_identity, pr.payment_ref, pr.kind, rr.record_key,
+                   pr.not_reconciled_reason, pr.evidence::text
+              FROM recon_provider_rows pr
+              JOIN recon_import_rows ir ON ir.id = pr.import_row_id
+              LEFT JOIN recon_records rr ON rr.id = pr.record_id
+             WHERE pr.tenant_id = ? AND pr.import_id = ?
+               AND (?::boolean IS NULL OR (pr.record_id IS NOT NULL) = ?::boolean)
+             ORDER BY ir.row_number LIMIT ? OFFSET ?""",
+            (rs, n) -> new ProviderRowView(rs.getInt(1), rs.getString(2).trim(), rs.getString(3), rs.getString(4),
+                rs.getString(5), rs.getString(6) == null ? null : rs.getString(6).trim(), rs.getString(7), rs.getString(8)),
+            tenantId, importId, reconciled, reconciled, limit, offset);
+    }
+
     /** Hashes of rows already accepted in this case, for duplicate-row detection across re-exports. */
     public Set<String> acceptedRowHashes(UUID tenantId, UUID caseId) {
         return new HashSet<>(jdbc.query("""

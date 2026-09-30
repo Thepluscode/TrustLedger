@@ -9,6 +9,7 @@ import com.trustledger.reconciliation.casework.provider.ProviderRow;
 import com.trustledger.reconciliation.casework.provider.ProviderReportProfile;
 import com.trustledger.reconciliation.casework.provider.ProviderEvidence;
 import com.trustledger.reconciliation.casework.CaseworkStore.ProviderRowEvidence;
+import com.trustledger.reconciliation.casework.CaseworkStore.ProviderSummary;
 import com.trustledger.reconciliation.casework.CaseworkStore.CurrencyTotal;
 import com.trustledger.reconciliation.casework.CaseworkStore.ImportRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.SourceRow;
@@ -58,12 +59,6 @@ public class ImportService {
         }
     }
 
-    /**
-     * What a provider report became: settlement lines for the engine, rows kept as evidence only (by
-     * reason), and rows whose timestamps could not be placed in time. Nothing here is silently dropped.
-     */
-    public record ProviderSummary(int settlementLines, int rowsNotReconciled, Map<String, Integer> notReconciledByReason,
-                                  int rowsWithUnresolvedTime) {}
 
     private final CaseworkStore store;
     private final CaseService cases;

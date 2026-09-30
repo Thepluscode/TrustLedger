@@ -97,11 +97,23 @@ On the official samples: Adyen → 58 lines (27 USD gross-only, 31 EUR with fee/
 batch-level evidence. Checkout.com → 2 lines (EUR 110 and GBP 78 captures held in USD, so gross only),
 51 rows kept with reasons: no capture 12, not paid out 12, refund 13, chargeback 14.
 
+## Where an operator and an auditor see it (2026-09-30)
+
+- **Console** (case page): Adyen and Checkout.com are import options; Checkout.com offers an optional
+  account time zone. Each provider import states its lines, rows kept as evidence, and rows with no
+  time-zone evidence; "View not reconciled" lists each kept row with its reason, the provider's raw
+  amounts and the time as evidence (`unresolved: NO_ZONE_EVIDENCE` when it could not be placed).
+- **API:** `GET …/imports/{id}/provider-rows?outcome=RECONCILED|NOT_RECONCILED`; the case view carries
+  the provider summary per import, read back from the stored rows.
+- **Evidence bundle:** each provider-report source carries `providerEvidence` — the summary, and every
+  row with its outcome (record key or reason), times with their zone evidence, the provider's rate, and
+  each component's raw text. Three provider limitations are added only when a provider report exists,
+  so bundles without one hash exactly as before.
+
 ## Not built yet
 
 - **Stripe** — mapping designed from the docs; not implemented until a real test-mode export passes.
 - Refunds, chargebacks, reserves and taxes as reconciled items (they are preserved, not compared).
-- The operator console and the evidence bundle do not show provider evidence rows yet (API and DB only).
 - Adyen batch balance (nets to zero) as a reconciliation finding; it is a test invariant only.
 
 ## Differentiation — corrected
