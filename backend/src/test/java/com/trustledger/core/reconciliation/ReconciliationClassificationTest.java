@@ -23,7 +23,24 @@ class ReconciliationClassificationTest {
         "EXPIRED_RESERVATION,            INVALID_STATE_TRANSITION",
         "OUTBOX_STUCK,                   UNKNOWN",
         "PROVIDER_ADAPTER_MISSING,       UNKNOWN",
-        "PROVIDER_STATUS_QUERY_FAILED,   UNKNOWN"
+        "PROVIDER_STATUS_QUERY_FAILED,   UNKNOWN",
+        // Every type a casework run can raise. None may be UNKNOWN: the daily report and scorecards key on this.
+        "MISSING_PROVIDER_RECORD,        MISSING_PROVIDER_RECORD",
+        "MISSING_INTERNAL_RECORD,        MISSING_INTERNAL_RECORD",
+        "UNMATCHED_SETTLEMENT_ITEM,      MISSING_INTERNAL_RECORD",
+        "AMOUNT_MISMATCH,                AMOUNT_MISMATCH",
+        "REFUND_MISMATCH,                AMOUNT_MISMATCH",
+        "NET_SETTLEMENT_MISMATCH,        AMOUNT_MISMATCH",
+        "CURRENCY_MISMATCH,              CURRENCY_MISMATCH",
+        "FEE_MISMATCH,                   FEE_MISMATCH",
+        "DUPLICATE_PROVIDER_EVENT,       DUPLICATE_TRANSACTION",
+        "DUPLICATE_FINANCIAL_EFFECT,     DUPLICATE_TRANSACTION",
+        "MISSING_SETTLEMENT,             MISSING_SETTLEMENT",
+        "LATE_SETTLEMENT,                LATE_SETTLEMENT",
+        "UNEXPECTED_STATUS_TRANSITION,   INVALID_STATE_TRANSITION",
+        "PAYMENT_STATUS_MISMATCH,        INVALID_STATE_TRANSITION",
+        // The one deliberate UNKNOWN: the provider has not decided, and TrustLedger will not decide for it.
+        "PENDING_UNKNOWN,                UNKNOWN"
     })
     void everyKnownTypeMapsToItsCanonicalCode(String type, ReconciliationClassification expected) {
         assertEquals(expected, forType(type));

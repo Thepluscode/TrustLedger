@@ -75,6 +75,30 @@ public class ReconciliationIssueEntity {
     @Column(name = "due_at", nullable = false, updatable = false)
     private Instant dueAt;
 
+    /**
+     * Where the exception is in its working life (V54). {@link #status} stays the coarse open/closed
+     * flag every existing consumer keys on; a DB CHECK keeps the two from disagreeing.
+     */
+    @Column(name = "lifecycle_state", nullable = false, length = 32)
+    private String lifecycleState;
+
+    /** The reconciliation case and run that raised this, when it came from casework; null for live detectors. */
+    @Column(name = "case_id") private UUID caseId;
+    @Column(name = "run_id") private UUID runId;
+
+    /** The rule that detected it, and the ruleset version it ran under. Both or neither. */
+    @Column(name = "rule_id", length = 48) private String ruleId;
+    @Column(name = "rule_version", length = 48) private String ruleVersion;
+
+    @Column(name = "reason_code", length = 48) private String reasonCode;
+    @Column(name = "resolution_note", columnDefinition = "text") private String resolutionNote;
+    @Column(name = "resolution_evidence_ref", length = 400) private String resolutionEvidenceRef;
+    @Column(name = "resolved_by") private UUID resolvedBy;
+
+    /** Optimistic lock. Null until first persisted, which is also how Spring Data tells new from existing. */
+    @Version
+    private Long version;
+
     protected ReconciliationIssueEntity() {}
 
     /** A break with no monetary exposure (a stuck event, a failed status query). */
@@ -119,7 +143,42 @@ public class ReconciliationIssueEntity {
         this.actualState = actualState;
         this.evidence = evidence;
         this.status = status;
+        this.lifecycleState = "RESOLVED".equals(status) ? "RESOLVED" : "OPEN";
     }
+
+    /** Records which case, run and rule raised this exception. */
+    public ReconciliationIssueEntity raisedBy(UUID caseId, UUID runId, String ruleId, String ruleVersion) {
+        this.caseId = caseId;
+        this.runId = runId;
+        this.ruleId = ruleId;
+        this.ruleVersion = ruleVersion;
+        return this;
+    }
+
+    /** Moves the lifecycle and keeps the coarse {@code status} flag in step with it. */
+    public void moveTo(com.trustledger.core.reconciliation.ReconciliationIssueStateMachine.State to) {
+        this.lifecycleState = to.name();
+        this.status = to.isTerminal() ? "RESOLVED" : "OPEN";
+    }
+
+    public void close(String reasonCode, String note, String evidenceRef, UUID resolvedBy, Instant at) {
+        this.reasonCode = reasonCode;
+        this.resolutionNote = note;
+        this.resolutionEvidenceRef = evidenceRef;
+        this.resolvedBy = resolvedBy;
+        this.resolvedAt = at;
+    }
+
+    public String getLifecycleState() { return lifecycleState; }
+    public UUID getCaseId() { return caseId; }
+    public UUID getRunId() { return runId; }
+    public String getRuleId() { return ruleId; }
+    public String getRuleVersion() { return ruleVersion; }
+    public String getReasonCode() { return reasonCode; }
+    public String getResolutionNote() { return resolutionNote; }
+    public String getResolutionEvidenceRef() { return resolutionEvidenceRef; }
+    public UUID getResolvedBy() { return resolvedBy; }
+    public Long getVersion() { return version; }
 
     public UUID getId() { return id; }
     public String getType() { return type; }
@@ -127,7 +186,16 @@ public class ReconciliationIssueEntity {
     public String getSeverity() { return severity; }
     public UUID getEntityId() { return entityId; }
     public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    /**
+     * The coarse flag. Kept in step with {@code lifecycleState} so this setter cannot produce a row the
+     * database refuses (chk_recon_issue_closed_agrees). Operator actions go through {@link #moveTo} instead.
+     */
+    public void setStatus(String status) {
+        this.status = status;
+        boolean closed = "RESOLVED".equals(lifecycleState) || "DISMISSED".equals(lifecycleState);
+        if ("RESOLVED".equals(status) && !closed) this.lifecycleState = "RESOLVED";
+        else if (!"RESOLVED".equals(status) && closed) this.lifecycleState = "OPEN";
+    }
     public UUID getTenantId() { return tenantId; }
     public String getEntityType() { return entityType; }
     public String getExpectedState() { return expectedState; }

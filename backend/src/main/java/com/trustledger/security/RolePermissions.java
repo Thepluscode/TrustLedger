@@ -11,7 +11,8 @@ public final class RolePermissions {
     private static final Set<String> ALL = Set.of(TRANSFER_VIEW, TRANSFER_CREATE, TRANSFER_APPROVE,
         FRAUD_CASE_VIEW, FRAUD_CASE_APPROVE, LEDGER_VIEW, LEDGER_EXPORT, AUDIT_VIEW, EVIDENCE_EXPORT,
         PROVIDER_CONFIG_MANAGE, PRODUCTION_CANARY_APPROVE, FRAUD_POLICY_MANAGE, RETENTION_POLICY_MANAGE,
-        USER_MANAGE, API_KEY_MANAGE, MONITORING_VIEW, BILLING_VIEW, TENANT_ADMIN);
+        USER_MANAGE, API_KEY_MANAGE, MONITORING_VIEW, BILLING_VIEW, TENANT_ADMIN,
+        RECON_VIEW, RECON_CASE_MANAGE, RECON_ISSUE_WORK, RECON_ISSUE_RESOLVE);
 
     public static Set<String> of(String role) {
         if (role == null) return Set.of();
@@ -21,7 +22,11 @@ public final class RolePermissions {
                 TRANSFER_VIEW, EVIDENCE_EXPORT, AUDIT_VIEW);
             case "FRAUD_ANALYST" -> Set.of(FRAUD_CASE_VIEW, TRANSFER_VIEW);
             case "FINANCE_OPERATOR" -> Set.of(TRANSFER_VIEW, TRANSFER_CREATE, TRANSFER_APPROVE, LEDGER_VIEW, LEDGER_EXPORT);
-            case "AUDITOR" -> Set.of(AUDIT_VIEW, LEDGER_VIEW, FRAUD_CASE_VIEW, EVIDENCE_EXPORT, MONITORING_VIEW);
+            // Works the reconciliation queue and nothing else: no transfer, user or provider rights. Before
+            // this role existed, working an exception required full tenant-admin.
+            case "RECON_OPERATOR" -> Set.of(RECON_VIEW, RECON_CASE_MANAGE, RECON_ISSUE_WORK, RECON_ISSUE_RESOLVE,
+                EVIDENCE_EXPORT, LEDGER_VIEW);
+            case "AUDITOR" -> Set.of(AUDIT_VIEW, LEDGER_VIEW, FRAUD_CASE_VIEW, EVIDENCE_EXPORT, MONITORING_VIEW, RECON_VIEW);
             case "VIEWER" -> Set.of(TRANSFER_VIEW, FRAUD_CASE_VIEW, LEDGER_VIEW);
             case "DEVELOPER" -> Set.of(PROVIDER_CONFIG_MANAGE, API_KEY_MANAGE, MONITORING_VIEW, TRANSFER_VIEW);
             default -> Set.of();

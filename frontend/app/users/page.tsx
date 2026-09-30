@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 import { dateTime } from "../lib/format";
 import type { TeamMember } from "../lib/types";
 
-const ROLES = ["OWNER", "ADMIN", "FRAUD_MANAGER", "FRAUD_ANALYST", "FINANCE_OPERATOR", "AUDITOR", "VIEWER", "DEVELOPER"];
+const ROLES = ["OWNER", "ADMIN", "FRAUD_MANAGER", "FRAUD_ANALYST", "FINANCE_OPERATOR", "RECON_OPERATOR", "AUDITOR", "VIEWER", "DEVELOPER"];
 
 export default function UsersPage() {
   const [members, setMembers] = useState<TeamMember[] | null>(null);

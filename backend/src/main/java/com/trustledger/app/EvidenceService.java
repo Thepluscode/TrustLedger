@@ -139,6 +139,17 @@ public class EvidenceService {
         return persist(tenantId, "CERTIFICATION", runId, generatedBy, bundle);
     }
 
+    /**
+     * Stores a reconciliation case bundle. Like a certification pack, the caller assembles the content, so
+     * this class learns nothing about casework; it contributes the checksum, the signature over the stored
+     * bytes, the export record and the audit entry.
+     */
+    @Transactional
+    public EvidenceExportEntity exportReconciliationCase(UUID tenantId, UUID caseId, UUID generatedBy,
+                                                         Map<String, Object> caseBundle) {
+        return persist(tenantId, "RECONCILIATION_CASE", caseId, generatedBy, caseBundle);
+    }
+
     @Transactional(readOnly = true)
     public byte[] download(UUID tenantId, UUID userId, UUID exportId) {
         return storage.retrieve(requireExportInScope(tenantId, userId, exportId).getObjectStorageKey());
@@ -161,6 +172,7 @@ public class EvidenceService {
                 fraudCases.findById(e.getResourceId()).map(FraudCaseEntity::getTransactionId).orElse(null));
             case "LEDGER_TRANSACTION" -> orgScope.canAccessLedgerTransaction(tenantId, userId, e.getResourceId());
             case "CERTIFICATION" -> true; // certification runs aren't org-unit-scoped resources — tenant-wide
+            case "RECONCILIATION_CASE" -> true; // reconciliation is tenant-wide by design, like the exception queue
             // Fail closed for any future evidence type: tenant-wide users pass, but a scoped user is denied
             // until the new type is explicitly given an org anchor above (opt-in, not silent tenant-wide).
             default -> orgScope.accessibleUnitIds(tenantId, userId).isEmpty();

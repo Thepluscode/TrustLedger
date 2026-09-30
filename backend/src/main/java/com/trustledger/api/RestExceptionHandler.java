@@ -28,6 +28,16 @@ public class RestExceptionHandler {
         return body(HttpStatus.FORBIDDEN, "FORBIDDEN", e.getMessage());
     }
 
+    @ExceptionHandler(com.trustledger.security.NotFoundException.class)
+    public ResponseEntity<Map<String, Object>> notFound(com.trustledger.security.NotFoundException e) {
+        return body(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage());
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> tooLarge(org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        return body(HttpStatus.CONTENT_TOO_LARGE, "FILE_TOO_LARGE", "The file exceeds the upload limit");
+    }
+
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<Map<String, Object>> conflict(IdempotencyConflictException e) {
         return body(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", e.getMessage());

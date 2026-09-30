@@ -1,6 +1,11 @@
 spring:
   application:
     name: trustledger-backend
+  servlet:
+    multipart:
+      # Reconciliation source files. Matches ImportService.MAX_BYTES and the ceiling recorded in V50.
+      max-file-size: 25MB
+      max-request-size: 26MB
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trustledger}
     username: ${DATABASE_USERNAME:trustledger}
@@ -48,6 +53,10 @@ trustledger:
     reject-threshold: 95
   ledger:
     allow-negative-balances: false
+  reconciliation:
+    casework:
+      # File-based reconciliation cases. Off by default; enable per environment.
+      enabled: ${RECON_CASEWORK_ENABLED:false}
   outbox:
     topic: trustledger.events
     publisher:

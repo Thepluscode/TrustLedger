@@ -49,7 +49,29 @@ public enum ReconciliationClassification {
         Map.entry("OUTBOX_STUCK", UNKNOWN),
         // Could not compare at all: no adapter / provider query failed. Ambiguous, stays visible.
         Map.entry("PROVIDER_ADAPTER_MISSING", UNKNOWN),
-        Map.entry("PROVIDER_STATUS_QUERY_FAILED", UNKNOWN));
+        Map.entry("PROVIDER_STATUS_QUERY_FAILED", UNKNOWN),
+        // --- raised by file-based casework runs (reconciliation.casework.engine) ---
+        Map.entry("MISSING_PROVIDER_RECORD", MISSING_PROVIDER_RECORD),
+        Map.entry("MISSING_INTERNAL_RECORD", MISSING_INTERNAL_RECORD),
+        // A settlement line no provider transaction explains: money arrived that nothing on file accounts for.
+        Map.entry("UNMATCHED_SETTLEMENT_ITEM", MISSING_INTERNAL_RECORD),
+        Map.entry("AMOUNT_MISMATCH", AMOUNT_MISMATCH),
+        // A refund that does not match its expectation, and a settled net that does not equal gross - fee,
+        // are both the wrong amount of money.
+        Map.entry("REFUND_MISMATCH", AMOUNT_MISMATCH),
+        Map.entry("NET_SETTLEMENT_MISMATCH", AMOUNT_MISMATCH),
+        Map.entry("CURRENCY_MISMATCH", CURRENCY_MISMATCH),
+        Map.entry("FEE_MISMATCH", FEE_MISMATCH),
+        // The same event delivered twice, and two events with the same financial effect.
+        Map.entry("DUPLICATE_PROVIDER_EVENT", DUPLICATE_TRANSACTION),
+        Map.entry("DUPLICATE_FINANCIAL_EFFECT", DUPLICATE_TRANSACTION),
+        Map.entry("MISSING_SETTLEMENT", MISSING_SETTLEMENT),
+        Map.entry("LATE_SETTLEMENT", LATE_SETTLEMENT),
+        Map.entry("UNEXPECTED_STATUS_TRANSITION", INVALID_STATE_TRANSITION),
+        Map.entry("PAYMENT_STATUS_MISMATCH", INVALID_STATE_TRANSITION),
+        // The provider has not decided. UNKNOWN is the taxonomy's "ambiguity preserved, stays visible" value,
+        // and it is the one deliberate UNKNOWN a casework run can raise.
+        Map.entry("PENDING_UNKNOWN", UNKNOWN));
 
     public static ReconciliationClassification forType(String type) {
         // Map.ofEntries maps reject null keys even in getOrDefault.

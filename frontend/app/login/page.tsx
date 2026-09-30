@@ -23,7 +23,7 @@ export default function LoginPage() {
         ? await api.register(tenantName, email, password)
         : await api.login(tenantId, email, password);
       setToken(res.token);
-      setSession({ email: res.email, role: res.role, tenantId: res.tenantId });
+      setSession({ email: res.email, role: res.role, tenantId: res.tenantId, userId: res.userId });
       router.replace("/dashboard");
     } catch (err) {
       setError((err as Error).message);

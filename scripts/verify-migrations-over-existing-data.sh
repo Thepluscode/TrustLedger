@@ -48,6 +48,20 @@ INSERT INTO audit_logs (id, tenant_id, actor_type, actor_id, action, resource_ty
 SELECT gen_random_uuid(), gen_random_uuid(), 'USER', gen_random_uuid(), 'LEGACY_ACTION',
        'TRANSFER', gen_random_uuid(), '{"legacy":true}'::jsonb
 FROM generate_series(1, 5000);
+
+-- Reconciliation exceptions as they existed before the lifecycle column (V54): one open, one resolved as
+-- RECOVERED, one resolved as FALSE_POSITIVE (the outcome lived only in audit metadata), and one resolved
+-- with no audit row at all.
+INSERT INTO reconciliation_issues (id, tenant_id, severity, type, entity_type, entity_id, evidence, status, resolved_at) VALUES
+  ('00000000-0000-0000-0000-0000000000a1', gen_random_uuid(), 'HIGH', 'SETTLEMENT_AMOUNT_MISMATCH', 'EXTERNAL_PAYMENT_ATTEMPT', gen_random_uuid(), '{}', 'OPEN', NULL),
+  ('00000000-0000-0000-0000-0000000000a2', gen_random_uuid(), 'HIGH', 'SETTLEMENT_AMOUNT_MISMATCH', 'EXTERNAL_PAYMENT_ATTEMPT', gen_random_uuid(), '{}', 'RESOLVED', now()),
+  ('00000000-0000-0000-0000-0000000000a3', gen_random_uuid(), 'HIGH', 'SETTLEMENT_AMOUNT_MISMATCH', 'EXTERNAL_PAYMENT_ATTEMPT', gen_random_uuid(), '{}', 'RESOLVED', now()),
+  ('00000000-0000-0000-0000-0000000000a4', gen_random_uuid(), 'HIGH', 'SETTLEMENT_AMOUNT_MISMATCH', 'EXTERNAL_PAYMENT_ATTEMPT', gen_random_uuid(), '{}', 'RESOLVED', now());
+INSERT INTO audit_logs (id, tenant_id, actor_type, actor_id, action, resource_type, resource_id, metadata) VALUES
+  (gen_random_uuid(), gen_random_uuid(), 'USER', '00000000-0000-0000-0000-0000000000f2', 'RECONCILIATION_ISSUE_RESOLVED', 'RECONCILIATION_ISSUE',
+   '00000000-0000-0000-0000-0000000000a2', '{"outcome":"RECOVERED","note":"provider re-settled"}'),
+  (gen_random_uuid(), gen_random_uuid(), 'USER', '00000000-0000-0000-0000-0000000000f3', 'RECONCILIATION_ISSUE_RESOLVED', 'RECONCILIATION_ISSUE',
+   '00000000-0000-0000-0000-0000000000a3', '{"outcome":"FALSE_POSITIVE","note":"test payment"}');
 SQL
 seeded="$("${PSQL[@]}" -tA -d "$DB" -c "SELECT count(*) FROM audit_logs;")"
 echo "  seeded $seeded audit row(s) predating the new migrations"
@@ -86,6 +100,18 @@ if [ "$legacy_with_result" != "0" ]; then
   echo "  FAIL  $legacy_with_result legacy row(s) gained an invented outcome"; fail=1
 else
   echo "  ok    legacy rows carry NULL outcomes rather than a back-filled guess"
+fi
+
+# V54 must carry each pre-existing exception into the lifecycle it was actually in, and must not invent a
+# reason for one whose resolution left no record. Expected values are written here, not read from the migration.
+lifecycle="$("${PSQL[@]}" -tA -d "$DB" -c \
+  "SELECT string_agg(right(id::text, 2) || '=' || lifecycle_state || '/' || coalesce(reason_code, 'null') || '/' || coalesce(right(resolved_by::text, 2), 'null'), ' ' ORDER BY id)
+     FROM reconciliation_issues WHERE id::text LIKE '00000000-0000-0000-0000-0000000000a%';")"
+expected_lifecycle="a1=OPEN/null/null a2=RESOLVED/RECOVERED/f2 a3=DISMISSED/FALSE_POSITIVE/f3 a4=RESOLVED/null/null"
+if [ "$lifecycle" != "$expected_lifecycle" ]; then
+  echo "  FAIL  exception lifecycle backfill: got '$lifecycle'"; echo "        expected '$expected_lifecycle'"; fail=1
+else
+  echo "  ok    4 pre-existing exceptions carried into their lifecycle state; no reason invented"
 fi
 
 echo "Baseline V$BASELINE: $applied_before applied, $seeded rows seeded, $applied_after upgrade migration(s) applied."
