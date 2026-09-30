@@ -54,8 +54,17 @@ public final class ReconciliationEngine {
      * @param periodEnd       the case's period end; a charge is only "missing from settlement" when its
      *                        settlement was due inside the period the customer supplied.
      */
-    public record Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees) {
+    /**
+     * @param refundSettlingProviders providers whose settlement data came from a format that settles refunds.
+     *                                Only for these does a refund with no settled refund mean anything.
+     */
+    public record Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees,
+                         Set<String> refundSettlingProviders) {
         public static final Duration DEFAULT_COMPOSITE_WINDOW = Duration.ofHours(24);
+
+        public Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees) {
+            this(settlementSlaDays, compositeWindow, periodEnd, fees, Set.of());
+        }
     }
 
     public record Match(String leftKey, String rightKey, String ruleId, int stage, Map<String, String> detail) {}
@@ -217,6 +226,17 @@ public final class ReconciliationEngine {
                     "D-SETTLED-REFUND", money(m).toString(), money(s).toString(),
                     "The provider's refund event on " + s.stableRef() + " says " + money(m) + " and its settlement report settled " + money(s) + "."));
             }
+        }
+        // 1.2.0 D-REFUND-SETTLEMENT: a successful refund due in the period that no settled refund paid out. Only
+        // where the settlement format can express a refund; elsewhere its absence proves nothing.
+        for (CanonicalRecord m : moneyBack) {
+            if (m.eventType() != EventType.REFUND || !"SUCCESS".equals(m.paymentStatus()) || usedProviderRefund.contains(m.recordKey())
+                    || !cfg.refundSettlingProviders().contains(m.provider()) || m.occurredAt() == null
+                    || m.occurredAt().plus(Duration.ofDays(cfg.settlementSlaDays())).isAfter(cfg.periodEnd())) continue;
+            findings.add(new Finding("MISSING_REFUND_SETTLEMENT", "HIGH", m.currency(), m.grossAmount(), List.of(m.recordKey()),
+                "D-REFUND-SETTLEMENT", "a settled refund for " + m.stableRef(), "none in the supplied settlement data",
+                "Provider " + m.provider() + " refunded " + money(m) + " on " + m.stableRef() + ", the refund was due to settle inside "
+                    + "the case period, and the provider's settlement report does not show it."));
         }
         moneyBack.addAll(settledRefundsAsEvidence);
 

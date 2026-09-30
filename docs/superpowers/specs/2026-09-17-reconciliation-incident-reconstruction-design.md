@@ -867,6 +867,17 @@ payments for `pay_itwv…` and `pay_nju2…`, an internal refund of USD 70.00 on
 provider charges, a run gives R3 = 2, the refund matched, the dispute matched, and findings exactly
 `UNMATCHED_SETTLEMENT_ITEM` × 3. Without the internal refund: `REFUND_MISMATCH` × 1 in addition.
 
+*Addendum to 1.2.0, 2026-09-30, before 1.2.0 was merged anywhere (preregistered before code).*
+*D-REFUND-SETTLEMENT:* a provider `REFUND` event in SUCCESS, due inside the case period (occurred + SLA
+≤ period end), that no settled refund matched raises `MISSING_REFUND_SETTLEMENT` (HIGH, exposure = the
+refund, classification `MISSING_SETTLEMENT`) — **only** for a provider whose settlement data came from
+a format that settles refunds (today: Checkout.com financial actions v2). A generic settlement file and
+the Adyen profile cannot express a refund, so absence there proves nothing and raises nothing.
+Preregistered: the Checkout.com case above, plus provider refund events USD 70.00 on `pay_itwv…`
+(settled) and USD 100.00 on `pay_nju2…` (not settled), plus matching internal refunds, gives R3 = 3,
+D-CHARGEBACK = 1, findings exactly `UNMATCHED_SETTLEMENT_ITEM` × 3 and `MISSING_REFUND_SETTLEMENT` × 1
+(exposure 100.0000). The same refund events against a generic settlement file raise nothing.
+
 **Traceability.** Unchanged and complete: manifest → raw object (sha) → row (sha) → record (key) →
 match / exception (record keys, rule, version) → bundle. A feed event is distinguishable from a CSV
 row by the manifest's profile; both are cited the same way.

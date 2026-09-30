@@ -68,6 +68,15 @@ public interface ProviderReportProfile {
     }
 
     /**
+     * Whether a settlement import in this profile and version turns refunds into settled refunds, so that a
+     * refund missing from it is a finding. Checkout.com v2 does; Adyen v1 keeps refunds as evidence, and the
+     * generic settlement format has no way to express one.
+     */
+    static boolean settlesRefunds(String profile, int version) {
+        return CheckoutFinancialActionsV2.NAME.equals(profile) && version >= 2;
+    }
+
+    /**
      * @param accountZone the operator's declared report zone, for formats whose timestamps carry none
      * @return the profile, or null when {@code name} is not a provider report profile
      */

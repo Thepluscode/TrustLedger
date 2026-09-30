@@ -73,6 +73,8 @@ public enum ReconciliationClassification {
         // Either way the internal records do not show the movement.
         Map.entry("CHARGEBACK_DEBITED", MISSING_INTERNAL_RECORD),
         Map.entry("UNMATCHED_CHARGEBACK_REVERSAL", MISSING_INTERNAL_RECORD),
+        // A successful refund the provider's refund-capable settlement report never paid out.
+        Map.entry("MISSING_REFUND_SETTLEMENT", MISSING_SETTLEMENT),
         // The provider has not decided. UNKNOWN is the taxonomy's "ambiguity preserved, stays visible" value,
         // and it is the one deliberate UNKNOWN a casework run can raise.
         Map.entry("PENDING_UNKNOWN", UNKNOWN));

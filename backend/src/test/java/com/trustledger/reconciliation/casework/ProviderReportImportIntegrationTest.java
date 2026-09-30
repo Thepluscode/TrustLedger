@@ -277,6 +277,48 @@ class ProviderReportImportIntegrationTest {
         }
     }
 
+    /** 1.2.0 addendum, preregistered in the design doc before the code. */
+    @Test
+    void aRefundTheCheckoutReportNeverSettledIsRaisedButAGenericFileProvesNothing() throws Exception {
+        AuthResponse op = http.register();
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,PAYMENT,USD,70.00,2022-11-14T12:08:12Z\n"
+            + "I2,checkout,pay_nju2q7u1yjn2ldlfi81uzt4q6d,PAYMENT,USD,980.64,2022-11-08T12:08:12Z\n"
+            + "R1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,REFUND,USD,70.00,2022-11-14T12:08:12Z\n"
+            + "R2,checkout,pay_nju2q7u1yjn2ldlfi81uzt4q6d,REFUND,USD,100.00,2022-11-10T12:00:00Z\n";
+        String events = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "c1,pay_itwvhag5e5tklnry88sgtpxh1c,,CHARGE,SUCCESS,USD,70.00,,,2022-11-14T12:08:12Z,\n"
+            + "c2,pay_nju2q7u1yjn2ldlfi81uzt4q6d,,CHARGE,SUCCESS,USD,980.64,,,2022-11-08T12:08:12Z,\n"
+            + "r1,pay_itwvhag5e5tklnry88sgtpxh1c,,REFUND,SUCCESS,USD,70.00,,,2022-11-14T12:08:12Z,\n"
+            + "r2,pay_nju2q7u1yjn2ldlfi81uzt4q6d,,REFUND,SUCCESS,USD,100.00,,,2022-11-10T12:00:00Z,\n";
+        UUID caseId = http.createCase(op.token(), "CKO-REFSET-" + UUID.randomUUID());
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "INTERNAL", "ledger", "internal-expected", "internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "PROVIDER_TRANSACTION", "checkout", "provider-transactions", "tx.csv", events.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(201, uploadReport(op.token(), caseId, "checkout", "checkout-financial-actions", null, CHECKOUT).statusCode());
+        HttpResponse<String> r = http.post(CASES + caseId + "/runs", op.token(), null);
+        assertEquals(201, r.statusCode(), r.body());
+        JsonNode summary = json.readTree(http.tree(r).get("run").get("summary").asString());
+        assertEquals(3, summary.get("matchesByRule").get("R3-SETTLEMENT-BATCH").asInt());
+        assertEquals(1, summary.get("matchesByRule").get("D-CHARGEBACK").asInt());
+        Map<String, Integer> byType = new TreeMap<>();
+        summary.get("exceptionsByType").properties().forEach(e -> byType.put(e.getKey(), e.getValue().asInt()));
+        assertEquals(Map.of("UNMATCHED_SETTLEMENT_ITEM", 3, "MISSING_REFUND_SETTLEMENT", 1), byType);
+        assertEquals(0, new BigDecimal("100.0000").compareTo(jdbc.queryForObject(
+            "SELECT exposure_amount FROM reconciliation_issues WHERE case_id = ? AND type = 'MISSING_REFUND_SETTLEMENT'", BigDecimal.class, caseId)));
+
+        // The same refunds against a generic settlement file, which cannot express a refund: nothing raised.
+        UUID generic = http.createCase(op.token(), "GENERIC-REFSET-" + UUID.randomUUID());
+        CaseworkHttp.expect2xx(http.upload(op.token(), generic, "INTERNAL", "ledger", "internal-expected", "internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(op.token(), generic, "PROVIDER_TRANSACTION", "checkout", "provider-transactions", "tx.csv", events.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(op.token(), generic, "SETTLEMENT", "checkout", "provider-settlement", "s.csv",
+            ("batch_id,transaction_ref,currency,gross,fee,net,settled_at\n"
+                + "B1,pay_itwvhag5e5tklnry88sgtpxh1c,USD,70.00,0.00,70.00,2022-11-15\nB1,pay_nju2q7u1yjn2ldlfi81uzt4q6d,USD,980.64,0.00,980.64,2022-11-09\n").getBytes(StandardCharsets.UTF_8)));
+        HttpResponse<String> g = http.post(CASES + generic + "/runs", op.token(), null);
+        assertEquals(201, g.statusCode(), g.body());
+        JsonNode gs = json.readTree(http.tree(g).get("run").get("summary").asString());
+        assertNull(gs.get("exceptionsByType").get("MISSING_REFUND_SETTLEMENT"), gs.toString());
+    }
+
     @Test
     void theCaseViewAndTheRowsEndpointShowWhatEachReportBecame() throws Exception {
         AuthResponse op = http.register();

@@ -101,6 +101,10 @@ Conversion rules, ruleset v1:
   payment and currency, chargebacks net of reversals: > 0 raises `CHARGEBACK_DEBITED`, < 0
   `UNMATCHED_CHARGEBACK_REVERSAL`, = 0 is recorded as a match. Spec and preregistered numbers:
   `docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md`.
+  A successful provider refund due in the period that no settled refund paid out raises
+  `MISSING_REFUND_SETTLEMENT` — only for a provider whose settlement data came from a format that
+  settles refunds (Checkout.com v2). A generic file or the Adyen profile cannot show a refund, so their
+  silence raises nothing.
 
 On the official samples: Adyen → 58 lines (27 USD gross-only, 31 EUR with fee/net), 5 rows kept as
 batch-level evidence. Checkout.com (v2) → 8 records: 5 capture lines, 1 settled refund (USD 70.00,
@@ -126,8 +130,7 @@ dispute fees with no dispute amount 2). With the matching charges and an interna
 - **Stripe** — mapping designed from the docs; not implemented until a real test-mode export passes.
 - Adyen refunds and chargebacks: its published sample has none, so they stay evidence until a real
   file with them passes through.
-- A provider refund event with no settled refund in a covered settlement report (the refund-side
-  `MISSING_SETTLEMENT`); reserves and taxes as reconciled items (preserved, not compared).
+- Reserves and taxes as reconciled items (preserved, not compared).
 - Adyen batch balance (nets to zero) as a reconciliation finding; it is a test invariant only.
 
 ## Differentiation — corrected

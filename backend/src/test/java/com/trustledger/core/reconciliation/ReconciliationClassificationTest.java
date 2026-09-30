@@ -42,7 +42,8 @@ class ReconciliationClassificationTest {
         // The one deliberate UNKNOWN: the provider has not decided, and TrustLedger will not decide for it.
         "PENDING_UNKNOWN,                UNKNOWN",
         "CHARGEBACK_DEBITED,             MISSING_INTERNAL_RECORD",
-        "UNMATCHED_CHARGEBACK_REVERSAL,  MISSING_INTERNAL_RECORD"
+        "UNMATCHED_CHARGEBACK_REVERSAL,  MISSING_INTERNAL_RECORD",
+        "MISSING_REFUND_SETTLEMENT,      MISSING_SETTLEMENT"
     })
     void everyKnownTypeMapsToItsCanonicalCode(String type, ReconciliationClassification expected) {
         assertEquals(expected, forType(type));

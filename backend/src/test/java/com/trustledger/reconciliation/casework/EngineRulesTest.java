@@ -339,4 +339,33 @@ class EngineRulesTest {
     void theRulesetVersionNamesTheSettledRefundAndChargebackRules() {
         assertEquals("recon-rules/1.2.0", ReconciliationEngine.RULESET_VERSION);
     }
+
+    @Test
+    void aSuccessfulRefundDueInThePeriodMustBeSettledWhereTheFormatCanShowIt() {
+        ReconciliationEngine.Config covered = new ReconciliationEngine.Config(2, ReconciliationEngine.Config.DEFAULT_COMPOSITE_WINDOW,
+            EngineFixtures.PERIOD_END, (p, c, at, g) -> Optional.empty(), java.util.Set.of("prov"));
+        String internal = "P1,prov,tx1,PAYMENT,USD,70.00,2026-08-03T10:00:00Z\nR1,prov,tx1,REFUND,USD,70.00,2026-08-04T10:00:00Z\n";
+        String refunded = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-04T10:00:05Z,\n";
+        List<CanonicalRecord> base = records(internal, refunded, null);
+
+        Result missing = ReconciliationEngine.reconcile(base, covered);
+        assertEquals(List.of("MISSING_REFUND_SETTLEMENT"), types(missing));
+        assertEquals(new BigDecimal("70.0000"), missing.findings().get(0).exposure());
+
+        List<CanonicalRecord> settledToo = new ArrayList<>(base);
+        settledToo.add(settled("zz-refund", CanonicalRecord.EventType.SETTLED_REFUND, "tx1", "70.0000"));
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(settledToo, covered)));
+
+        // A format that cannot express a refund proves nothing by its silence.
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(base, EngineFixtures.noFees(2))));
+        // Not due yet: occurred 2 days before period end with a 2-day SLA is due exactly at the end (inside);
+        // one second later is not.
+        String late = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-30T00:00:01Z,\n";
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(records(internal, late, null), covered)));
+        String edge = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-30T00:00:00Z,\n";
+        assertEquals(List.of("MISSING_REFUND_SETTLEMENT"), types(ReconciliationEngine.reconcile(records(internal, edge, null), covered)));
+        // A refund that failed was never going to settle.
+        String failed = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,FAILED,USD,70.00,,,2026-08-04T10:00:05Z,\n";
+        assertFalse(types(ReconciliationEngine.reconcile(records(internal, failed, null), covered)).contains("MISSING_REFUND_SETTLEMENT"));
+    }
 }
