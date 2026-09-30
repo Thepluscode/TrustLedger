@@ -7,8 +7,8 @@ import { EmptyState, StatusPill } from "../../../components/ui";
 import Shell from "../../../components/Shell";
 import { api } from "../../../lib/api";
 import { bytes, dateTime, money } from "../../../lib/format";
-import { IMPORT_PROFILES, matchRatePercent, parseRunSummary } from "../../../lib/recon";
-import type { ReconBundle, ReconCaseView, ReconFeed, ReconFeedCreated, ReconImportView, ReconRunView, ReconSourceRow } from "../../../lib/types";
+import { IMPORT_PROFILES, matchRatePercent, parseRunSummary, providerSummaryLine } from "../../../lib/recon";
+import type { ReconBundle, ReconCaseView, ReconFeed, ReconFeedCreated, ReconImportView, ReconProviderRow, ReconProviderTime, ReconRunView, ReconSourceRow } from "../../../lib/types";
 
 function words(value: string): string {
   return value.replace(/_/g, " ").toLowerCase();
@@ -20,6 +20,8 @@ export default function ReconCasePage() {
   const [run, setRun] = useState<ReconRunView | null>(null);
   const [bundle, setBundle] = useState<ReconBundle | null>(null);
   const [rejected, setRejected] = useState<Record<string, ReconSourceRow[]>>({});
+  const [keptAside, setKeptAside] = useState<Record<string, ReconProviderRow[]>>({});
+  const [zone, setZone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -66,11 +68,13 @@ export default function ReconCasePage() {
     const chosen = IMPORT_PROFILES.find((p) => p.profile === profile)!;
     void act("upload", async () => {
       try {
-        const r = await api.importReconFile(caseId, chosen.sourceType, identity.trim(), chosen.profile, file);
+        const r = await api.importReconFile(caseId, chosen.sourceType, identity.trim(), chosen.profile, file,
+          chosen.accountTimezone && zone.trim() ? zone.trim() : undefined);
         setFile(null);
         return r.replayed
           ? `${file.name} was already imported into this case. Nothing was added.`
-          : `${file.name}: ${r.manifest.acceptedCount} accepted, ${r.manifest.rejectedCount} rejected, ${r.manifest.duplicateCount} duplicate.`;
+          : `${file.name}: ${r.manifest.acceptedCount} accepted, ${r.manifest.rejectedCount} rejected, ${r.manifest.duplicateCount} duplicate.`
+            + (r.provider ? ` ${providerSummaryLine(r.provider)}.` : "");
       } catch (err) {
         // A file refused as a whole is still recorded (with zero rows) so the refusal is visible below.
         await load();
@@ -84,6 +88,16 @@ export default function ReconCasePage() {
     try {
       const rows = await api.reconImportRows(caseId, importId, "REJECTED");
       setRejected((prev) => ({ ...prev, [importId]: rows }));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function showKeptAside(importId: string) {
+    if (!caseId || keptAside[importId]) return;
+    try {
+      const rows = await api.reconProviderRows(caseId, importId, "NOT_RECONCILED");
+      setKeptAside((prev) => ({ ...prev, [importId]: rows }));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -134,6 +148,10 @@ export default function ReconCasePage() {
                       {IMPORT_PROFILES.map((p) => <option key={p.profile} value={p.profile}>{p.label}</option>)}
                     </select></label>
                   <label>Source system or provider<br /><input value={identity} onChange={(e) => setIdentity(e.target.value)} placeholder="provider-a" required /></label>
+                  {IMPORT_PROFILES.find((p) => p.profile === profile)?.accountTimezone && (
+                    <label title="This report's timestamps carry no time zone. Blank leaves them unresolved; nothing is assumed.">Account report time zone<br />
+                      <input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="e.g. Europe/London (optional)" /></label>
+                  )}
                   <label>CSV file<br /><input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required /></label>
                   <button disabled={!file || !identity.trim() || busy !== null}>{busy === "upload" ? "Importing…" : "Import file"}</button>
                 </div>
@@ -153,10 +171,12 @@ export default function ReconCasePage() {
                       <td>{words(m.sourceType)}{m.feedId && <span className="muted"> · event</span>}<br /><span className="muted mono">{m.sourceIdentity}</span></td>
                       <td><StatusPill value={m.status} />{m.failureReason && <><br /><span className="error">{m.failureReason}</span></>}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{m.acceptedCount} accepted{m.deliveryCount > 1 && <span className="muted"> · delivered {m.deliveryCount}×</span>}<br />
-                        <span className={m.rejectedCount > 0 ? "error" : "muted"}>{m.rejectedCount} rejected</span> · <span className="muted">{m.duplicateCount} duplicate</span></td>
+                        <span className={m.rejectedCount > 0 ? "error" : "muted"}>{m.rejectedCount} rejected</span> · <span className="muted">{m.duplicateCount} duplicate</span>
+                        {i.provider && <><br /><span className="muted" style={{ fontSize: 12, whiteSpace: "normal" }}>{providerSummaryLine(i.provider)}</span></>}</td>
                       <td className="mono">{i.currencyTotals.length === 0 ? "—" : i.currencyTotals.map((t) => <div key={t.currency}>{money(t.grossTotal, t.currency)}</div>)}</td>
                       <td>
                         {m.rejectedCount > 0 && <button className="secondary" onClick={() => showRejected(m.id)}>View rejected</button>}{" "}
+                        {i.provider && i.provider.rowsNotReconciled > 0 && <button className="secondary" onClick={() => showKeptAside(m.id)}>View not reconciled</button>}{" "}
                         {m.rejectedCount > 0 && !m.rejectionsAcknowledgedBy && !closed && (
                           <button className="secondary" disabled={busy !== null}
                             onClick={() => act("ack", async () => { await api.acknowledgeReconRejections(caseId, m.id); })}>Acknowledge</button>
@@ -182,6 +202,27 @@ export default function ReconCasePage() {
                     <tr key={r.rowNumber}><td>{r.rowNumber}</td><td><span className="mono">{r.rejectionCode}</span><br /><span className="muted">{r.rejectionMessage}</span></td><td className="mono" style={{ fontSize: 12 }}>{r.rawRow}</td></tr>
                   ))}</tbody>
                 </table>
+              </div>
+            ))}
+            {Object.entries(keptAside).map(([importId, rows]) => (
+              <div className="panelBody" key={importId}>
+                <h3>Kept as evidence, not reconciled · {view.imports.find((i) => i.manifest.id === importId)?.manifest.originalFilename}</h3>
+                <p className="sub">Preserved exactly as the provider wrote them and not compared. Amounts are the provider&apos;s own text.</p>
+                <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead><tr><th>Row</th><th>Why not reconciled</th><th>Payment · kind</th><th>Amounts as written</th><th>Time</th></tr></thead>
+                  <tbody>{rows.map((r) => (
+                    <tr key={r.rowNumber}>
+                      <td>{r.rowNumber}</td>
+                      <td className="mono" style={{ fontSize: 12 }}>{r.notReconciledReason}</td>
+                      <td><span className="mono">{r.paymentRef ?? "—"}</span><br /><span className="muted">{r.kind}</span></td>
+                      <td className="mono" style={{ fontSize: 12 }}>{r.evidence.components.map((c, n) => (
+                        <div key={n}>{c.rawValue} {c.currency} <span className="muted">{c.providerField}</span></div>))}</td>
+                      <td style={{ fontSize: 12 }}>{placed(r.evidence.bookedAt ?? r.evidence.occurredAt)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                </div>
               </div>
             ))}
           </section>
@@ -301,4 +342,10 @@ export default function ReconCasePage() {
       )}
     </Shell>
   );
+}
+
+/** A provider time as evidence: the instant when the zone is known, the raw text and why otherwise. */
+function placed(t: ReconProviderTime | null): string {
+  if (!t) return "—";
+  return t.instant ? `${t.raw} (${t.zoneEvidence})` : `${t.raw} · unresolved: ${t.unresolvedReason}`;
 }

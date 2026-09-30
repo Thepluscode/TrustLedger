@@ -36,7 +36,7 @@ public final class ReconciliationEngine {
     private ReconciliationEngine() {}
 
     /** Bump on ANY change to a rule, a tolerance or a detector. It is part of the run key and of every decision. */
-    public static final String RULESET_VERSION = "recon-rules/1.1.0";
+    public static final String RULESET_VERSION = "recon-rules/1.2.0";
 
     public static final String R1 = "R1-STABLE-ID", R2 = "R2-CROSS-REF", R3 = "R3-SETTLEMENT-BATCH",
         R4 = "R4-COMPOSITE", R5 = "R5-UNMATCHED";
@@ -54,8 +54,17 @@ public final class ReconciliationEngine {
      * @param periodEnd       the case's period end; a charge is only "missing from settlement" when its
      *                        settlement was due inside the period the customer supplied.
      */
-    public record Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees) {
+    /**
+     * @param refundSettlingProviders providers whose settlement data came from a format that settles refunds.
+     *                                Only for these does a refund with no settled refund mean anything.
+     */
+    public record Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees,
+                         Set<String> refundSettlingProviders) {
         public static final Duration DEFAULT_COMPOSITE_WINDOW = Duration.ofHours(24);
+
+        public Config(int settlementSlaDays, Duration compositeWindow, Instant periodEnd, FeeExpectation fees) {
+            this(settlementSlaDays, compositeWindow, periodEnd, fees, Set.of());
+        }
     }
 
     public record Match(String leftKey, String rightKey, String ruleId, int stage, Map<String, String> detail) {}
@@ -80,7 +89,7 @@ public final class ReconciliationEngine {
         records.sort(BY_KEY); // total order: input order can never influence the outcome
 
         List<CanonicalRecord> internalPayments = new ArrayList<>(), internalRefunds = new ArrayList<>(),
-            providerEvents = new ArrayList<>(), lines = new ArrayList<>();
+            providerEvents = new ArrayList<>(), lines = new ArrayList<>(), adjustments = new ArrayList<>();
         Set<String> providersSeen = new TreeSet<>(), covered = new TreeSet<>();
         for (CanonicalRecord r : records) {
             if (r.provider() != null) providersSeen.add(r.provider());
@@ -89,6 +98,7 @@ public final class ReconciliationEngine {
                 case EXPECTED_REFUND -> internalRefunds.add(r);
                 case CHARGE, REFUND, REVERSAL -> providerEvents.add(r);
                 case SETTLEMENT_LINE -> { lines.add(r); covered.add(r.provider()); }
+                case SETTLED_REFUND, SETTLED_CHARGEBACK, SETTLED_CHARGEBACK_REVERSAL -> adjustments.add(r);
             }
         }
 
@@ -192,6 +202,44 @@ public final class ReconciliationEngine {
             }
         }
 
+        // --- 1.2.0 D-SETTLED-REFUND: a refund the provider settled is matched to the provider's refund event.
+        // With no such event, the settled refund IS the provider's refund evidence and joins money going back.
+        Set<String> usedProviderRefund = new HashSet<>();
+        List<CanonicalRecord> settledRefundsAsEvidence = new ArrayList<>();
+        for (CanonicalRecord s : adjustments) {
+            if (s.eventType() != EventType.SETTLED_REFUND) continue;
+            Optional<CanonicalRecord> event = moneyBack.stream()
+                .filter(m -> m.eventType() == EventType.REFUND && !usedProviderRefund.contains(m.recordKey()) && sameProvider(m, s)
+                    && m.stableRef() != null && m.stableRef().equals(s.stableRef()))
+                .findFirst();
+            if (event.isEmpty()) {
+                settledRefundsAsEvidence.add(s);
+                continue;
+            }
+            CanonicalRecord m = event.get();
+            usedProviderRefund.add(m.recordKey());
+            matches.add(new Match(s.recordKey(), m.recordKey(), R3, 3, Map.of("compared", "provider + reference (settled refund)")));
+            byRule.merge(R3, 1, Integer::sum);
+            if (!s.currency().equals(m.currency()) || s.grossAmount().compareTo(m.grossAmount()) != 0) {
+                BigDecimal exposure = s.currency().equals(m.currency()) ? money(s).minus(money(m)).abs().amount() : s.grossAmount();
+                findings.add(new Finding("REFUND_MISMATCH", "HIGH", s.currency(), exposure, List.of(m.recordKey(), s.recordKey()),
+                    "D-SETTLED-REFUND", money(m).toString(), money(s).toString(),
+                    "The provider's refund event on " + s.stableRef() + " says " + money(m) + " and its settlement report settled " + money(s) + "."));
+            }
+        }
+        // 1.2.0 D-REFUND-SETTLEMENT: a successful refund due in the period that no settled refund paid out. Only
+        // where the settlement format can express a refund; elsewhere its absence proves nothing.
+        for (CanonicalRecord m : moneyBack) {
+            if (m.eventType() != EventType.REFUND || !"SUCCESS".equals(m.paymentStatus()) || usedProviderRefund.contains(m.recordKey())
+                    || !cfg.refundSettlingProviders().contains(m.provider()) || m.occurredAt() == null
+                    || m.occurredAt().plus(Duration.ofDays(cfg.settlementSlaDays())).isAfter(cfg.periodEnd())) continue;
+            findings.add(new Finding("MISSING_REFUND_SETTLEMENT", "HIGH", m.currency(), m.grossAmount(), List.of(m.recordKey()),
+                "D-REFUND-SETTLEMENT", "a settled refund for " + m.stableRef(), "none in the supplied settlement data",
+                "Provider " + m.provider() + " refunded " + money(m) + " on " + m.stableRef() + ", the refund was due to settle inside "
+                    + "the case period, and the provider's settlement report does not show it."));
+        }
+        moneyBack.addAll(settledRefundsAsEvidence);
+
         // --- Refunds and reversals: money going back must exist on both sides.
         Set<String> usedRefund = new HashSet<>();
         for (CanonicalRecord m : moneyBack) {
@@ -203,8 +251,8 @@ public final class ReconciliationEngine {
                 .findFirst();
             if (counterpart.isEmpty()) {
                 findings.add(new Finding("REFUND_MISMATCH", "HIGH", m.currency(), m.grossAmount(), List.of(m.recordKey()), "D-REFUND",
-                    "an internal " + m.eventType().name().toLowerCase() + " for " + m.stableRef(), "none",
-                    "Provider " + m.provider() + " reports a " + m.eventType().name().toLowerCase() + " of " + money(m) + " on "
+                    "an internal " + m.eventType().name().toLowerCase().replace('_', ' ') + " for " + m.stableRef(), "none",
+                    "Provider " + m.provider() + " reports a " + m.eventType().name().toLowerCase().replace('_', ' ') + " of " + money(m) + " on "
                         + m.stableRef() + ", and the internal records show no money going back."));
                 continue;
             }
@@ -256,6 +304,36 @@ public final class ReconciliationEngine {
                     "a settlement line for " + c.stableRef(), "none in the supplied settlement data",
                     "Provider " + c.provider() + " charged " + c.stableRef() + " successfully and its settlement was due inside the case period, "
                         + "and no settlement line pays it out."));
+            }
+        }
+
+        // --- 1.2.0 D-CHARGEBACK: per provider + reference + currency, what disputes took net of what they returned.
+        List<CanonicalRecord> disputes = adjustments.stream().filter(a -> a.eventType() != EventType.SETTLED_REFUND).toList();
+        for (List<CanonicalRecord> dispute : groupBy(disputes, a -> a.provider() + "|" + a.stableRef() + "|" + a.currency()).values()) {
+            List<CanonicalRecord> debits = dispute.stream().filter(a -> a.eventType() == EventType.SETTLED_CHARGEBACK).toList();
+            List<CanonicalRecord> credits = dispute.stream().filter(a -> a.eventType() == EventType.SETTLED_CHARGEBACK_REVERSAL).toList();
+            BigDecimal taken = debits.stream().map(CanonicalRecord::grossAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal returned = credits.stream().map(CanonicalRecord::grossAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal net = taken.subtract(returned);
+            CanonicalRecord rep = dispute.get(0);
+            String ccy = rep.currency();
+            if (net.signum() > 0) {
+                findings.add(new Finding("CHARGEBACK_DEBITED", "HIGH", ccy, net, keys(dispute), "D-CHARGEBACK",
+                    "no net chargeback on " + rep.stableRef(), "net chargeback " + plain(net) + " " + ccy,
+                    "Provider " + rep.provider() + " withdrew " + plain(net) + " " + ccy + " from settlement for disputed payment "
+                        + rep.stableRef() + ", not returned in the supplied data. The internal records hold no chargeback."));
+            } else if (net.signum() < 0) {
+                findings.add(new Finding("UNMATCHED_CHARGEBACK_REVERSAL", "HIGH", ccy, net.negate(), keys(dispute), "D-CHARGEBACK",
+                    "a chargeback on " + rep.stableRef() + " for any reversal", "a reversal of " + plain(returned) + " " + ccy + " against chargebacks of " + plain(taken),
+                    "Provider " + rep.provider() + " returned " + plain(net.negate()) + " " + ccy + " on " + rep.stableRef()
+                        + " for a chargeback that is not in the supplied data."));
+            } else {
+                // Raised and returned in full: no money is missing, and the dispute stays visible as matches.
+                for (CanonicalRecord d : debits) matches.add(new Match(d.recordKey(), credits.get(0).recordKey(), "D-CHARGEBACK", 3,
+                    Map.of("compared", "provider + reference + currency (chargeback returned)")));
+                for (CanonicalRecord c : credits.subList(1, credits.size())) matches.add(new Match(debits.get(0).recordKey(), c.recordKey(),
+                    "D-CHARGEBACK", 3, Map.of("compared", "provider + reference + currency (chargeback returned)")));
+                byRule.merge("D-CHARGEBACK", Math.max(debits.size(), credits.size()), Integer::sum);
             }
         }
 

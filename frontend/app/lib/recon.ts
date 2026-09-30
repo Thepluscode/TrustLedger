@@ -1,3 +1,4 @@
+import type { ReconProviderSummary } from "./types";
 /**
  * Console-side mirror of the exception lifecycle. The server is the authority and refuses anything not in
  * its table; this copy only decides which buttons to offer, so an operator is not shown an action that
@@ -89,8 +90,23 @@ export function recordsBySide(evidenceJson: string): Record<string, EvidenceReco
   return sides;
 }
 
-export const IMPORT_PROFILES: { sourceType: string; profile: string; label: string }[] = [
+/**
+ * {@code accountTimezone}: the format's timestamps carry no zone, so the operator may declare the account's
+ * report zone. Left blank, those times stay unresolved; the server never assumes UTC.
+ */
+export const IMPORT_PROFILES: { sourceType: string; profile: string; label: string; accountTimezone?: boolean }[] = [
   { sourceType: "INTERNAL", profile: "internal-expected", label: "Internal ledger — expected payments" },
   { sourceType: "PROVIDER_TRANSACTION", profile: "provider-transactions", label: "Provider — transactions" },
   { sourceType: "SETTLEMENT", profile: "provider-settlement", label: "Provider — settlement" },
+  { sourceType: "SETTLEMENT", profile: "adyen-settlement-detail", label: "Adyen — settlement details report" },
+  { sourceType: "SETTLEMENT", profile: "checkout-financial-actions", label: "Checkout.com — financial actions by payout", accountTimezone: true },
 ];
+
+/** One sentence for what a provider report became. Rows kept aside and unplaced times are always stated. */
+export function providerSummaryLine(p: ReconProviderSummary): string {
+  const lines = `${p.settlementRecords} settlement record${p.settlementRecords === 1 ? "" : "s"}`;
+  const kept = `${p.rowsNotReconciled} row${p.rowsNotReconciled === 1 ? "" : "s"} kept as evidence only`;
+  const times = p.rowsWithUnresolvedTime === 0 ? "every time placed"
+    : `${p.rowsWithUnresolvedTime} row${p.rowsWithUnresolvedTime === 1 ? "" : "s"} with no time zone evidence`;
+  return `${lines} · ${kept} · ${times}`;
+}

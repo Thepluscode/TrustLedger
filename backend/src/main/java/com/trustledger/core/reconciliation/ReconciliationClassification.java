@@ -69,6 +69,12 @@ public enum ReconciliationClassification {
         Map.entry("LATE_SETTLEMENT", LATE_SETTLEMENT),
         Map.entry("UNEXPECTED_STATUS_TRANSITION", INVALID_STATE_TRANSITION),
         Map.entry("PAYMENT_STATUS_MISMATCH", INVALID_STATE_TRANSITION),
+        // recon-rules 1.2.0: a provider withdrew disputed money, or returned it for a dispute not on file.
+        // Either way the internal records do not show the movement.
+        Map.entry("CHARGEBACK_DEBITED", MISSING_INTERNAL_RECORD),
+        Map.entry("UNMATCHED_CHARGEBACK_REVERSAL", MISSING_INTERNAL_RECORD),
+        // A successful refund the provider's refund-capable settlement report never paid out.
+        Map.entry("MISSING_REFUND_SETTLEMENT", MISSING_SETTLEMENT),
         // The provider has not decided. UNKNOWN is the taxonomy's "ambiguity preserved, stays visible" value,
         // and it is the one deliberate UNKNOWN a casework run can raise.
         Map.entry("PENDING_UNKNOWN", UNKNOWN));

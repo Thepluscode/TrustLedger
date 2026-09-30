@@ -8,27 +8,31 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  task: cross_provider_reconciliation_casework
-  priority: P3
-  status: IN_REVIEW
+  task: provider_evidence_ingestion
+  priority: P0                 # founder instruction, 2026-09-27
+  status: IN_PROGRESS
   claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/recon-casework
-  pull_request: 152            # DRAFT at the time of writing; merge is the founder's decision
-  feature_flag: RECON_CASEWORK_ENABLED   # default off
-  source: FEATURE_TRACKER.md  ("Cross-provider reconciliation casework", 2026-09-17)
+  branch: feat/provider-evidence-ingest   # stacked on feat/recon-casework (PR 152)
+  source: "FEATURE_TRACKER.md (\"Provider evidence ingestion\", 2026-09-27)"
   corroborated_by:
-    - "docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md §20"
-    - CaseworkBoundaryTest  # fails the build if the module imports the ledger, a rail or the outbox
-    - migrations V50-V55
+    - docs/PROVIDER_SETTLEMENT_FORMATS.md
+    - ProviderEvidenceTest  # official Adyen + Checkout.com samples, 9 mutants killed
   scope: >
-    Read-only pilot slice: import files -> canonical records -> deterministic reconciliation ->
-    governed exceptions -> evidence bundle -> operator console. Nothing here moves, routes or
-    posts money.
+    Read real provider settlement files into a provider-evidence domain: signed full-precision
+    monetary components, timezone-evidenced times, stable row identity, by-reference aggregation,
+    one rounding boundary. Build order: primitives -> Adyen -> Checkout.com -> Stripe (only on a
+    real test-mode export). Core Money and the ledger are untouched; nothing moves money.
   known_limits:
-    - not production-observed; no customer has used it
-    - the full backend suite was never run locally on this branch (the host swapped); only
-      scoped runs, largest 91 tests
-    - CI on the pushed branch is the only complete verdict
+    - wired, persisted (V57) and read by the engine; not production-observed, no customer file yet
+    - Stripe not implemented: no real export yet
+    - full backend suite not run locally; CI is the only complete verdict
+
+# The previous active task, still awaiting the founder's merge decision. Not in progress.
+awaiting_decision:
+  task: cross_provider_reconciliation_casework
+  pull_request: 152            # DRAFT, CI 8/8 green on 2026-09-27
+  branch: feat/recon-casework
+  feature_flag: RECON_CASEWORK_ENABLED   # default off
 
 # Standing conditions, true regardless of the active task. Not work items.
 invariants_in_force:
@@ -83,3 +87,11 @@ history:
     reason: the task was already in progress; this records it rather than changing it
     evidence: "FEATURE_TRACKER.md 2026-09-17 section; branch feat/recon-casework; PR 152"
     approved_by: FOUNDER (portfolio continuity rollout directive)
+  - date: 2026-09-27
+    change: task switch
+    previous_task: cross_provider_reconciliation_casework (complete for review; PR 152 awaits merge)
+    new_task: provider_evidence_ingestion
+    reason: research showed the import path refuses every row of real Adyen and Checkout.com files
+    evidence: "docs/PROVIDER_SETTLEMENT_FORMATS.md; ProviderEvidenceTest"
+    authorising_condition: FOUNDER_OVERRIDE
+    approved_by: FOUNDER (architecture decision given in session, 2026-09-27)

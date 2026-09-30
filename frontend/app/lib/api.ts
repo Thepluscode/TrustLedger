@@ -30,7 +30,7 @@ import type {
   ReconIssueActivity,
   ReconRunView,
   ReconRun,
-  ReconSourceRow,
+  ReconSourceRow, ReconProviderRow, ReconProviderSummary,
   ReconImportManifest,
   ReconciliationAuditEntry,
   ReconciliationIssue,
@@ -235,14 +235,17 @@ export const api = {
   createReconCase: (body: { caseRef: string; title: string; periodStart: string; periodEnd: string; settlementSlaDays: number }) =>
     request<{ reconciliationCase: ReconCase; replayed: boolean }>("/api/v1/reconciliation/cases", { method: "POST", body: JSON.stringify(body) }),
   getReconCase: (caseId: string) => request<ReconCaseView>(`/api/v1/reconciliation/cases/${caseId}`),
-  importReconFile: (caseId: string, sourceType: string, sourceIdentity: string, profile: string, file: File) => {
+  importReconFile: (caseId: string, sourceType: string, sourceIdentity: string, profile: string, file: File, accountTimezone?: string) => {
     const form = new FormData();
     form.set("sourceType", sourceType);
     form.set("sourceIdentity", sourceIdentity);
     form.set("profile", profile);
+    if (accountTimezone) form.set("accountTimezone", accountTimezone);
     form.set("file", file);
-    return request<{ manifest: ReconImportManifest; replayed: boolean }>(`/api/v1/reconciliation/cases/${caseId}/imports`, { method: "POST", body: form });
+    return request<{ manifest: ReconImportManifest; replayed: boolean; provider: ReconProviderSummary | null }>(`/api/v1/reconciliation/cases/${caseId}/imports`, { method: "POST", body: form });
   },
+  reconProviderRows: (caseId: string, importId: string, outcome: "RECONCILED" | "NOT_RECONCILED") =>
+    request<ReconProviderRow[]>(`/api/v1/reconciliation/cases/${caseId}/imports/${importId}/provider-rows?outcome=${outcome}&size=500`),
   reconImportRows: (caseId: string, importId: string, status: string) =>
     request<ReconSourceRow[]>(`/api/v1/reconciliation/cases/${caseId}/imports/${importId}/rows?status=${status}`),
   acknowledgeReconRejections: (caseId: string, importId: string) =>

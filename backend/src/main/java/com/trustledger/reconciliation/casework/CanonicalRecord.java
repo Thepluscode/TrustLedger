@@ -30,7 +30,12 @@ public record CanonicalRecord(
     String settlementBatch,
     int rowNumber) {
 
-    public enum EventType { EXPECTED_PAYMENT, EXPECTED_REFUND, CHARGE, REFUND, REVERSAL, SETTLEMENT_LINE }
+    /**
+     * The three SETTLED_ types (recon-rules 1.2.0) are money a provider's settlement report moved back:
+     * a refund it paid out of the settlement, a chargeback it withdrew, and a chargeback it returned.
+     */
+    public enum EventType { EXPECTED_PAYMENT, EXPECTED_REFUND, CHARGE, REFUND, REVERSAL, SETTLEMENT_LINE,
+        SETTLED_REFUND, SETTLED_CHARGEBACK, SETTLED_CHARGEBACK_REVERSAL }
 
     /** A refund or reversal on either side: money going back. */
     public boolean isMoneyBack() {

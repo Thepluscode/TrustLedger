@@ -27,6 +27,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -61,6 +63,12 @@ public class CaseBundleService {
         "Amounts in different currencies are reported separately and are never added together.",
         "This is operational evidence. It is not an audit opinion, a certification, or a statement of regulatory compliance.",
         "An INTERIM bundle describes a case that is still open; its exceptions and their history can still change.");
+
+    /** Added only when a provider report was imported, so bundles without one are unchanged. */
+    static final List<String> PROVIDER_LIMITATIONS = List.of(
+        "Provider report rows that were not turned into settlement lines (refunds, chargebacks, reserves, taxes, fees with no capture, rows not yet paid out) are listed with their reason. They were preserved, not compared.",
+        "A settlement line carries one currency: the one the payment was charged in. Where the provider paid out in another currency, fee and net are stated as unknown and the payout amounts appear in the provider evidence. No amount was converted.",
+        "A provider timestamp with no evidence of its time zone is reported as unresolved. No time zone was assumed.");
 
     public record Exported(EvidenceExportEntity export, String contentHash, String bundleStatus) {}
 
@@ -129,6 +137,7 @@ public class CaseBundleService {
         content.put("case", cm);
 
         List<Map<String, Object>> sources = new ArrayList<>();
+        int providerImports = 0;
         List<ImportRow> imports = new ArrayList<>(store.listImports(tenantId, c.id()));
         imports.sort(Comparator.comparing(ImportRow::fileSha256).thenComparing(i -> i.id().toString()));
         for (ImportRow i : imports) {
@@ -176,6 +185,11 @@ public class CaseBundleService {
                 rejected.sort(Comparator.comparing(m -> (Integer) m.get("rowNumber")));
             }
             s.put("rejectedRows", rejected);
+            CaseworkStore.ProviderSummary ps = store.providerSummary(tenantId, i.id());
+            if (ps != null) {
+                s.put("providerEvidence", providerEvidence(tenantId, i.id(), ps));
+                providerImports++;
+            }
             sources.add(s);
         }
         content.put("sources", sources);
@@ -293,8 +307,67 @@ public class CaseBundleService {
             openTotals.add(tm);
         });
         content.put("unresolvedNowByCurrency", openTotals);
-        content.put("limitations", LIMITATIONS);
+        List<String> limitations = new ArrayList<>(LIMITATIONS);
+        if (providerImports > 0) limitations.addAll(PROVIDER_LIMITATIONS);
+        content.put("limitations", limitations);
         return content;
+    }
+
+    /**
+     * A provider report's rows, each with its outcome and its components and times as read. Amounts are the
+     * provider's own text ({@code rawValue}), never a re-parsed number.
+     */
+    private Map<String, Object> providerEvidence(UUID tenantId, UUID importId, CaseworkStore.ProviderSummary ps) {
+        Map<String, Object> pe = new LinkedHashMap<>();
+        pe.put("settlementRecords", ps.settlementRecords());
+        pe.put("rowsNotReconciled", ps.rowsNotReconciled());
+        pe.put("notReconciledByReason", new java.util.TreeMap<>(ps.notReconciledByReason()));
+        pe.put("rowsWithUnresolvedTime", ps.rowsWithUnresolvedTime());
+        List<CaseworkStore.ProviderRowView> rows = store.listProviderRows(tenantId, importId, null, MAX_LISTED + 1, 0);
+        boolean truncated = rows.size() > MAX_LISTED;
+        if (truncated) rows = rows.subList(0, MAX_LISTED);
+        List<Map<String, Object>> listed = new ArrayList<>();
+        for (CaseworkStore.ProviderRowView r : rows) {
+            JsonNode ev = json.readerFor(JsonNode.class).with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readValue(r.evidenceJson());
+            Map<String, Object> rm = new LinkedHashMap<>();
+            rm.put("rowNumber", r.rowNumber());
+            rm.put("rowSha256", r.rowSha256());
+            rm.put("identity", r.identity());
+            rm.put("paymentRef", r.paymentRef());
+            rm.put("kind", r.kind());
+            rm.put("recordKey", r.recordKey());
+            rm.put("notReconciledReason", r.notReconciledReason());
+            rm.put("occurredAt", time(ev.get("occurredAt")));
+            rm.put("bookedAt", time(ev.get("bookedAt")));
+            JsonNode fx = ev.get("fxRate");
+            rm.put("fxRate", fx == null || fx.isNull() ? null : fx.decimalValue().toPlainString());
+            List<Map<String, Object>> components = new ArrayList<>();
+            for (JsonNode c : ev.get("components")) {
+                Map<String, Object> cm = new LinkedHashMap<>();
+                cm.put("role", text(c.get("role")));
+                cm.put("direction", text(c.get("direction")));
+                cm.put("currency", text(c.get("currency")));
+                cm.put("providerField", text(c.get("providerField")));
+                cm.put("rawValue", text(c.get("rawValue")));
+                components.add(cm);
+            }
+            rm.put("components", components);
+            listed.add(rm);
+        }
+        pe.put("rows", listed);
+        pe.put("rowsTruncated", truncated);
+        return pe;
+    }
+
+    private static Map<String, Object> time(JsonNode t) {
+        if (t == null || t.isNull()) return null;
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (String f : List.of("raw", "source", "zoneEvidence", "instant", "unresolvedReason")) m.put(f, text(t.get(f)));
+        return m;
+    }
+
+    private static String text(JsonNode n) {
+        return n == null || n.isNull() ? null : n.asString();
     }
 
     private static String str(Object o) {

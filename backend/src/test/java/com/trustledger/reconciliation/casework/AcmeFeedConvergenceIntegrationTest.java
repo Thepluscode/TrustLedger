@@ -135,7 +135,7 @@ class AcmeFeedConvergenceIntegrationTest {
         assertEquals(201, r.statusCode(), r.body());
         JsonNode v = http.tree(r);
         JsonNode run = v.get("run");
-        assertEquals("recon-rules/1.1.0", run.get("rulesetVersion").asString());
+        assertEquals("recon-rules/1.2.0", run.get("rulesetVersion").asString());
         assertEquals(30, run.get("recordsProcessed").asInt());
         assertEquals(1, run.get("rejectedInputs").asInt());
         assertEquals(10, run.get("internalMatched").asInt());

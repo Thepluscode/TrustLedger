@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RESOLUTION_REASONS, WORKING_TRANSITIONS, isClosed, matchRatePercent, parseRunSummary, recordsBySide, resolutionBlocker } from "./recon";
+import { IMPORT_PROFILES, RESOLUTION_REASONS, WORKING_TRANSITIONS, isClosed, providerSummaryLine, matchRatePercent, parseRunSummary, recordsBySide, resolutionBlocker } from "./recon";
 
 // Expected values are written out here, not derived from recon.ts, so a dropped reason or a widened
 // transition table fails this file.
@@ -64,5 +64,26 @@ describe("run results", () => {
     expect(sides.INTERNAL[0].rowNumber).toBe(3);
     expect(recordsBySide("not json")).toEqual({});
     expect(recordsBySide("{}")).toEqual({});
+  });
+});
+
+describe("provider reports, as the console offers them", () => {
+  it("offers both provider formats as settlement files, and a time zone only where the format has none", () => {
+    expect(IMPORT_PROFILES.map((p) => `${p.profile}:${p.sourceType}:${p.accountTimezone === true}`)).toEqual([
+      "internal-expected:INTERNAL:false",
+      "provider-transactions:PROVIDER_TRANSACTION:false",
+      "provider-settlement:SETTLEMENT:false",
+      "adyen-settlement-detail:SETTLEMENT:false",
+      "checkout-financial-actions:SETTLEMENT:true",
+    ]);
+  });
+
+  it("always states the rows kept aside and the times it could not place", () => {
+    expect(providerSummaryLine({ settlementRecords: 58, rowsNotReconciled: 5, notReconciledByReason: {}, rowsWithUnresolvedTime: 0 }))
+      .toBe("58 settlement records · 5 rows kept as evidence only · every time placed");
+    expect(providerSummaryLine({ settlementRecords: 1, rowsNotReconciled: 1, notReconciledByReason: {}, rowsWithUnresolvedTime: 1 }))
+      .toBe("1 settlement record · 1 row kept as evidence only · 1 row with no time zone evidence");
+    expect(providerSummaryLine({ settlementRecords: 2, rowsNotReconciled: 51, notReconciledByReason: {}, rowsWithUnresolvedTime: 55 }))
+      .toBe("2 settlement records · 51 rows kept as evidence only · 55 rows with no time zone evidence");
   });
 });

@@ -5,6 +5,11 @@ import com.trustledger.observability.CorrelationId;
 import com.trustledger.persistence.entity.AuditLogEntity;
 import com.trustledger.persistence.repo.AuditLogRepository;
 import com.trustledger.reconciliation.casework.CaseworkStore.CaseRow;
+import com.trustledger.reconciliation.casework.provider.ProviderRow;
+import com.trustledger.reconciliation.casework.provider.ProviderReportProfile;
+import com.trustledger.reconciliation.casework.provider.ProviderEvidence;
+import com.trustledger.reconciliation.casework.CaseworkStore.ProviderRowEvidence;
+import com.trustledger.reconciliation.casework.CaseworkStore.ProviderSummary;
 import com.trustledger.reconciliation.casework.CaseworkStore.CurrencyTotal;
 import com.trustledger.reconciliation.casework.CaseworkStore.ImportRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.SourceRow;
@@ -18,6 +23,8 @@ import com.trustledger.security.NotFoundException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +52,13 @@ public class ImportService {
     /** Matches the multipart limit in application.yml and the ceiling stated in V50. */
     public static final int MAX_BYTES = 25 * 1024 * 1024;
 
-    public record Result(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed) {}
+    /** {@code provider} is set only for a provider report import. */
+    public record Result(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed, ProviderSummary provider) {
+        public Result(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed) {
+            this(manifest, currencyTotals, replayed, null);
+        }
+    }
+
 
     private final CaseworkStore store;
     private final CaseService cases;
@@ -76,6 +89,21 @@ public class ImportService {
     @Transactional
     public Result importFile(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType, String sourceIdentity,
                              String profileName, String filename, byte[] content) {
+        return importFile(tenantId, actorId, caseId, sourceType, sourceIdentity, profileName, filename, content, null);
+    }
+
+    /**
+     * @param accountZone the operator's declared report zone, for provider formats whose timestamps carry
+     *                    none. Refused for every other profile, so it can never silently do nothing.
+     */
+    @Transactional
+    public Result importFile(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType, String sourceIdentity,
+                             String profileName, String filename, byte[] content, ZoneId accountZone) {
+        ProviderReportProfile provider = ProviderReportProfile.forName(profileName, accountZone);
+        if (provider != null) {
+            return ingestProviderReport(tenantId, actorId, caseId, sourceType, sourceIdentity, provider, filename, content);
+        }
+        if (accountZone != null) throw new IllegalArgumentException("accountTimezone applies to provider report profiles only");
         return ingest(tenantId, actorId, caseId, sourceType, sourceIdentity, profileName, filename, content, null,
             "recon-import", ImportService::parseCsv);
     }
@@ -129,44 +157,22 @@ public class ImportService {
 
     private Result ingest(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType, String sourceIdentity,
                           String profileName, String filename, byte[] content, UUID feedId, String keySegment, Front front) {
-        if (sourceType == null) throw new IllegalArgumentException("sourceType is required");
-        if (sourceIdentity == null || !sourceIdentity.matches("[A-Za-z0-9._-]{1,64}")) {
-            throw new IllegalArgumentException("sourceIdentity (the provider, or the internal system) is required: letters, digits, dot, underscore, hyphen");
-        }
-        if (content == null || content.length == 0) throw new IllegalArgumentException("the file is empty");
-        if (content.length > MAX_BYTES) throw new IllegalArgumentException("the file exceeds " + MAX_BYTES + " bytes");
+        checkInputs(sourceType, sourceIdentity, content);
         ImportProfile profile = ImportProfile.forName(profileName);
         if (profile.sourceType() != sourceType) {
             throw new IllegalArgumentException("profile " + profile.name() + " reads " + profile.sourceType() + " files, not " + sourceType);
         }
 
-        // The case row lock serialises concurrent deliveries of the same bytes: the second one waits, then
-        // finds the first one's manifest and replays it.
-        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> cases.notFound(caseId));
-        if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; no further imports are accepted");
-
-        String fileSha = Hashes.sha256(content);
-        var existing = store.findImportByHash(tenantId, caseId, fileSha);
-        if (existing.isPresent()) {
-            store.countDelivery(tenantId, existing.get().id());
-            metrics.replay(feedId == null ? "import" : "event");
-            metrics.importFinished(sourceType, "replayed");
-            log.info("recon.import.replayed import={} case={}", existing.get().id(), caseId);
-            ImportRow replayed = store.findImport(tenantId, caseId, existing.get().id()).orElseThrow();
-            return new Result(replayed, store.currencyTotals(replayed.id()), true);
-        }
-
-        log.info("recon.import.started case={} sourceType={} bytes={} feed={}", caseId, sourceType, content.length, feedId);
-        // Raw evidence first. If this throws, nothing derived from the bytes exists either.
-        String storageKey = "evidence/" + tenantId + "/" + keySegment + "/" + (feedId == null ? caseId : feedId) + "/" + fileSha
-            + (feedId == null ? ".csv" : ".json");
-        storage.store(storageKey, content);
+        Started s = start(tenantId, caseId, sourceType, content, feedId, keySegment);
+        if (s.replay() != null) return s.replay();
+        CaseRow c = s.caseRow();
+        String fileSha = s.fileSha(), storageKey = s.storageKey();
 
         UUID importId = UUID.randomUUID();
         Parsed parsed = front.parse(content, profile);
         if (parsed.refused()) {
             return failed(tenantId, actorId, caseId, importId, sourceType, sourceIdentity, safeFilename(filename), fileSha,
-                content.length, storageKey, profile, feedId, parsed.refusalCode() + ": " + parsed.refusalMessage());
+                content.length, storageKey, profile.name(), profile.version(), feedId, parsed.refusalCode() + ": " + parsed.refusalMessage());
         }
 
         Set<String> alreadyAccepted = store.acceptedRowHashes(tenantId, caseId);
@@ -221,44 +227,225 @@ public class ImportService {
         ImportRow manifest = new ImportRow(importId, caseId, sourceType.name(), sourceIdentity, safeName, fileSha,
             content.length, storageKey, profile.name(), profile.version(), "COMPLETED", null,
             parsed.rows().size(), accepted, rejected, duplicate, null, actorId, CorrelationId.current(), null, 1, feedId);
-        store.insertImport(tenantId, manifest);
-        store.insertSourceRows(tenantId, importId, sourceRows);
-        store.insertRecords(tenantId, caseId, importId, records, rowIdByNumber, CorrelationId.current());
         List<CurrencyTotal> totals = new ArrayList<>();
         gross.forEach((ccy, sum) -> totals.add(new CurrencyTotal(ccy, sum, counts.get(ccy))));
-        store.insertCurrencyTotals(importId, totals);
+        write(tenantId, caseId, c, manifest, sourceRows, records, rowIdByNumber, totals);
+        completed(tenantId, actorId, caseId, feedId, sourceType, manifest, new LinkedHashMap<>());
+        return new Result(store.findImport(tenantId, caseId, importId).orElseThrow(), totals, false);
+    }
+
+    // ---- provider reports ---------------------------------------------------------------------------------
+
+    /**
+     * A provider settlement report. Rows are read into provider evidence (exact components, evidenced
+     * times, stable identity) and the profile derives settlement lines at the monetary boundary. Same
+     * governed order as every import, in one transaction: raw bytes, manifest, rows, records, then each
+     * accepted row's evidence with its outcome: the record it fed, or why it was not reconciled.
+     */
+    private Result ingestProviderReport(UUID tenantId, UUID actorId, UUID caseId, SourceType sourceType,
+                                        String sourceIdentity, ProviderReportProfile profile, String filename, byte[] content) {
+        checkInputs(sourceType, sourceIdentity, content);
+        if (sourceType != SourceType.SETTLEMENT) {
+            throw new IllegalArgumentException("profile " + profile.name() + " reads SETTLEMENT files, not " + sourceType);
+        }
+        Started s = start(tenantId, caseId, sourceType, content, null, "recon-import");
+        if (s.replay() != null) return s.replay();
+        UUID importId = UUID.randomUUID();
+        String name = safeFilename(filename);
+
+        CsvTable table;
+        try {
+            table = CsvTable.parse(content);
+        } catch (CsvTable.FileRejected e) {
+            return failed(tenantId, actorId, caseId, importId, sourceType, sourceIdentity, name, s.fileSha(), content.length,
+                s.storageKey(), profile.name(), profile.version(), null, e.code() + ": " + e.getMessage());
+        }
+        for (String required : profile.requiredHeaders()) {
+            if (!table.headers().contains(required)) {
+                return failed(tenantId, actorId, caseId, importId, sourceType, sourceIdentity, name, s.fileSha(), content.length,
+                    s.storageKey(), profile.name(), profile.version(), null, "MISSING_COLUMN: required column missing: " + required
+                        + " (profile " + profile.name() + " v" + profile.version() + ")");
+            }
+        }
+
+        Set<String> alreadyAccepted = store.acceptedRowHashes(tenantId, caseId);
+        List<SourceRow> sourceRows = new ArrayList<>();
+        Map<Integer, Integer> indexByRow = new HashMap<>();
+        Map<Integer, String> shaByRow = new HashMap<>();
+        List<ProviderRow> read = new ArrayList<>();
+        for (CsvTable.Row row : table.rows()) {
+            UUID rowId = UUID.randomUUID();
+            String rowSha = Hashes.sha256(sourceType.name(), sourceIdentity, row.raw());
+            indexByRow.put(row.number(), sourceRows.size());
+            shaByRow.put(row.number(), rowSha);
+            if (row.values() == null) {
+                sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "REJECTED", "WRONG_COLUMN_COUNT",
+                    "the row does not have the expected number of columns"));
+            } else if (!alreadyAccepted.add(rowSha)) {
+                sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "DUPLICATE", null, null));
+            } else {
+                try {
+                    read.add(profile.read(row.values(), row.number()));
+                    sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "ACCEPTED", null, null));
+                } catch (RowRejected e) {
+                    alreadyAccepted.remove(rowSha);
+                    sourceRows.add(new SourceRow(rowId, row.number(), row.raw(), rowSha, "REJECTED", e.code(), truncate(e.getMessage(), 300)));
+                }
+            }
+        }
+
+        ProviderEvidence evidence = ProviderEvidence.of(read);
+        // A row the provider reports twice under one identity is a duplicate whatever its bytes: it adds nothing.
+        for (ProviderRow d : evidence.duplicates()) {
+            int i = indexByRow.get(d.rowNumber());
+            SourceRow r = sourceRows.get(i);
+            sourceRows.set(i, new SourceRow(r.id(), r.rowNumber(), r.rawRow(), r.rowSha256(), "DUPLICATE", null, null));
+        }
+
+        List<StoredRecord> records = new ArrayList<>();
+        Map<Integer, UUID> rowIdByNumber = new HashMap<>();
+        List<ProviderRowEvidence> provenance = new ArrayList<>();
+        Map<String, BigDecimal> gross = new TreeMap<>();
+        Map<String, Integer> counts = new TreeMap<>();
+        Map<String, Integer> notReconciled = new TreeMap<>();
+        Set<Integer> covered = new HashSet<>();
+        for (ProviderReportProfile.Derivation d : ProviderReportProfile.derive(profile, evidence, sourceIdentity)) {
+            UUID recordId = null;
+            if (d.line() != null) {
+                CanonicalRecord line = d.line();
+                String anchorSha = shaByRow.get(line.rowNumber());
+                recordId = UUID.randomUUID();
+                CanonicalRecord keyed = line.withKey(Hashes.sha256(tenantId.toString(), caseId.toString(), sourceType.name(),
+                    sourceIdentity, line.stableRef(), line.eventType().name(), anchorSha));
+                rowIdByNumber.put(line.rowNumber(), sourceRows.get(indexByRow.get(line.rowNumber())).id());
+                records.add(new StoredRecord(recordId, importId, keyed, s.storageKey(), s.fileSha(), anchorSha));
+                gross.merge(keyed.currency(), keyed.grossAmount(), BigDecimal::add);
+                counts.merge(keyed.currency(), 1, Integer::sum);
+            } else {
+                notReconciled.merge(d.notReconciledReason(), d.sources().size(), Integer::sum);
+            }
+            for (ProviderRow r : d.sources()) {
+                covered.add(r.rowNumber());
+                provenance.add(new ProviderRowEvidence(sourceRows.get(indexByRow.get(r.rowNumber())).id(), truncate(r.identity(), 512),
+                    r.paymentRef(), truncate(r.kind(), 200), json.writeValueAsString(r), recordId,
+                    recordId == null ? truncate(d.notReconciledReason(), 300) : null));
+            }
+        }
+        int unresolvedTime = (int) read.stream()
+            .filter(r -> covered.contains(r.rowNumber()))
+            .filter(r -> (r.occurredAt() != null && !r.occurredAt().resolved()) || (r.bookedAt() != null && !r.bookedAt().resolved()))
+            .count();
+
+        int accepted = 0, rejected = 0, duplicate = 0;
+        for (SourceRow r : sourceRows) {
+            switch (r.status()) {
+                case "ACCEPTED" -> accepted++;
+                case "REJECTED" -> rejected++;
+                default -> duplicate++;
+            }
+        }
+        ImportRow manifest = new ImportRow(importId, caseId, sourceType.name(), sourceIdentity, name, s.fileSha(),
+            content.length, s.storageKey(), profile.name(), profile.version(), "COMPLETED", null,
+            sourceRows.size(), accepted, rejected, duplicate, null, actorId, CorrelationId.current(), null, 1, null);
+        List<CurrencyTotal> totals = new ArrayList<>();
+        gross.forEach((ccy, sum) -> totals.add(new CurrencyTotal(ccy, sum, counts.get(ccy))));
+        write(tenantId, caseId, s.caseRow(), manifest, sourceRows, records, rowIdByNumber, totals);
+        store.insertProviderRows(tenantId, importId, provenance);
+
+        int rowsNotReconciled = notReconciled.values().stream().mapToInt(Integer::intValue).sum();
+        ProviderSummary summary = new ProviderSummary(records.size(), rowsNotReconciled, Map.copyOf(notReconciled), unresolvedTime);
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("settlementRecords", summary.settlementRecords());
+        extra.put("rowsNotReconciled", rowsNotReconciled);
+        extra.put("notReconciledByReason", new TreeMap<>(notReconciled));
+        extra.put("rowsWithUnresolvedTime", unresolvedTime);
+        completed(tenantId, actorId, caseId, null, sourceType, manifest, extra);
+        log.info("recon.import.provider import={} profile={} lines={} notReconciled={} unresolvedTime={}",
+            importId, profile.name(), records.size(), rowsNotReconciled, unresolvedTime);
+        return new Result(store.findImport(tenantId, caseId, importId).orElseThrow(), totals, false, summary);
+    }
+
+    // ---- shared by every import path ----------------------------------------------------------------------
+
+    private static void checkInputs(SourceType sourceType, String sourceIdentity, byte[] content) {
+        if (sourceType == null) throw new IllegalArgumentException("sourceType is required");
+        if (sourceIdentity == null || !sourceIdentity.matches("[A-Za-z0-9._-]{1,64}")) {
+            throw new IllegalArgumentException("sourceIdentity (the provider, or the internal system) is required: letters, digits, dot, underscore, hyphen");
+        }
+        if (content == null || content.length == 0) throw new IllegalArgumentException("the file is empty");
+        if (content.length > MAX_BYTES) throw new IllegalArgumentException("the file exceeds " + MAX_BYTES + " bytes");
+    }
+
+    /** Either a replay of an earlier identical import, or the locked case with the raw bytes already stored. */
+    private record Started(Result replay, CaseRow caseRow, String fileSha, String storageKey) {}
+
+    private Started start(UUID tenantId, UUID caseId, SourceType sourceType, byte[] content, UUID feedId, String keySegment) {
+        // The case row lock serialises concurrent deliveries of the same bytes: the second one waits, then
+        // finds the first one's manifest and replays it.
+        CaseRow c = store.lockCase(tenantId, caseId).orElseThrow(() -> cases.notFound(caseId));
+        if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; no further imports are accepted");
+
+        String fileSha = Hashes.sha256(content);
+        var existing = store.findImportByHash(tenantId, caseId, fileSha);
+        if (existing.isPresent()) {
+            store.countDelivery(tenantId, existing.get().id());
+            metrics.replay(feedId == null ? "import" : "event");
+            metrics.importFinished(sourceType, "replayed");
+            log.info("recon.import.replayed import={} case={}", existing.get().id(), caseId);
+            ImportRow replayed = store.findImport(tenantId, caseId, existing.get().id()).orElseThrow();
+            return new Started(new Result(replayed, store.currencyTotals(replayed.id()), true), c, fileSha, null);
+        }
+
+        log.info("recon.import.started case={} sourceType={} bytes={} feed={}", caseId, sourceType, content.length, feedId);
+        // Raw evidence first. If this throws, nothing derived from the bytes exists either.
+        String storageKey = "evidence/" + tenantId + "/" + keySegment + "/" + (feedId == null ? caseId : feedId) + "/" + fileSha
+            + (feedId == null ? ".csv" : ".json");
+        storage.store(storageKey, content);
+        return new Started(null, c, fileSha, storageKey);
+    }
+
+    private void write(UUID tenantId, UUID caseId, CaseRow c, ImportRow manifest, List<SourceRow> sourceRows,
+                       List<StoredRecord> records, Map<Integer, UUID> rowIdByNumber, List<CurrencyTotal> totals) {
+        store.insertImport(tenantId, manifest);
+        store.insertSourceRows(tenantId, manifest.id(), sourceRows);
+        store.insertRecords(tenantId, caseId, manifest.id(), records, rowIdByNumber, CorrelationId.current());
+        store.insertCurrencyTotals(manifest.id(), totals);
         // New data makes any earlier run stale: the case goes back to DRAFT until it is run again.
         if (!"DRAFT".equals(c.status())) store.setCaseStatus(tenantId, caseId, "DRAFT");
+    }
 
+    /** @param extra path-specific audit fields, written after the common ones */
+    private void completed(UUID tenantId, UUID actorId, UUID caseId, UUID feedId, SourceType sourceType,
+                           ImportRow manifest, Map<String, Object> extra) {
         Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("importId", importId.toString());
+        meta.put("importId", manifest.id().toString());
         meta.put("sourceType", sourceType.name());
-        meta.put("sourceIdentity", sourceIdentity);
-        meta.put("filename", safeName);
-        meta.put("fileSha256", fileSha);
-        meta.put("profile", profile.name() + "/v" + profile.version());
+        meta.put("sourceIdentity", manifest.sourceIdentity());
+        meta.put("filename", manifest.originalFilename());
+        meta.put("fileSha256", manifest.fileSha256());
+        meta.put("profile", manifest.profile() + "/v" + manifest.profileVersion());
         if (feedId != null) meta.put("feedId", feedId.toString());
-        meta.put("accepted", accepted);
-        meta.put("rejected", rejected);
-        meta.put("duplicate", duplicate);
+        meta.put("accepted", manifest.acceptedCount());
+        meta.put("rejected", manifest.rejectedCount());
+        meta.put("duplicate", manifest.duplicateCount());
+        meta.putAll(extra);
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, feedId == null ? "USER" : "SYSTEM", actorId,
             feedId == null ? "RECON_IMPORT_COMPLETED" : "RECON_EVENT_RECEIVED", "RECON_CASE", caseId, json.writeValueAsString(meta)));
         metrics.importFinished(sourceType, "completed");
-        metrics.rows(sourceType, "accepted", accepted);
-        metrics.rows(sourceType, "rejected", rejected);
-        metrics.rows(sourceType, "duplicate", duplicate);
+        metrics.rows(sourceType, "accepted", manifest.acceptedCount());
+        metrics.rows(sourceType, "rejected", manifest.rejectedCount());
+        metrics.rows(sourceType, "duplicate", manifest.duplicateCount());
         log.info("recon.import.completed import={} case={} accepted={} rejected={} duplicate={}",
-            importId, caseId, accepted, rejected, duplicate);
-        return new Result(store.findImport(tenantId, caseId, importId).orElseThrow(), totals, false);
+            manifest.id(), caseId, manifest.acceptedCount(), manifest.rejectedCount(), manifest.duplicateCount());
     }
 
     /** A file-level failure is a committed fact with zero rows, not a rollback: the operator must see it. */
     private Result failed(UUID tenantId, UUID actorId, UUID caseId, UUID importId, SourceType sourceType,
                           String sourceIdentity, String filename, String fileSha, long size, String storageKey,
-                          ImportProfile profile, UUID feedId, String reason) {
+                          String profileName, int profileVersion, UUID feedId, String reason) {
         String r = truncate(reason, 500);
         store.insertImport(tenantId, new ImportRow(importId, caseId, sourceType.name(), sourceIdentity, filename,
-            fileSha, size, storageKey, profile.name(), profile.version(), "FAILED", r, 0, 0, 0, 0, null, actorId,
+            fileSha, size, storageKey, profileName, profileVersion, "FAILED", r, 0, 0, 0, 0, null, actorId,
             CorrelationId.current(), null, 1, feedId));
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, feedId == null ? "USER" : "SYSTEM", actorId, "RECON_IMPORT_FAILED",
             "RECON_CASE", caseId, json.writeValueAsString(Map.of("importId", importId.toString(), "filename", filename,

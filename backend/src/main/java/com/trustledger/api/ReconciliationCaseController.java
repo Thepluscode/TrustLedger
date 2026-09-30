@@ -44,9 +44,16 @@ public class ReconciliationCaseController {
 
     public record CaseView(CaseRow reconciliationCase, List<ImportView> imports, List<String> blockers) {}
 
-    public record ImportView(ImportRow manifest, List<CurrencyTotal> currencyTotals) {}
+    /** {@code provider} is present only for a provider report import. */
+    public record ImportView(ImportRow manifest, List<CurrencyTotal> currencyTotals, CaseworkStore.ProviderSummary provider) {}
 
-    public record ImportResponse(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed) {}
+    /** One provider report row and its outcome; {@code evidence} is the row's components and times as read. */
+    public record ProviderRowResponse(int rowNumber, String rowSha256, String identity, String paymentRef, String kind,
+                                      String recordKey, String notReconciledReason, tools.jackson.databind.JsonNode evidence) {}
+
+    /** {@code provider} is present only for a provider report profile: what the report became, nothing dropped. */
+    public record ImportResponse(ImportRow manifest, List<CurrencyTotal> currencyTotals, boolean replayed,
+                                 CaseworkStore.ProviderSummary provider) {}
 
     public record CreateResponse(CaseRow reconciliationCase, boolean replayed) {}
 
@@ -68,9 +75,12 @@ public class ReconciliationCaseController {
     private final RunService runs;
     private final CaseBundleService bundles;
     private final FeedService feeds;
+    private final tools.jackson.databind.ObjectMapper json;
 
     public ReconciliationCaseController(AccessControlService access, CaseService cases, ImportService imports,
-                                        CaseworkStore store, RunService runs, CaseBundleService bundles, FeedService feeds) {
+                                        CaseworkStore store, RunService runs, CaseBundleService bundles, FeedService feeds,
+                                        tools.jackson.databind.ObjectMapper json) {
+        this.json = json;
         this.feeds = feeds;
         this.runs = runs;
         this.bundles = bundles;
@@ -100,7 +110,7 @@ public class ReconciliationCaseController {
         UUID tenant = CurrentUser.tenantId();
         CaseRow c = cases.require(tenant, caseId);
         List<ImportView> views = store.listImports(tenant, caseId).stream()
-            .map(i -> new ImportView(i, store.currencyTotals(i.id()))).toList();
+            .map(i -> new ImportView(i, store.currencyTotals(i.id()), store.providerSummary(tenant, i.id()))).toList();
         return new CaseView(c, views, cases.blockers(tenant, caseId));
     }
 
@@ -109,7 +119,8 @@ public class ReconciliationCaseController {
                                                      @RequestParam("file") MultipartFile file,
                                                      @RequestParam String sourceType,
                                                      @RequestParam String sourceIdentity,
-                                                     @RequestParam String profile) throws IOException {
+                                                     @RequestParam String profile,
+                                                     @RequestParam(required = false) String accountTimezone) throws IOException {
         access.require(Permission.RECON_CASE_MANAGE);
         SourceType type;
         try {
@@ -117,12 +128,47 @@ public class ReconciliationCaseController {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("sourceType must be one of " + List.of(SourceType.values()));
         }
+        java.time.ZoneId zone = null;
+        if (accountTimezone != null && !accountTimezone.isBlank()) {
+            try {
+                zone = java.time.ZoneId.of(accountTimezone.trim());
+            } catch (java.time.DateTimeException e) {
+                throw new IllegalArgumentException("accountTimezone must be an IANA zone id such as Europe/London: " + accountTimezone);
+            }
+        }
         ImportService.Result r = imports.importFile(CurrentUser.tenantId(), CurrentUser.userId(), caseId, type,
-            sourceIdentity, profile, file.getOriginalFilename(), file.getBytes());
+            sourceIdentity, profile, file.getOriginalFilename(), file.getBytes(), zone);
         // 422 for a file refused as a whole: it was received and recorded, but nothing in it was usable.
         HttpStatus status = r.replayed() ? HttpStatus.OK
             : "FAILED".equals(r.manifest().status()) ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.CREATED;
-        return ResponseEntity.status(status).body(new ImportResponse(r.manifest(), r.currencyTotals(), r.replayed()));
+        return ResponseEntity.status(status).body(new ImportResponse(r.manifest(), r.currencyTotals(), r.replayed(), r.provider()));
+    }
+
+    /**
+     * The rows of a provider report with their outcome. {@code outcome=NOT_RECONCILED} lists what was kept as
+     * evidence only, each with its reason; {@code RECONCILED} lists rows that fed a settlement line.
+     */
+    @GetMapping("/{caseId}/imports/{importId}/provider-rows")
+    public List<ProviderRowResponse> providerRows(@PathVariable UUID caseId, @PathVariable UUID importId,
+                                                  @RequestParam(required = false) String outcome,
+                                                  @RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "100") int size) {
+        access.require(Permission.RECON_VIEW);
+        UUID tenant = CurrentUser.tenantId();
+        cases.require(tenant, caseId);
+        store.findImport(tenant, caseId, importId)
+            .orElseThrow(() -> new com.trustledger.security.NotFoundException("Import not found: " + importId));
+        Boolean reconciled = outcome == null || outcome.isBlank() ? null : switch (outcome.toUpperCase(Locale.ROOT)) {
+            case "RECONCILED" -> Boolean.TRUE;
+            case "NOT_RECONCILED" -> Boolean.FALSE;
+            default -> throw new IllegalArgumentException("outcome must be RECONCILED or NOT_RECONCILED");
+        };
+        int limit = Math.max(1, Math.min(size, MAX_PAGE));
+        return store.listProviderRows(tenant, importId, reconciled, limit, Math.max(0, page) * limit).stream()
+            .map(r -> new ProviderRowResponse(r.rowNumber(), r.rowSha256(), r.identity(), r.paymentRef(), r.kind(),
+                r.recordKey(), r.notReconciledReason(), json.readerFor(tools.jackson.databind.JsonNode.class)
+                    .with(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).<tools.jackson.databind.JsonNode>readValue(r.evidenceJson())))
+            .toList();
     }
 
     @GetMapping("/{caseId}/imports/{importId}/rows")

@@ -110,7 +110,8 @@ public class RunService {
         ReconciliationEngine.Result result = ReconciliationEngine.reconcile(
             stored.stream().map(StoredRecord::record).toList(),
             new ReconciliationEngine.Config(c.settlementSlaDays(), ReconciliationEngine.Config.DEFAULT_COMPOSITE_WINDOW,
-                c.periodEnd(), (provider, currency, at, gross) -> feeFor(schedules, provider, currency, at, gross)));
+                c.periodEnd(), (provider, currency, at, gross) -> feeFor(schedules, provider, currency, at, gross),
+                refundSettlingProviders(imports)));
 
         Map<String, StoredRecord> byKey = new HashMap<>();
         for (StoredRecord s : stored) byKey.put(s.record().recordKey(), s);
@@ -245,6 +246,18 @@ public class RunService {
     }
 
     /** Everything that can change a result is in the key: the files, the rules, the case settings and the fee schedules. */
+    /** Providers with a completed settlement import whose format settles refunds (the engine keys providers lower-case). */
+    static java.util.Set<String> refundSettlingProviders(List<ImportRow> imports) {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        for (ImportRow i : imports) {
+            if ("SETTLEMENT".equals(i.sourceType())
+                    && com.trustledger.reconciliation.casework.provider.ProviderReportProfile.settlesRefunds(i.profile(), i.profileVersion())) {
+                out.add(i.sourceIdentity().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        return out;
+    }
+
     private static String runKey(UUID tenantId, CaseRow c, List<ImportRow> imports, List<ProviderFeeScheduleEntity> schedules) {
         List<String> parts = new ArrayList<>();
         parts.add(tenantId.toString());

@@ -309,7 +309,28 @@ export interface ReconFeedCreated { feed: ReconFeed; token: string; deliveryPath
 
 export interface ReconCurrencyTotal { currency: string; grossTotal: string; rowCount: number }
 
-export interface ReconImportView { manifest: ReconImportManifest; currencyTotals: ReconCurrencyTotal[] }
+export interface ReconProviderSummary {
+  settlementRecords: number;
+  rowsNotReconciled: number;
+  notReconciledByReason: Record<string, number>;
+  rowsWithUnresolvedTime: number;
+}
+
+export interface ReconProviderTime { raw: string; source: string; zoneEvidence: string | null; instant: string | null; unresolvedReason: string | null }
+
+export interface ReconProviderComponent { role: string; direction: string; currency: string; providerField: string; rawValue: string }
+
+export interface ReconProviderRow {
+  rowNumber: number;
+  identity: string;
+  paymentRef: string | null;
+  kind: string;
+  recordKey: string | null;
+  notReconciledReason: string | null;
+  evidence: { occurredAt: ReconProviderTime | null; bookedAt: ReconProviderTime | null; components: ReconProviderComponent[] };
+}
+
+export interface ReconImportView { manifest: ReconImportManifest; currencyTotals: ReconCurrencyTotal[]; provider?: ReconProviderSummary | null }
 
 export interface ReconCaseView { reconciliationCase: ReconCase; imports: ReconImportView[]; blockers: string[] }
 

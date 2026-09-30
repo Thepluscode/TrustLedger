@@ -259,4 +259,113 @@ class EngineRulesTest {
         assertEquals(0, r.recordsProcessed());
         assertEquals(List.of(), r.findings());
     }
+
+    // ---- recon-rules 1.2.0: refunds and chargebacks settled by a provider ------------------------------
+
+    private static CanonicalRecord settled(String key, CanonicalRecord.EventType type, String ref, String gross) {
+        return new CanonicalRecord(key, SourceType.SETTLEMENT, "prov", "prov", null, ref, null, type, null, null, null, "USD",
+            new BigDecimal(gross), null, null, null, "SETTLED", "B1", 1);
+    }
+
+    private static Result runWith(String internal, String provider, CanonicalRecord... adjustments) {
+        List<CanonicalRecord> all = new ArrayList<>(records(internal, provider, null));
+        all.addAll(List.of(adjustments));
+        return ReconciliationEngine.reconcile(all, EngineFixtures.noFees(2));
+    }
+
+    @Test
+    void aSettledRefundWithNoProviderEventIsTheProvidersRefundEvidence() {
+        String internal = "P1,prov,tx1,PAYMENT,USD,70.00,2026-08-03T10:00:00Z\n";
+        String provider = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\n";
+        CanonicalRecord refund = settled("zz-refund", CanonicalRecord.EventType.SETTLED_REFUND, "tx1", "70.0000");
+        // Internal records expect the refund: matched, nothing raised.
+        assertEquals(List.of(), types(runWith(internal + "R1,prov,tx1,REFUND,USD,70.00,2026-08-04T10:00:00Z\n", provider, refund)));
+        // They do not: the settled refund is money gone back that nothing internal accounts for.
+        Result r = runWith(internal, provider, refund);
+        assertEquals(List.of("REFUND_MISMATCH"), types(r));
+        assertEquals(new BigDecimal("70.0000"), r.findings().get(0).exposure());
+        assertTrue(r.findings().get(0).explanation().contains("reports a settled refund of"), r.findings().get(0).explanation());
+    }
+
+    @Test
+    void aSettledRefundIsMatchedToTheProvidersRefundEventAndTheirAmountsCompared() {
+        String internal = "P1,prov,tx1,PAYMENT,USD,70.00,2026-08-03T10:00:00Z\nR1,prov,tx1,REFUND,USD,70.00,2026-08-04T10:00:00Z\n";
+        String provider = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-04T10:00:05Z,\n";
+        Result same = runWith(internal, provider, settled("zz-refund", CanonicalRecord.EventType.SETTLED_REFUND, "tx1", "70.0000"));
+        assertEquals(List.of(), types(same));
+        assertTrue(same.matches().stream().anyMatch(m -> m.leftKey().equals("zz-refund") && m.detail().get("compared").contains("settled refund")));
+        Result differs = runWith(internal, provider, settled("zz-refund", CanonicalRecord.EventType.SETTLED_REFUND, "tx1", "65.0000"));
+        assertEquals(List.of("REFUND_MISMATCH"), types(differs));
+        assertEquals("D-SETTLED-REFUND", differs.findings().get(0).ruleId());
+        assertEquals(new BigDecimal("5.0000"), differs.findings().get(0).exposure());
+    }
+
+    @Test
+    void aChargebackIsExposureUntilItIsReturnedInFull() {
+        CanonicalRecord cb = settled("cb1", CanonicalRecord.EventType.SETTLED_CHARGEBACK, "tx9", "980.6400");
+        CanonicalRecord back = settled("rv1", CanonicalRecord.EventType.SETTLED_CHARGEBACK_REVERSAL, "tx9", "980.6400");
+        CanonicalRecord part = settled("rv2", CanonicalRecord.EventType.SETTLED_CHARGEBACK_REVERSAL, "tx9", "400.0000");
+
+        Result taken = ReconciliationEngine.reconcile(List.of(cb), EngineFixtures.noFees(2));
+        assertEquals(List.of("CHARGEBACK_DEBITED"), types(taken));
+        assertEquals(new BigDecimal("980.6400"), taken.findings().get(0).exposure());
+        assertEquals("HIGH", taken.findings().get(0).severity());
+
+        Result partly = ReconciliationEngine.reconcile(List.of(cb, part), EngineFixtures.noFees(2));
+        assertEquals(List.of("CHARGEBACK_DEBITED"), types(partly));
+        assertEquals(new BigDecimal("580.6400"), partly.findings().get(0).exposure());
+
+        Result won = ReconciliationEngine.reconcile(List.of(cb, back), EngineFixtures.noFees(2));
+        assertEquals(List.of(), types(won), "returned in full: nothing is missing");
+        assertEquals(1, won.matchesByRule().get("D-CHARGEBACK"));
+        assertEquals("cb1", won.matches().get(0).leftKey());
+
+        Result orphan = ReconciliationEngine.reconcile(List.of(back), EngineFixtures.noFees(2));
+        assertEquals(List.of("UNMATCHED_CHARGEBACK_REVERSAL"), types(orphan));
+        assertEquals(new BigDecimal("980.6400"), orphan.findings().get(0).exposure());
+    }
+
+    @Test
+    void chargebacksInDifferentCurrenciesOrOnDifferentPaymentsNeverOffset() {
+        CanonicalRecord cb = settled("cb1", CanonicalRecord.EventType.SETTLED_CHARGEBACK, "tx9", "100.0000");
+        CanonicalRecord otherPayment = settled("rv1", CanonicalRecord.EventType.SETTLED_CHARGEBACK_REVERSAL, "tx8", "100.0000");
+        CanonicalRecord otherCurrency = new CanonicalRecord("rv2", SourceType.SETTLEMENT, "prov", "prov", null, "tx9", null,
+            CanonicalRecord.EventType.SETTLED_CHARGEBACK_REVERSAL, null, null, null, "EUR", new BigDecimal("100.0000"), null, null, null, "SETTLED", "B1", 1);
+        assertEquals(List.of("CHARGEBACK_DEBITED", "UNMATCHED_CHARGEBACK_REVERSAL", "UNMATCHED_CHARGEBACK_REVERSAL"),
+            types(ReconciliationEngine.reconcile(List.of(cb, otherPayment, otherCurrency), EngineFixtures.noFees(2))));
+    }
+
+    @Test
+    void theRulesetVersionNamesTheSettledRefundAndChargebackRules() {
+        assertEquals("recon-rules/1.2.0", ReconciliationEngine.RULESET_VERSION);
+    }
+
+    @Test
+    void aSuccessfulRefundDueInThePeriodMustBeSettledWhereTheFormatCanShowIt() {
+        ReconciliationEngine.Config covered = new ReconciliationEngine.Config(2, ReconciliationEngine.Config.DEFAULT_COMPOSITE_WINDOW,
+            EngineFixtures.PERIOD_END, (p, c, at, g) -> Optional.empty(), java.util.Set.of("prov"));
+        String internal = "P1,prov,tx1,PAYMENT,USD,70.00,2026-08-03T10:00:00Z\nR1,prov,tx1,REFUND,USD,70.00,2026-08-04T10:00:00Z\n";
+        String refunded = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-04T10:00:05Z,\n";
+        List<CanonicalRecord> base = records(internal, refunded, null);
+
+        Result missing = ReconciliationEngine.reconcile(base, covered);
+        assertEquals(List.of("MISSING_REFUND_SETTLEMENT"), types(missing));
+        assertEquals(new BigDecimal("70.0000"), missing.findings().get(0).exposure());
+
+        List<CanonicalRecord> settledToo = new ArrayList<>(base);
+        settledToo.add(settled("zz-refund", CanonicalRecord.EventType.SETTLED_REFUND, "tx1", "70.0000"));
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(settledToo, covered)));
+
+        // A format that cannot express a refund proves nothing by its silence.
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(base, EngineFixtures.noFees(2))));
+        // Not due yet: occurred 2 days before period end with a 2-day SLA is due exactly at the end (inside);
+        // one second later is not.
+        String late = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-30T00:00:01Z,\n";
+        assertEquals(List.of(), types(ReconciliationEngine.reconcile(records(internal, late, null), covered)));
+        String edge = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,SUCCESS,USD,70.00,,,2026-08-30T00:00:00Z,\n";
+        assertEquals(List.of("MISSING_REFUND_SETTLEMENT"), types(ReconciliationEngine.reconcile(records(internal, edge, null), covered)));
+        // A refund that failed was never going to settle.
+        String failed = "e1,tx1,,CHARGE,SUCCESS,USD,70.00,,,2026-08-03T10:00:05Z,\ne2,tx1,,REFUND,FAILED,USD,70.00,,,2026-08-04T10:00:05Z,\n";
+        assertFalse(types(ReconciliationEngine.reconcile(records(internal, failed, null), covered)).contains("MISSING_REFUND_SETTLEMENT"));
+    }
 }
