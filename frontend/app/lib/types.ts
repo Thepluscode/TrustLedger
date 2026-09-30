@@ -310,7 +310,7 @@ export interface ReconFeedCreated { feed: ReconFeed; token: string; deliveryPath
 export interface ReconCurrencyTotal { currency: string; grossTotal: string; rowCount: number }
 
 export interface ReconProviderSummary {
-  settlementLines: number;
+  settlementRecords: number;
   rowsNotReconciled: number;
   notReconciledByReason: Record<string, number>;
   rowsWithUnresolvedTime: number;

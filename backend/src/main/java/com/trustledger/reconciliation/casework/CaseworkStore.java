@@ -215,10 +215,10 @@ public class CaseworkStore {
     }
 
     /**
-     * What a provider report became: settlement lines for the engine, rows kept as evidence only (by
+     * What a provider report became: settlement records for the engine, rows kept as evidence only (by
      * reason), and rows whose timestamps could not be placed in time. Nothing here is silently dropped.
      */
-    public record ProviderSummary(int settlementLines, int rowsNotReconciled, Map<String, Integer> notReconciledByReason,
+    public record ProviderSummary(int settlementRecords, int rowsNotReconciled, Map<String, Integer> notReconciledByReason,
                                   int rowsWithUnresolvedTime) {}
 
     /** One provider row as stored, with its outcome: the record key it fed, or why it was not reconciled. */

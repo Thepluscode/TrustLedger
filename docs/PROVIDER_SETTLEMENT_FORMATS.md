@@ -88,14 +88,25 @@ Conversion rules, ruleset v1:
   payout amount lives in the evidence. TrustLedger never converts with the provider's rate.
 - **Adyen:** each `Settled` row is one line (a payment settled twice reaches the engine twice). Every
   other journal type and every batch-level row is evidence with a reason. Settled time = booking date.
-- **Checkout.com:** one line per payment, only for a plain capture settlement — captures and fees
-  only, one payout, one held currency. Categories follow Checkout.com's breakdown-types reference;
-  an unlisted breakdown is OTHER and fails closed. The report has no payout date, so the line's settled
-  time is unknown and the late-settlement check does not run on it.
+- **Checkout.com (profile v2, recon-rules 1.2.0):** rows are attributed by **action**, because
+  Checkout.com attributes every fee to the action that caused it. Per payment: the capture (every action
+  other than Refund and Chargeback) is one settlement line; each Refund action is one `SETTLED_REFUND`;
+  each Chargeback action is one `SETTLED_CHARGEBACK` or `SETTLED_CHARGEBACK_REVERSAL` by the sign
+  Checkout.com writes on its `Chargeback (…)` row. A fee not yet paid out makes that record's fee unknown;
+  an unpaid gross row keeps the record aside (`NOT_PAID_OUT`); a gross whose sign contradicts its action
+  is kept aside (`UNEXPECTED_SIGN`). Categories follow Checkout.com's breakdown-types reference; an
+  unlisted breakdown fails closed. The report has no payout date, so settled times are unknown.
+- **Engine (recon-rules 1.2.0):** a settled refund matches the provider's refund event, or else stands
+  as the provider's refund evidence against the internal refund (`REFUND_MISMATCH` when none). Per
+  payment and currency, chargebacks net of reversals: > 0 raises `CHARGEBACK_DEBITED`, < 0
+  `UNMATCHED_CHARGEBACK_REVERSAL`, = 0 is recorded as a match. Spec and preregistered numbers:
+  `docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md`.
 
 On the official samples: Adyen → 58 lines (27 USD gross-only, 31 EUR with fee/net), 5 rows kept as
-batch-level evidence. Checkout.com → 2 lines (EUR 110 and GBP 78 captures held in USD, so gross only),
-51 rows kept with reasons: no capture 12, not paid out 12, refund 13, chargeback 14.
+batch-level evidence. Checkout.com (v2) → 8 records: 5 capture lines, 1 settled refund (USD 70.00,
+fee 0.152), 1 chargeback (USD 980.64, fee 10.15) and its reversal; 14 rows kept (fee-only payments 12,
+dispute fees with no dispute amount 2). With the matching charges and an internal refund, a run gives
+2 settlement matches, the refund matched, the dispute matched as won, and 3 unmatched settlement items.
 
 ## Where an operator and an auditor see it (2026-09-30)
 
@@ -113,7 +124,10 @@ batch-level evidence. Checkout.com → 2 lines (EUR 110 and GBP 78 captures held
 ## Not built yet
 
 - **Stripe** — mapping designed from the docs; not implemented until a real test-mode export passes.
-- Refunds, chargebacks, reserves and taxes as reconciled items (they are preserved, not compared).
+- Adyen refunds and chargebacks: its published sample has none, so they stay evidence until a real
+  file with them passes through.
+- A provider refund event with no settled refund in a covered settlement report (the refund-side
+  `MISSING_SETTLEMENT`); reserves and taxes as reconciled items (preserved, not compared).
 - Adyen batch balance (nets to zero) as a reconciliation finding; it is a test invariant only.
 
 ## Differentiation — corrected

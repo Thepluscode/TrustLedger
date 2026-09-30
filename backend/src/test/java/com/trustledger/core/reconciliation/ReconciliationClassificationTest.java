@@ -40,7 +40,9 @@ class ReconciliationClassificationTest {
         "UNEXPECTED_STATUS_TRANSITION,   INVALID_STATE_TRANSITION",
         "PAYMENT_STATUS_MISMATCH,        INVALID_STATE_TRANSITION",
         // The one deliberate UNKNOWN: the provider has not decided, and TrustLedger will not decide for it.
-        "PENDING_UNKNOWN,                UNKNOWN"
+        "PENDING_UNKNOWN,                UNKNOWN",
+        "CHARGEBACK_DEBITED,             MISSING_INTERNAL_RECORD",
+        "UNMATCHED_CHARGEBACK_REVERSAL,  MISSING_INTERNAL_RECORD"
     })
     void everyKnownTypeMapsToItsCanonicalCode(String type, ReconciliationClassification expected) {
         assertEquals(expected, forType(type));

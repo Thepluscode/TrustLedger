@@ -117,7 +117,7 @@ class ProviderEvidenceTest {
 
     @Test
     void checkoutSampleIsReadWithoutLosingARowOrAnAmount() {
-        Read r = read(CHECKOUT, new CheckoutFinancialActionsV1(null));
+        Read r = read(CHECKOUT, new CheckoutFinancialActionsV2(null));
         assertEquals(55, r.rows().size());
         assertEquals(0, r.rejected());
         assertEquals(110, r.rows().stream().mapToInt(x -> x.components().size()).sum()); // processing + holding
@@ -128,7 +128,7 @@ class ProviderEvidenceTest {
 
     @Test
     void checkoutKeepsEightDecimalPlacesAndRoundsOnlyAtTheBoundary() {
-        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV1(null)).rows();
+        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV2(null)).rows();
         assertEquals(new BigDecimal("1190.51311451"), settlementSum(rows)); // exact, scale 8
         var s = payment(ProviderEvidence.of(rows), "pay_nju2q7u1yjn2ldlfi81uzt4q6d").settlementTotal();
         assertEquals(new BigDecimal("959.54296"), s.exact());
@@ -137,7 +137,7 @@ class ProviderEvidenceTest {
 
     @Test
     void checkoutAggregateNamesEverySourceRow() {
-        PaymentAggregate p = payment(ProviderEvidence.of(read(CHECKOUT, new CheckoutFinancialActionsV1(null)).rows()),
+        PaymentAggregate p = payment(ProviderEvidence.of(read(CHECKOUT, new CheckoutFinancialActionsV2(null)).rows()),
             "pay_nju2q7u1yjn2ldlfi81uzt4q6d");
         assertEquals(List.of(8, 9, 10, 11, 17, 18, 19, 27, 28, 29, 32, 33, 34, 35), p.sourceRowNumbers());
         assertEquals(14, p.sourceIdentities().stream().distinct().count());
@@ -145,12 +145,12 @@ class ProviderEvidenceTest {
 
     @Test
     void checkoutTimesWithoutZoneEvidenceStayUnknown() {
-        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV1(null)).rows();
+        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV2(null)).rows();
         assertTrue(rows.stream().noneMatch(x -> x.occurredAt().resolved() || x.bookedAt().resolved()),
             "a local time with no zone evidence must not become an instant");
         assertEquals("NO_ZONE_EVIDENCE", rows.get(0).occurredAt().unresolvedReason());
 
-        ProviderRow declared = read(CHECKOUT, new CheckoutFinancialActionsV1(ZoneId.of("Europe/London"))).rows().get(0);
+        ProviderRow declared = read(CHECKOUT, new CheckoutFinancialActionsV2(ZoneId.of("Europe/London"))).rows().get(0);
         assertEquals(TimezoneSource.ACCOUNT_SETTING, declared.occurredAt().source());
         assertEquals(Instant.parse("2022-11-11T12:08:07Z"), declared.occurredAt().instant()); // GMT in November
     }
@@ -192,31 +192,41 @@ class ProviderEvidenceTest {
         assertEquals(Map.of("BATCH_LEVEL_ENTRY: Balancetransfer", 2, "BATCH_LEVEL_ENTRY: Fee", 3), reasons(ds));
     }
 
-    @Test
-    void checkoutConvertsOnlyPlainCaptureSettlementsAndSaysWhyForTheRest() {
-        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV1(null)).rows();
-        var ds = new CheckoutFinancialActionsV1(null).settlementLines(ProviderEvidence.of(rows), "checkout");
-        everyRowExactlyOnce(rows, ds);
-        var lines = ds.stream().filter(d -> d.line() != null).toList();
-        assertEquals(2, lines.size());
-        // Both are captures processed in one currency and held in USD: the line is in the capture currency,
-        // and fee and net are unknown rather than converted.
-        var eur = lines.stream().filter(d -> d.line().stableRef().equals("pay_ikhluv2i6x0rb1y316n666nkk6")).findFirst().orElseThrow();
-        assertEquals("EUR", eur.line().currency());
-        assertEquals(new BigDecimal("110.0000"), eur.line().grossAmount());
-        assertNull(eur.line().feeAmount());
-        assertNull(eur.line().netAmount());
-        assertNull(eur.line().occurredAt(), "this report carries no payout date");
-        assertEquals("000G7HDD96SH", eur.line().settlementBatch());
-        assertEquals(List.of(6, 7), eur.sources().stream().map(ProviderRow::rowNumber).toList());
-        var gbp = lines.stream().filter(d -> d.line().stableRef().equals("pay_ipgz2u06xb0bcvsodpgp943dqu")).findFirst().orElseThrow();
-        assertEquals("GBP", gbp.line().currency());
-        assertEquals(new BigDecimal("78.0000"), gbp.line().grossAmount());
+    private static String line(ProviderReportProfile.Derivation d) {
+        var l = d.line();
+        return String.join(" ", l.eventType().name(), l.stableRef().substring(0, 8), l.currency(), l.grossAmount().toPlainString(),
+            String.valueOf(l.feeAmount() == null ? null : l.feeAmount().toPlainString()),
+            String.valueOf(l.netAmount() == null ? null : l.netAmount().toPlainString()), l.settlementBatch(),
+            d.sources().stream().map(r -> String.valueOf(r.rowNumber())).toList().toString());
+    }
 
-        // Rows by reason: 9 fee-only payments (12 rows), one capture partly unpaid (12), one refunded (13),
-        // one charged back (14). 51 = 55 rows - 4 in lines.
-        assertEquals(Map.of("NO_CAPTURE", 12, "NOT_PAID_OUT", 12, "NOT_A_CAPTURE_SETTLEMENT: Refund", 13,
-            "NOT_A_CAPTURE_SETTLEMENT: Chargeback (ADJM), Chargeback (ARBW)", 14), reasons(ds));
+    @Test
+    void checkoutAttributesRowsByActionIntoTheEightPreregisteredRecords() {
+        List<ProviderRow> rows = read(CHECKOUT, new CheckoutFinancialActionsV2(null)).rows();
+        var ds = new CheckoutFinancialActionsV2(null).settlementLines(ProviderEvidence.of(rows), "checkout");
+        everyRowExactlyOnce(rows, ds);
+        // Preregistered in the design doc (recon-rules 1.2.0) from the raw CSV, before this code existed.
+        assertEquals(List.of(
+            "SETTLEMENT_LINE pay_goss EUR 119.9900 null null 000G7HDD96SH [1, 12, 13, 14, 15, 22, 23, 24, 25, 26]",
+            "SETTLEMENT_LINE pay_itwv USD 70.0000 0.2480 69.7520 000G7HDD96SH [2, 3, 4, 5, 30, 31, 45, 46, 47, 48]",
+            "SETTLED_REFUND pay_itwv USD 70.0000 0.1520 -70.1520 000G7HDD96SH [36, 37, 38]",
+            "SETTLEMENT_LINE pay_ikhl EUR 110.0000 null null 000G7HDD96SH [6, 7]",
+            "SETTLEMENT_LINE pay_nju2 USD 980.6400 null 980.4800 000G7HDD96SH [8, 9, 10, 11, 17, 18, 32, 33, 34, 35]",
+            "SETTLED_CHARGEBACK_REVERSAL pay_nju2 USD 980.6400 null 980.6400 000G7HDD96SH [19]",
+            "SETTLED_CHARGEBACK pay_nju2 USD 980.6400 10.1500 -990.7900 000G7HDD96SH [27, 28, 29]",
+            "SETTLEMENT_LINE pay_ipgz GBP 78.0000 null null 000G7HDD96SH [20, 21]"),
+            ds.stream().filter(d -> d.line() != null).map(ProviderEvidenceTest::line).toList());
+        assertEquals(Map.of("NO_CAPTURE", 12, "DISPUTE_FEES_ONLY", 2), reasons(ds));
+    }
+
+    @Test
+    void aRefundWrittenAsMoneyInIsKeptAsideNotReversed() {
+        // Synthetic: a Refund action whose amount Checkout.com wrote as positive. Its meaning is not guessed.
+        ProviderRow odd = new ProviderRow("checkout|act_x|Refund", 1, "Refund / Refund", "pay_x", "B1", null, null, null, List.of(
+            MonetaryComponent.read(Role.PROCESSING, Direction.AS_SIGNED, "processing currency amount", "5.00", "USD"),
+            MonetaryComponent.read(Role.SETTLEMENT, Direction.AS_SIGNED, "holding currency amount", "5.00", "USD")));
+        var ds = new CheckoutFinancialActionsV2(null).settlementLines(ProviderEvidence.of(List.of(odd)), "checkout");
+        assertEquals(Map.of("UNEXPECTED_SIGN", 1), reasons(ds));
     }
 
     /** A profile that behaves like Adyen's, then applies {@code damage} to the derivations it returns. */
@@ -256,14 +266,14 @@ class ProviderEvidenceTest {
 
     @Test
     void checkoutBreakdownCategoriesFollowTheReferenceAndFailClosed() {
-        assertEquals(CheckoutFinancialActionsV1.Category.GROSS, CheckoutFinancialActionsV1.category("Capture"));
-        assertEquals(CheckoutFinancialActionsV1.Category.GROSS, CheckoutFinancialActionsV1.category("Partial Capture"));
-        assertEquals(CheckoutFinancialActionsV1.Category.FEE, CheckoutFinancialActionsV1.category("Scheme Variable Fee"));
-        assertEquals(CheckoutFinancialActionsV1.Category.FEE, CheckoutFinancialActionsV1.category("Minimum Billing Fee"));
-        assertEquals(CheckoutFinancialActionsV1.Category.TAX, CheckoutFinancialActionsV1.category("Scheme Fixed Fee Tax"));
-        assertEquals(CheckoutFinancialActionsV1.Category.RESERVE, CheckoutFinancialActionsV1.category("Rolling Reserve Deducted"));
+        assertEquals(CheckoutFinancialActionsV2.Category.GROSS, CheckoutFinancialActionsV2.category("Capture"));
+        assertEquals(CheckoutFinancialActionsV2.Category.GROSS, CheckoutFinancialActionsV2.category("Partial Capture"));
+        assertEquals(CheckoutFinancialActionsV2.Category.FEE, CheckoutFinancialActionsV2.category("Scheme Variable Fee"));
+        assertEquals(CheckoutFinancialActionsV2.Category.FEE, CheckoutFinancialActionsV2.category("Minimum Billing Fee"));
+        assertEquals(CheckoutFinancialActionsV2.Category.TAX, CheckoutFinancialActionsV2.category("Scheme Fixed Fee Tax"));
+        assertEquals(CheckoutFinancialActionsV2.Category.RESERVE, CheckoutFinancialActionsV2.category("Rolling Reserve Deducted"));
         for (String other : List.of("Refund", "Chargeback (ADJM)", "Card Payout", "Clearing Failed", "Top Up", "Something New")) {
-            assertEquals(CheckoutFinancialActionsV1.Category.OTHER, CheckoutFinancialActionsV1.category(other), other);
+            assertEquals(CheckoutFinancialActionsV2.Category.OTHER, CheckoutFinancialActionsV2.category(other), other);
         }
     }
 

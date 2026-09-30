@@ -96,7 +96,7 @@ class ProviderReportImportIntegrationTest {
         assertEquals(63, m.get("acceptedCount").asInt());
         assertEquals(0, m.get("rejectedCount").asInt());
         JsonNode p = body.get("provider");
-        assertEquals(58, p.get("settlementLines").asInt());
+        assertEquals(58, p.get("settlementRecords").asInt());
         assertEquals(5, p.get("rowsNotReconciled").asInt());
         assertEquals(0, p.get("rowsWithUnresolvedTime").asInt());
         UUID importId = UUID.fromString(m.get("id").asString());
@@ -134,10 +134,10 @@ class ProviderReportImportIntegrationTest {
         HttpResponse<String> r = uploadReport(op.token(), caseId, "checkout", "checkout-financial-actions", null, CHECKOUT);
         assertEquals(201, r.statusCode(), r.body());
         JsonNode p = http.tree(r).get("provider");
-        assertEquals(2, p.get("settlementLines").asInt());
-        assertEquals(51, p.get("rowsNotReconciled").asInt());
+        assertEquals(8, p.get("settlementRecords").asInt());
+        assertEquals(14, p.get("rowsNotReconciled").asInt());
         assertEquals(55, p.get("rowsWithUnresolvedTime").asInt());
-        assertEquals(14, p.get("notReconciledByReason").get("NOT_A_CAPTURE_SETTLEMENT: Chargeback (ADJM), Chargeback (ARBW)").asInt());
+        assertEquals(2, p.get("notReconciledByReason").get("DISPUTE_FEES_ONLY").asInt());
         UUID importId = UUID.fromString(http.tree(r).get("manifest").get("id").asString());
         // The EUR capture's line cites both of its source rows.
         assertEquals(2, count("""
@@ -166,7 +166,7 @@ class ProviderReportImportIntegrationTest {
         assertEquals(64, m.get("recordCount").asInt());
         assertEquals(63, m.get("acceptedCount").asInt());
         assertEquals(1, m.get("duplicateCount").asInt());
-        assertEquals(58, http.tree(r).get("provider").get("settlementLines").asInt());
+        assertEquals(58, http.tree(r).get("provider").get("settlementRecords").asInt());
         UUID importId = UUID.fromString(m.get("id").asString());
         assertEquals(1, count("SELECT count(*) FROM recon_records WHERE import_id = ? AND stable_ref = 'X4J8X927MZNPIFY2'", importId));
         // Every ACCEPTED row has exactly one evidence row; the duplicate has none.
@@ -230,7 +230,7 @@ class ProviderReportImportIntegrationTest {
             if (!"adyen-settlement-detail".equals(s.get("profile").asString())) assertNull(s.get("providerEvidence"), "only provider reports carry it");
         }
         JsonNode pe = adyen.get("providerEvidence");
-        assertEquals(58, pe.get("settlementLines").asInt());
+        assertEquals(58, pe.get("settlementRecords").asInt());
         assertEquals(63, pe.get("rows").size());
         assertEquals(2, pe.get("notReconciledByReason").get("BATCH_LEVEL_ENTRY: Balancetransfer").asInt());
         JsonNode first = pe.get("rows").get(0);
@@ -243,6 +243,38 @@ class ProviderReportImportIntegrationTest {
         assertEquals(64, zva.get("recordKey").asString().length());
         assertEquals("0.8969444665577660", zva.get("fxRate").asString(), "the provider's rate, digit for digit");
         assertTrue(bundle.get("content").get("limitations").toString().contains("No amount was converted"));
+    }
+
+    /** Preregistered for recon-rules 1.2.0 in the design doc before the code was written. */
+    @Test
+    void aRunReconcilesACheckoutRefundAndADisputeThatWasWon() throws Exception {
+        AuthResponse op = http.register();
+        UUID caseId = http.createCase(op.token(), "CKO-RUN-" + UUID.randomUUID());
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,PAYMENT,USD,70.00,2022-11-14T12:08:12Z\n"
+            + "I2,checkout,pay_nju2q7u1yjn2ldlfi81uzt4q6d,PAYMENT,USD,980.64,2022-11-08T12:08:12Z\n";
+        String refund = "R1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,REFUND,USD,70.00,2022-11-14T12:08:12Z\n";
+        String charges = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "c1,pay_itwvhag5e5tklnry88sgtpxh1c,,CHARGE,SUCCESS,USD,70.00,,,2022-11-14T12:08:12Z,\n"
+            + "c2,pay_nju2q7u1yjn2ldlfi81uzt4q6d,,CHARGE,SUCCESS,USD,980.64,,,2022-11-08T12:08:12Z,\n";
+
+        for (boolean withRefund : List.of(true, false)) {
+            UUID c = withRefund ? caseId : http.createCase(op.token(), "CKO-NOREF-" + UUID.randomUUID());
+            CaseworkHttp.expect2xx(http.upload(op.token(), c, "INTERNAL", "ledger", "internal-expected", "internal.csv",
+                (internal + (withRefund ? refund : "")).getBytes(StandardCharsets.UTF_8)));
+            CaseworkHttp.expect2xx(http.upload(op.token(), c, "PROVIDER_TRANSACTION", "checkout", "provider-transactions", "tx.csv",
+                charges.getBytes(StandardCharsets.UTF_8)));
+            assertEquals(201, uploadReport(op.token(), c, "checkout", "checkout-financial-actions", null, CHECKOUT).statusCode());
+            HttpResponse<String> r = http.post(CASES + c + "/runs", op.token(), null);
+            assertEquals(201, r.statusCode(), r.body());
+            JsonNode summary = json.readTree(http.tree(r).get("run").get("summary").asString());
+            assertEquals(2, summary.get("matchesByRule").get("R3-SETTLEMENT-BATCH").asInt());
+            assertEquals(1, summary.get("matchesByRule").get("D-CHARGEBACK").asInt(), "the dispute was raised and won: matched, not raised");
+            Map<String, Integer> byType = new TreeMap<>();
+            summary.get("exceptionsByType").properties().forEach(e -> byType.put(e.getKey(), e.getValue().asInt()));
+            assertEquals(withRefund ? Map.of("UNMATCHED_SETTLEMENT_ITEM", 3)
+                : Map.of("UNMATCHED_SETTLEMENT_ITEM", 3, "REFUND_MISMATCH", 1), byType);
+        }
     }
 
     @Test
@@ -262,17 +294,17 @@ class ProviderReportImportIntegrationTest {
             }
         }
         JsonNode a = byProfile.get("adyen-settlement-detail"), c = byProfile.get("checkout-financial-actions");
-        assertEquals(List.of(58, 5, 0), List.of(a.get("settlementLines").asInt(), a.get("rowsNotReconciled").asInt(), a.get("rowsWithUnresolvedTime").asInt()));
-        assertEquals(List.of(2, 51, 55), List.of(c.get("settlementLines").asInt(), c.get("rowsNotReconciled").asInt(), c.get("rowsWithUnresolvedTime").asInt()));
+        assertEquals(List.of(58, 5, 0), List.of(a.get("settlementRecords").asInt(), a.get("rowsNotReconciled").asInt(), a.get("rowsWithUnresolvedTime").asInt()));
+        assertEquals(List.of(8, 14, 55), List.of(c.get("settlementRecords").asInt(), c.get("rowsNotReconciled").asInt(), c.get("rowsWithUnresolvedTime").asInt()));
         assertEquals(12, c.get("notReconciledByReason").get("NO_CAPTURE").asInt());
 
         String rows = CASES + caseId + "/imports/" + checkoutImport + "/provider-rows";
         JsonNode kept = http.tree(http.get(rows + "?outcome=NOT_RECONCILED&size=500", op.token()));
-        assertEquals(51, kept.size());
-        JsonNode fed = http.tree(http.get(rows + "?outcome=RECONCILED", op.token()));
-        assertEquals(4, fed.size());
-        assertEquals(List.of(6, 7, 20, 21), java.util.stream.StreamSupport.stream(fed.spliterator(), false).map(r -> r.get("rowNumber").asInt()).toList());
-        JsonNode fee = fed.get(1).get("evidence").get("components").get(1);
+        assertEquals(14, kept.size());
+        JsonNode fed = http.tree(http.get(rows + "?outcome=RECONCILED&size=500", op.token()));
+        assertEquals(41, fed.size());
+        JsonNode row7 = java.util.stream.StreamSupport.stream(fed.spliterator(), false).filter(r -> r.get("rowNumber").asInt() == 7).findFirst().orElseThrow();
+        JsonNode fee = row7.get("evidence").get("components").get(1);
         assertEquals("-1.58417", fee.get("rawValue").asString());
         assertEquals(0, new BigDecimal("-1.58417").compareTo(fee.get("amount").decimalValue()));
         assertEquals("UNRESOLVED", fed.get(0).get("evidence").get("occurredAt").get("source").asString());

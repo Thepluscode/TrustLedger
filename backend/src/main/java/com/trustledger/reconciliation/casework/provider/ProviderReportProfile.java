@@ -79,7 +79,7 @@ public interface ProviderReportProfile {
                 }
                 yield new AdyenSettlementDetailV1();
             }
-            case CheckoutFinancialActionsV1.NAME -> new CheckoutFinancialActionsV1(accountZone);
+            case CheckoutFinancialActionsV2.NAME -> new CheckoutFinancialActionsV2(accountZone);
             default -> null;
         };
     }

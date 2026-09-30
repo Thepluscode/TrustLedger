@@ -104,7 +104,7 @@ export const IMPORT_PROFILES: { sourceType: string; profile: string; label: stri
 
 /** One sentence for what a provider report became. Rows kept aside and unplaced times are always stated. */
 export function providerSummaryLine(p: ReconProviderSummary): string {
-  const lines = `${p.settlementLines} settlement line${p.settlementLines === 1 ? "" : "s"}`;
+  const lines = `${p.settlementRecords} settlement record${p.settlementRecords === 1 ? "" : "s"}`;
   const kept = `${p.rowsNotReconciled} row${p.rowsNotReconciled === 1 ? "" : "s"} kept as evidence only`;
   const times = p.rowsWithUnresolvedTime === 0 ? "every time placed"
     : `${p.rowsWithUnresolvedTime} row${p.rowsWithUnresolvedTime === 1 ? "" : "s"} with no time zone evidence`;

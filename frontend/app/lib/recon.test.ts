@@ -79,11 +79,11 @@ describe("provider reports, as the console offers them", () => {
   });
 
   it("always states the rows kept aside and the times it could not place", () => {
-    expect(providerSummaryLine({ settlementLines: 58, rowsNotReconciled: 5, notReconciledByReason: {}, rowsWithUnresolvedTime: 0 }))
-      .toBe("58 settlement lines · 5 rows kept as evidence only · every time placed");
-    expect(providerSummaryLine({ settlementLines: 1, rowsNotReconciled: 1, notReconciledByReason: {}, rowsWithUnresolvedTime: 1 }))
-      .toBe("1 settlement line · 1 row kept as evidence only · 1 row with no time zone evidence");
-    expect(providerSummaryLine({ settlementLines: 2, rowsNotReconciled: 51, notReconciledByReason: {}, rowsWithUnresolvedTime: 55 }))
-      .toBe("2 settlement lines · 51 rows kept as evidence only · 55 rows with no time zone evidence");
+    expect(providerSummaryLine({ settlementRecords: 58, rowsNotReconciled: 5, notReconciledByReason: {}, rowsWithUnresolvedTime: 0 }))
+      .toBe("58 settlement records · 5 rows kept as evidence only · every time placed");
+    expect(providerSummaryLine({ settlementRecords: 1, rowsNotReconciled: 1, notReconciledByReason: {}, rowsWithUnresolvedTime: 1 }))
+      .toBe("1 settlement record · 1 row kept as evidence only · 1 row with no time zone evidence");
+    expect(providerSummaryLine({ settlementRecords: 2, rowsNotReconciled: 51, notReconciledByReason: {}, rowsWithUnresolvedTime: 55 }))
+      .toBe("2 settlement records · 51 rows kept as evidence only · 55 rows with no time zone evidence");
   });
 });

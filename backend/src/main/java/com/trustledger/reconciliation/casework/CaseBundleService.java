@@ -319,7 +319,7 @@ public class CaseBundleService {
      */
     private Map<String, Object> providerEvidence(UUID tenantId, UUID importId, CaseworkStore.ProviderSummary ps) {
         Map<String, Object> pe = new LinkedHashMap<>();
-        pe.put("settlementLines", ps.settlementLines());
+        pe.put("settlementRecords", ps.settlementRecords());
         pe.put("rowsNotReconciled", ps.rowsNotReconciled());
         pe.put("notReconciledByReason", new java.util.TreeMap<>(ps.notReconciledByReason()));
         pe.put("rowsWithUnresolvedTime", ps.rowsWithUnresolvedTime());

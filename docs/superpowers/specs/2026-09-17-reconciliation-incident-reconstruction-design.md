@@ -835,6 +835,38 @@ FAILED still raises `PAYMENT_STATUS_MISMATCH`. The version bump is part of every
 exception. The §20 fixture has no PENDING pair, so its numbers are unchanged; the ruleset string in
 the acceptance tests moves to 1.1.0.
 
+**Settled refunds and chargebacks (`recon-rules/1.2.0`, 2026-09-30, preregistered before code).**
+Provider settlement reports also move money back: refunds, chargebacks and their reversals. Three
+canonical event types carry them, derived at the same one-currency boundary as settlement lines:
+`SETTLED_REFUND`, `SETTLED_CHARGEBACK`, `SETTLED_CHARGEBACK_REVERSAL` (gross = the amount moved, fee =
+the fees on that action, net = the signed effect on the payout). Rules:
+
+- *D-SETTLED-REFUND.* A settled refund matches a provider `REFUND` event on provider + reference (rule
+  R3, detail `refund`); a different amount or currency raises `REFUND_MISMATCH`. With no provider refund
+  event, the settled refund is the provider's refund evidence and enters `D-REFUND` unchanged: it matches
+  an internal expected refund, or raises `REFUND_MISMATCH` when the internal records show none.
+- *D-CHARGEBACK.* Per provider + reference + currency, net = chargebacks − reversals. Net > 0 raises
+  `CHARGEBACK_DEBITED` (HIGH, exposure = net, classification `MISSING_INTERNAL_RECORD`: money left that
+  the internal records do not show). Net < 0 raises `UNMATCHED_CHARGEBACK_REVERSAL` (HIGH, exposure =
+  |net|, `MISSING_INTERNAL_RECORD`). Net = 0 raises nothing and records each chargeback matched to a
+  reversal (rule `D-CHARGEBACK`), so a dispute that was raised and won stays visible in the matches.
+
+Checkout.com profile v2 attributes rows by **action**: rows of `Refund` actions form one settled refund
+per action, rows of `Chargeback` actions one chargeback or reversal per action (by the sign Checkout.com
+writes on the `Chargeback (…)` row), and every other action belongs to the payment's capture. A fee not
+yet paid out makes that record's fee unknown rather than setting the whole payment aside. Adyen is
+unchanged: its published sample has no refund or chargeback, and no format is built without a real file.
+
+Preregistered on the official Checkout.com sample (computed from the raw CSV, 2026-09-30): 8 records —
+5 settlement lines (`pay_goss…` EUR 119.9900 gross only; `pay_itwv…` USD 70.0000 / fee 0.2480 / net
+69.7520; `pay_ikhl…` EUR 110.0000; `pay_nju2…` USD 980.6400, fee unknown, net 980.4800; `pay_ipgz…` GBP
+78.0000), 1 settled refund (`pay_itwv…` USD 70.0000 / 0.1520 / −70.1520), 1 chargeback (`pay_nju2…` USD
+980.6400 / 10.1500 / −990.7900), 1 reversal (`pay_nju2…` USD 980.6400, fee unknown, net 980.6400) —
+from 41 rows; 14 rows kept as evidence (`NO_CAPTURE` 12, `DISPUTE_FEES_ONLY` 2). With internal
+payments for `pay_itwv…` and `pay_nju2…`, an internal refund of USD 70.00 on `pay_itwv…`, and their two
+provider charges, a run gives R3 = 2, the refund matched, the dispute matched, and findings exactly
+`UNMATCHED_SETTLEMENT_ITEM` × 3. Without the internal refund: `REFUND_MISMATCH` × 1 in addition.
+
 **Traceability.** Unchanged and complete: manifest → raw object (sha) → row (sha) → record (key) →
 match / exception (record keys, rule, version) → bundle. A feed event is distinguishable from a CSV
 row by the manifest's profile; both are cited the same way.

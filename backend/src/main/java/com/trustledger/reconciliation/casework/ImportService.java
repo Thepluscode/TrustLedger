@@ -355,7 +355,7 @@ public class ImportService {
         int rowsNotReconciled = notReconciled.values().stream().mapToInt(Integer::intValue).sum();
         ProviderSummary summary = new ProviderSummary(records.size(), rowsNotReconciled, Map.copyOf(notReconciled), unresolvedTime);
         Map<String, Object> extra = new LinkedHashMap<>();
-        extra.put("settlementLines", summary.settlementLines());
+        extra.put("settlementRecords", summary.settlementRecords());
         extra.put("rowsNotReconciled", rowsNotReconciled);
         extra.put("notReconciledByReason", new TreeMap<>(notReconciled));
         extra.put("rowsWithUnresolvedTime", unresolvedTime);
