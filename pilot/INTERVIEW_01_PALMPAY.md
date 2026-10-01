@@ -1,9 +1,13 @@
 # Interview #1 Target — PalmPay
 
-Status: **FOLLOW-UP SENT 2026-08-20; AWAITING REPLY; CONVERSATION NOT BOOKED.** The one
-follow-up the plan allowed is now spent — if this draws nothing by 2026-08-24, this path is
-dead and the fallback below fires. Public evidence and sent messages are sourcing signals
-only and must not be entered as interview evidence.
+Status: **FRIDAY PATH DEAD (2026-09-22 recording). FALLBACK DUE: PRECIOUS EGUDA InMail, drafted
+below, NOT SENT.** The one follow-up the plan allowed was spent on 2026-08-20 and drew nothing by
+the 2026-08-24 cut-off; the lapse went unrecorded for four weeks, which is itself the stale-context
+failure this file now names. Next live action is the Precious Eguda message, sent by the founder,
+after which no further PalmPay executive follow-ups: source the next operator by role
+(`OPERATOR_EXPOSURE_WORKFLOW.md` → First live action). Record the call with
+`INCIDENT_RECONSTRUCTION_WORKSHEET.md` before anything else. Public evidence and sent messages are
+sourcing signals only and must not be entered as interview evidence.
 
 ## Why PalmPay is first
 
