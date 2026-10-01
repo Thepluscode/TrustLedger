@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * must stay silent.
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReconciliationSlaNotifierIntegrationTest {
 
     @Container
