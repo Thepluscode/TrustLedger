@@ -8,15 +8,20 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  # Nothing is authorised until the founder names the next task.
-  task: none
-  note: >
-    provider_evidence_ingestion is COMPLETE: merged to main (PR 158, merge commit ef1e6f2) on top of
-    cross_provider_reconciliation_casework (PR 152, fa858ba). CI green on both merge commits. Candidate
-    next tasks, none authorised: Stripe itemized payout reconciliation (needs a real test-mode export),
-    Adyen refunds/chargebacks (needs a real Adyen report containing them), reserves and taxes (no sample
-    contains them), and the market gate (0 of 25 qualified interviews — discharged by conversations,
-    not code).
+  task: payment_truth_timeline
+  priority: P0                 # founder instruction, 2026-10-02
+  status: IN_PROGRESS
+  claim_level: tested          # locally, scoped; CI has not run on this branch. Not production-observed.
+  branch: feat/payment-truth-timeline   # stacked on docs/record-provider-evidence-merge (PR 159)
+  source: "docs/PAYMENT_TRUTH_TIMELINE.md"
+  scope: >
+    A read-only, per-payment timeline inside a reconciliation case: one derived view over the canonical
+    records, provider evidence rows, the latest run's matches, the findings and the exception history,
+    every item linked to its source row. Closes Golden Workflow acceptance criterion 5 for the read-only
+    wedge. It is a view, not a store: no new table, no money movement, no retries, reversals or routing.
+    Duplicates, ambiguity, unresolved timestamps, separate currencies and PENDING_UNKNOWN are shown as
+    they are, never simplified.
+  next_after_this: bank/cash evidence ingestion (to be evaluated, not authorised)
   last_completed:
     task: provider_evidence_ingestion
     claim_level: tested        # CI-verified on main; not production-observed, no customer file yet
@@ -93,3 +98,14 @@ history:
     evidence: "PR 152 -> fa858ba (CI run 36766981587, 620 tests, none skipped); PR 158 -> ef1e6f2 (CI run 36766987949, 658 tests, none skipped)"
     authorising_condition: CURRENT_TASK_COMPLETED
     approved_by: FOUNDER (merged PRs 152 and 158)
+  - date: 2026-10-02
+    change: task switch
+    previous_task: none (provider_evidence_ingestion completed 2026-09-30)
+    new_task: payment_truth_timeline
+    reason: >
+      closes Golden Workflow acceptance criterion 5 for the read-only wedge and answers the project's
+      canonical question from real evidence rather than the synthetic showcase; a feature audit on
+      2026-10-01 found no per-payment timeline over casework evidence
+    evidence: "docs/GOLDEN_WORKFLOW.md acceptance criterion 5; docs/PAYMENT_TRUTH_TIMELINE.md"
+    authorising_condition: FOUNDER_OVERRIDE
+    approved_by: FOUNDER (GO confirmed in session, 2026-10-02)
