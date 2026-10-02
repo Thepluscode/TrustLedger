@@ -22,6 +22,7 @@ import type {
   ProductionCanaryRequest,
   ProductionCanaryView,
   ProviderConfigView,
+  PaymentTimelineView,
   ReconBundle,
   ReconCase,
   ReconFeed,
@@ -260,6 +261,8 @@ export const api = {
     request<ReconFeedCreated>(`/api/v1/reconciliation/cases/${caseId}/feeds`, { method: "POST", body: JSON.stringify({ providerIdentity }) }),
   revokeReconFeed: (caseId: string, feedId: string) =>
     request<ReconFeed>(`/api/v1/reconciliation/cases/${caseId}/feeds/${feedId}/revoke`, { method: "POST" }),
+  paymentTimeline: (caseId: string, ref: string, provider?: string) =>
+    request<PaymentTimelineView>(`/api/v1/reconciliation/cases/${caseId}/payments/timeline?ref=${encodeURIComponent(ref)}${provider ? `&provider=${encodeURIComponent(provider)}` : ""}`),
   closeReconCase: (caseId: string) => request<ReconCase>(`/api/v1/reconciliation/cases/${caseId}/close`, { method: "POST" }),
   exportReconBundle: (caseId: string) => request<ReconBundle>(`/api/v1/reconciliation/cases/${caseId}/bundle`, { method: "POST" }),
   /** The download needs the bearer token, so it cannot be a plain link. */

@@ -13,6 +13,8 @@ import com.trustledger.reconciliation.casework.ImportService;
 import com.trustledger.reconciliation.casework.RunService;
 import com.trustledger.reconciliation.casework.RunService.RunView;
 import com.trustledger.reconciliation.casework.SourceType;
+import com.trustledger.reconciliation.casework.timeline.PaymentTimeline;
+import com.trustledger.reconciliation.casework.timeline.PaymentTimelineService;
 import com.trustledger.security.CurrentUser;
 import com.trustledger.security.Permission;
 import java.io.IOException;
@@ -75,12 +77,14 @@ public class ReconciliationCaseController {
     private final RunService runs;
     private final CaseBundleService bundles;
     private final FeedService feeds;
+    private final PaymentTimelineService timelines;
     private final tools.jackson.databind.ObjectMapper json;
 
     public ReconciliationCaseController(AccessControlService access, CaseService cases, ImportService imports,
                                         CaseworkStore store, RunService runs, CaseBundleService bundles, FeedService feeds,
-                                        tools.jackson.databind.ObjectMapper json) {
+                                        PaymentTimelineService timelines, tools.jackson.databind.ObjectMapper json) {
         this.json = json;
+        this.timelines = timelines;
         this.feeds = feeds;
         this.runs = runs;
         this.bundles = bundles;
@@ -227,6 +231,19 @@ public class ReconciliationCaseController {
         runs.get(CurrentUser.tenantId(), caseId, runId);
         int limit = Math.max(1, Math.min(size, MAX_PAGE));
         return store.listMatches(CurrentUser.tenantId(), runId, limit, Math.max(0, page) * limit);
+    }
+
+    /**
+     * Everything this case holds about one payment, in source-time order, each item with its source row,
+     * the findings that cite it and what was done about them. Read-only and derived on every call.
+     * {@code ref} is a provider transaction reference, a provider event id or an internal reference.
+     * 409 when the reference names more than one payment; repeat with {@code provider}.
+     */
+    @GetMapping("/{caseId}/payments/timeline")
+    public PaymentTimeline.View paymentTimeline(@PathVariable UUID caseId, @RequestParam(required = false) String ref,
+                                                @RequestParam(required = false) String provider) {
+        access.require(Permission.RECON_VIEW);
+        return timelines.timeline(CurrentUser.tenantId(), caseId, ref, provider);
     }
 
     @PostMapping("/{caseId}/close")

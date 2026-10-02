@@ -53,3 +53,27 @@ required before the first; the drill schedule is the cheapest of the four.
 post-gate exception-operations infrastructure. It is a standing gate, not a task — it is
 discharged by conversations, not by code, and it is recorded here so no session mistakes it
 for something to build around.
+
+## Imported source rows are not write-once at the database
+
+Found 2026-10-02 while building the payment timeline. `recon_records` (V52) and `recon_provider_rows`
+(V57) carry the `trustledger_reject_evidence_mutation` trigger; `recon_import_rows` (V51), which holds
+the raw text of every imported row, does not. `PaymentTimelineIntegrationTest
+.anEditedSourceRowCannotSupportAConclusion` edits a stored row with a plain `UPDATE` and it succeeds.
+The timeline detects the edit (the row no longer matches its hash) and refuses to conclude anything from
+it; the database does not refuse the edit itself.
+
+Not fixed here: a trigger on that table is a migration over existing data, and whether acknowledging
+rejections or discarding an import ever updates those rows has to be checked first.
+
+**Resume when:** the founder authorises a migration, or before any pilot holds customer files.
+
+## `docs/API.md` describes endpoints that do not exist and omits most that do
+
+Found by the 2026-10-01 feature audit. It lists `POST /api/v1/reconciliation/run` and
+`GET /api/v2/payment-rails/payments/{paymentId}`, neither of which is mapped, and it omits the whole
+reconciliation-cases API apart from the payment timeline added on 2026-10-02. A developer integrating in
+"embedded" mode has no accurate reference.
+
+**Resume when:** a prospect asks for API documentation, or an OpenAPI spec is authorised.
+

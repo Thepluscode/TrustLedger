@@ -278,6 +278,7 @@ export default function ReconciliationIssuePage() {
                       <p key={r.recordId} style={{ margin: "0 0 8px" }}>
                         <span className="mono">{r.sourceSystem}</span> · row {r.rowNumber}<br />
                         <span className="muted mono" style={{ fontSize: 12 }} title={r.fileSha256}>file {r.fileSha256.slice(0, 16)}…</span>
+                        {issue.caseId && <><br /><Link href={`/reconciliation/cases/${issue.caseId}/payments?ref=${encodeURIComponent(r.recordKey)}`} style={{ fontSize: 12.5 }}>payment timeline →</Link></>}
                       </p>
                     ))}
                   </div>
