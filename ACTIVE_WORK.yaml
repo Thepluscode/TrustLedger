@@ -8,31 +8,21 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  task: provider_evidence_ingestion
-  priority: P0                 # founder instruction, 2026-09-27
-  status: IN_PROGRESS
-  claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/provider-evidence-ingest   # stacked on feat/recon-casework (PR 152)
-  source: "FEATURE_TRACKER.md (\"Provider evidence ingestion\", 2026-09-27)"
-  corroborated_by:
-    - docs/PROVIDER_SETTLEMENT_FORMATS.md
-    - ProviderEvidenceTest  # official Adyen + Checkout.com samples, 9 mutants killed
-  scope: >
-    Read real provider settlement files into a provider-evidence domain: signed full-precision
-    monetary components, timezone-evidenced times, stable row identity, by-reference aggregation,
-    one rounding boundary. Build order: primitives -> Adyen -> Checkout.com -> Stripe (only on a
-    real test-mode export). Core Money and the ledger are untouched; nothing moves money.
-  known_limits:
-    - wired, persisted (V57) and read by the engine; not production-observed, no customer file yet
-    - Stripe not implemented: no real export yet
-    - full backend suite not run locally; CI is the only complete verdict
-
-# The previous active task, still awaiting the founder's merge decision. Not in progress.
-awaiting_decision:
-  task: cross_provider_reconciliation_casework
-  pull_request: 152            # DRAFT, CI 8/8 green on 2026-09-27
-  branch: feat/recon-casework
-  feature_flag: RECON_CASEWORK_ENABLED   # default off
+  # Nothing is authorised until the founder names the next task.
+  task: none
+  note: >
+    provider_evidence_ingestion is COMPLETE: merged to main (PR 158, merge commit ef1e6f2) on top of
+    cross_provider_reconciliation_casework (PR 152, fa858ba). CI green on both merge commits. Candidate
+    next tasks, none authorised: Stripe itemized payout reconciliation (needs a real test-mode export),
+    Adyen refunds/chargebacks (needs a real Adyen report containing them), reserves and taxes (no sample
+    contains them), and the market gate (0 of 25 qualified interviews — discharged by conversations,
+    not code).
+  last_completed:
+    task: provider_evidence_ingestion
+    claim_level: tested        # CI-verified on main; not production-observed, no customer file yet
+    pull_requests: [152, 158]
+    merge_commits: [fa858ba, ef1e6f2]
+    feature_flag: RECON_CASEWORK_ENABLED   # still default off
 
 # Standing conditions, true regardless of the active task. Not work items.
 invariants_in_force:
@@ -95,3 +85,11 @@ history:
     evidence: "docs/PROVIDER_SETTLEMENT_FORMATS.md; ProviderEvidenceTest"
     authorising_condition: FOUNDER_OVERRIDE
     approved_by: FOUNDER (architecture decision given in session, 2026-09-27)
+  - date: 2026-09-30
+    change: task completed
+    previous_task: provider_evidence_ingestion (and cross_provider_reconciliation_casework)
+    new_task: none
+    reason: both merged to main by the founder; CI green on each merge commit
+    evidence: "PR 152 -> fa858ba (CI run 36766981587, 620 tests, none skipped); PR 158 -> ef1e6f2 (CI run 36766987949, 658 tests, none skipped)"
+    authorising_condition: CURRENT_TASK_COMPLETED
+    approved_by: FOUNDER (merged PRs 152 and 158)
