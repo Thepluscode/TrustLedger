@@ -31,6 +31,7 @@ export default function ReconCasePage() {
   const [feedList, setFeedList] = useState<ReconFeed[]>([]);
   const [feedIdentity, setFeedIdentity] = useState("");
   const [newFeed, setNewFeed] = useState<ReconFeedCreated | null>(null);
+  const [paymentRef, setPaymentRef] = useState("");
 
   const load = useCallback(async () => {
     if (!caseId) return;
@@ -316,6 +317,17 @@ export default function ReconCasePage() {
               </div>
             )}
             {!run && view.blockers.length === 0 && <EmptyState title="Not reconciled yet" hint="Run reconciliation to match the imported records and raise exceptions." />}
+          </section>
+
+          <section className="panel" style={{ marginTop: 18 }}>
+            <div className="panelHeader"><div><h2>Follow one payment</h2><p className="sub">Everything this case holds about a single payment, in order, with its source rows, findings and what was done about them.</p></div></div>
+            <form className="panelBody" onSubmit={(e) => { e.preventDefault(); if (paymentRef.trim()) window.location.assign(`/reconciliation/cases/${caseId}/payments?ref=${encodeURIComponent(paymentRef.trim())}`); }}>
+              <div className="row">
+                <label htmlFor="payment-ref">Payment, transaction, event or internal reference<br />
+                  <input id="payment-ref" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} placeholder="e.g. pb_tx_001" maxLength={160} style={{ minWidth: 280 }} /></label>
+                <button className="secondary" disabled={!paymentRef.trim()}>Show timeline</button>
+              </div>
+            </form>
           </section>
 
           <section className="panel" style={{ marginTop: 18 }}>

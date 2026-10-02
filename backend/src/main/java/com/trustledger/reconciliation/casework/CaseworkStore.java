@@ -426,6 +426,115 @@ public class CaseworkStore {
             VALUES (?, ?, ?, 1, 'RAISED', 'OPEN', ?, ?)""", UUID.randomUUID(), tenantId, issueId, body, correlationId);
     }
 
+    // --- payment timeline (read-only) ----------------------------------------------------------------
+    // Lookups by reference or id inside one case, each joined to the source row as stored. Bounded by the
+    // caller's limit; nothing here loads a whole case.
+
+    /** A canonical record with the source row it was read from, so a reader can check the row against its hash. */
+    public record EvidencedRecord(StoredRecord stored, String rawRow, String importRowSha256) {}
+
+    /** A provider report row with its source text, the record it fed (if any) and the evidence read from it. */
+    public record ReportRowEvidence(UUID importId, int rowNumber, String rowSha256, String rawRow, String identity,
+                                    String paymentRef, String kind, UUID recordId, String notReconciledReason,
+                                    String evidenceJson) {}
+
+    /** A row that was supplied again byte for byte and counted once. */
+    public record DuplicateRowEvidence(UUID importId, int rowNumber, String rowSha256, String rawRow) {}
+
+    public List<EvidencedRecord> recordsForTimeline(UUID tenantId, UUID caseId, java.util.Collection<String> refs,
+                                                    java.util.Collection<UUID> ids, int limit) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        for (int i = 0; i < 4; i++) args.addAll(refs);
+        args.addAll(ids);
+        args.add(limit);
+        return jdbc.query("""
+            SELECT r.*, ir.raw_row, ir.row_sha256 AS import_row_sha256
+              FROM recon_records r
+              JOIN recon_imports i ON i.id = r.import_id
+              JOIN recon_import_rows ir ON ir.id = r.import_row_id
+             WHERE r.tenant_id = ? AND r.case_id = ? AND i.status = 'COMPLETED'
+               AND (r.stable_ref IN (%1$s) OR r.internal_ref IN (%1$s) OR r.provider_event_id IN (%1$s)
+                    OR r.record_key IN (%1$s) OR r.id IN (%2$s))
+             ORDER BY r.record_key LIMIT ?""".formatted(marks(refs.size()), marks(ids.size())),
+            (rs, n) -> new EvidencedRecord(mapRecord(rs, n), rs.getString("raw_row"), rs.getString("import_row_sha256").trim()),
+            args.toArray());
+    }
+
+    public List<ImportRow> importsByIds(UUID tenantId, UUID caseId, java.util.Collection<UUID> ids) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        args.addAll(ids);
+        return jdbc.query("SELECT * FROM recon_imports WHERE tenant_id = ? AND case_id = ? AND id IN (%s)".formatted(marks(ids.size())),
+            CaseworkStore::mapImport, args.toArray());
+    }
+
+    /** Matches of one run with either side among the given records. */
+    public List<MatchRow> matchesTouching(UUID tenantId, UUID runId, java.util.Collection<UUID> recordIds) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, runId));
+        args.addAll(recordIds);
+        args.addAll(recordIds);
+        return jdbc.query("""
+            SELECT id, left_record_id, right_record_id, rule_id, rule_version, stage, detail FROM recon_matches
+             WHERE tenant_id = ? AND run_id = ? AND (left_record_id IN (%1$s) OR right_record_id IN (%1$s))
+             ORDER BY stage, left_record_id, right_record_id""".formatted(marks(recordIds.size())),
+            (rs, n) -> new MatchRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
+                rs.getString(4), rs.getString(5), rs.getInt(6), rs.getString(7)), args.toArray());
+    }
+
+    /** The case's exceptions that cite any of the given records, each with every record it cites. */
+    public Map<UUID, List<UUID>> issuesCiting(UUID tenantId, UUID caseId, java.util.Collection<UUID> recordIds) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        for (UUID id : recordIds) args.add(id.toString());
+        Map<UUID, List<UUID>> out = new java.util.TreeMap<>();
+        jdbc.query("""
+            SELECT i.id, e->>'recordId'
+              FROM reconciliation_issues i, jsonb_array_elements(i.evidence->'records') e
+             WHERE i.tenant_id = ? AND i.case_id = ?
+               AND EXISTS (SELECT 1 FROM jsonb_array_elements(i.evidence->'records') x WHERE x->>'recordId' IN (%s))
+             ORDER BY i.id, 2""".formatted(marks(recordIds.size())),
+            rs -> { out.computeIfAbsent(rs.getObject(1, UUID.class), k -> new java.util.ArrayList<>()).add(UUID.fromString(rs.getString(2))); },
+            args.toArray());
+        return out;
+    }
+
+    public List<ReportRowEvidence> reportRowsForTimeline(UUID tenantId, UUID caseId, java.util.Collection<String> paymentRefs,
+                                                         java.util.Collection<UUID> recordIds, int limit) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        args.addAll(paymentRefs);
+        args.addAll(recordIds);
+        args.add(limit);
+        return jdbc.query("""
+            SELECT pr.import_id, ir.row_number, ir.row_sha256, ir.raw_row, pr.row_identity, pr.payment_ref, pr.kind,
+                   pr.record_id, pr.not_reconciled_reason, pr.evidence::text
+              FROM recon_provider_rows pr
+              JOIN recon_import_rows ir ON ir.id = pr.import_row_id
+              JOIN recon_imports i ON i.id = pr.import_id
+             WHERE pr.tenant_id = ? AND i.case_id = ? AND i.status = 'COMPLETED'
+               AND (pr.payment_ref IN (%s) OR pr.record_id IN (%s))
+             ORDER BY pr.import_id, ir.row_number LIMIT ?""".formatted(marks(paymentRefs.size()), marks(recordIds.size())),
+            (rs, n) -> new ReportRowEvidence(rs.getObject(1, UUID.class), rs.getInt(2), rs.getString(3).trim(), rs.getString(4),
+                rs.getString(5), rs.getString(6), rs.getString(7), rs.getObject(8, UUID.class), rs.getString(9), rs.getString(10)),
+            args.toArray());
+    }
+
+    public List<DuplicateRowEvidence> duplicateRowsOf(UUID tenantId, UUID caseId, java.util.Collection<String> rowHashes, int limit) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        args.addAll(rowHashes);
+        args.add(limit);
+        return jdbc.query("""
+            SELECT ir.import_id, ir.row_number, ir.row_sha256, ir.raw_row
+              FROM recon_import_rows ir JOIN recon_imports i ON i.id = ir.import_id
+             WHERE ir.tenant_id = ? AND i.case_id = ? AND i.status = 'COMPLETED' AND ir.status = 'DUPLICATE'
+               AND ir.row_sha256 IN (%s)
+             ORDER BY ir.import_id, ir.row_number LIMIT ?""".formatted(marks(rowHashes.size())),
+            (rs, n) -> new DuplicateRowEvidence(rs.getObject(1, UUID.class), rs.getInt(2), rs.getString(3).trim(), rs.getString(4)),
+            args.toArray());
+    }
+
+    /** Placeholders for an IN list. Only "?" and "NULL" are ever produced, so no value reaches the SQL text. */
+    private static String marks(int n) {
+        return n == 0 ? "NULL" : String.join(",", java.util.Collections.nCopies(n, "?"));
+    }
+
     // --- mapping -----------------------------------------------------------------------------------
 
     private static FeedRow mapFeed(ResultSet rs, int n) throws SQLException {
