@@ -116,9 +116,9 @@ public class CaseworkStore {
             CaseworkStore::mapImport, tenantId, caseId, importId));
     }
 
-    /** Oldest first, then by file hash, so every consumer sees one stable order. */
+    /** Oldest first, then by file hash, then id (V59 lets two feeds share a hash), so every consumer sees one stable order. */
     public List<ImportRow> listImports(UUID tenantId, UUID caseId) {
-        return jdbc.query("SELECT * FROM recon_imports WHERE tenant_id = ? AND case_id = ? ORDER BY imported_at, file_sha256",
+        return jdbc.query("SELECT * FROM recon_imports WHERE tenant_id = ? AND case_id = ? ORDER BY imported_at, file_sha256, id",
             CaseworkStore::mapImport, tenantId, caseId);
     }
 

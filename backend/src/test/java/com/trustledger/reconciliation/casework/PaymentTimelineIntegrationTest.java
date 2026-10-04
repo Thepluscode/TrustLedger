@@ -650,4 +650,33 @@ class PaymentTimelineIntegrationTest {
         assertEquals(linesMentioning(report, "pay_itwvhag5e5tklnry88sgtpxh1c"), events(refunded, "PROVIDER_REPORT_ROW").size());
         for (JsonNode e : refunded.get("timeline")) assertNotEquals("SETTLED_CHARGEBACK", e.get("eventType").asString());
     }
+
+    @Test
+    void anotherFeedsIdenticalBytesAreNotInARunThatNeverReadThem() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "ACME-2026-08");
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "acme-ledger", "internal-expected", "internal-expected.csv", CaseworkHttp.fixture("internal-expected.csv")));
+        String body = AcmeFeedConvergenceIntegrationTest.PROVIDER_B_EVENTS.get(0);
+        assertEquals(201, deliver(feed(owner.token(), caseId, "provider-b"), body));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+
+        // Same bytes, second feed, after the run: a new import the run never compared.
+        assertEquals(201, deliver(feed(owner.token(), caseId, "provider-c"), body));
+        JsonNode before = http.tree(timelineResponse(owner.token(), caseId, "pb_tx_001", "provider-c"));
+        assertFalse(before.get("timeline").isEmpty(), "positive twin: provider-c's event is on the page");
+        for (JsonNode e : before.get("timeline")) assertFalse(e.get("evidence").get("inLatestRun").asBoolean(), e.toString());
+        assertEquals("NOT_RECONCILED", before.get("conclusion").get("state").asString());
+
+        // Once a run reads it, it is in that run.
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode after = http.tree(timelineResponse(owner.token(), caseId, "pb_tx_001", "provider-c"));
+        for (JsonNode e : after.get("timeline")) assertTrue(e.get("evidence").get("inLatestRun").asBoolean(), e.toString());
+
+        // The run names the imports it read, not only their hashes: two of the three share one.
+        java.util.Set<String> read = new java.util.TreeSet<>();
+        for (JsonNode n : json.readTree(jdbc.queryForObject("select summary from recon_runs where case_id = ? order by completed_at desc limit 1",
+                String.class, caseId)).get("importIds")) read.add(n.asString());
+        assertEquals(new java.util.TreeSet<>(jdbc.queryForList("select id::text from recon_imports where case_id = ?", String.class, caseId)), read);
+        assertEquals(3, read.size());
+    }
 }
