@@ -8,28 +8,26 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  task: imported_source_evidence_immutability
-  priority: P0                 # founder instruction, 2026-10-04
+  task: timeline_backed_showcase
+  priority: P1                 # founder instruction, 2026-10-04: "immediately after #1", a tiny bounded task
   status: IN_PROGRESS
-  claim_level: implemented     # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/import-rows-write-once
-  source: "PARKING_LOT.md (\"Imported source rows are not write-once at the database\", 2026-10-02)"
+  claim_level: implemented
+  branch: feat/timeline-showcase
   scope: >
-    Make recon_import_rows write-once at the PostgreSQL boundary with the repository's existing
-    evidence-mutation rejection mechanism: INSERT stays allowed; UPDATE, DELETE and TRUNCATE are
-    refused. One migration, one real-PostgreSQL negative control that reddens when the guard is
-    removed, the import/reconciliation/timeline/bundle surface re-run. No UI, no money movement,
-    no schema redesign. A correction to imported evidence is a new import, never an edit.
-  next_after_this: timeline-backed executive showcase (authorised to follow, not yet started)
-  founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV);
-    no bank ingestion is built until a real file exists
+    The executive showcase and the demo scripts demonstrate TrustLedger through the real Payment
+    Truth Timeline instead of narrative cards: the public /showcase renders the GBP 50,000 story with
+    the same timeline component the console uses, on hard-coded synthetic evidence in the exact API
+    shape, still with no API, session or storage dependency; the demo scripts walk the real timeline
+    page on the seeded ACME case. No backend change, no money movement.
+  next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
+  founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:
-    task: payment_truth_timeline
-    claim_level: tested        # CI-verified on main; not production-observed, no customer file yet
-    pull_requests: [160]
-    merge_commits: [3e72160]
-    feature_flag: RECON_CASEWORK_ENABLED   # still default off
-    review: docs/reviews/2026-10-04-codex-adversarial-pr160.md
+    task: imported_source_evidence_immutability
+    claim_level: tested        # CI-verified on main; not production-observed
+    pull_requests: [162]
+    merge_commits: [e510cc6]
+    migration: V58
+    before_that: payment_truth_timeline (PR 160, 3e72160; review docs/reviews/2026-10-04-codex-adversarial-pr160.md)
 
 # Standing conditions, true regardless of the active task. Not work items.
 invariants_in_force:
@@ -129,3 +127,11 @@ history:
     evidence: "PARKING_LOT.md entry of 2026-10-02; PaymentTimelineIntegrationTest.anEditedSourceRowCannotSupportAConclusion edits a row with a plain UPDATE"
     authorising_condition: FOUNDER_OVERRIDE
     approved_by: FOUNDER (directive pasted in session, 2026-10-04 — options 1, 2 in parallel, 3 after 1)
+  - date: 2026-10-04
+    change: task completed, then task switch
+    previous_task: "imported_source_evidence_immutability (merged, PR 162 -> e510cc6; CI green, 681 tests, none skipped)"
+    new_task: timeline_backed_showcase
+    reason: the founder's 2026-10-04 directive ordered option 3 immediately after option 1
+    evidence: "PR 162 CI run on 48add54; directive pasted in session, 2026-10-04"
+    authorising_condition: CURRENT_TASK_COMPLETED
+    approved_by: FOUNDER (merged PR 162 with GO; directive of 2026-10-04 names the next task)
