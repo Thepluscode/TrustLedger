@@ -101,7 +101,7 @@ public class PaymentTimelineService {
                 truncated = true;
                 break;
             }
-            matches = latest == null ? List.of() : store.matchesTouching(tenantId, latest.id(), pool.keySet());
+            matches = latest == null ? List.of() : store.matchesTouching(tenantId, caseId, latest.id(), pool.keySet());
             citations = store.issuesCiting(tenantId, caseId, pool.keySet());
             Set<UUID> linked = new TreeSet<>();
             for (MatchRow m : matches) {

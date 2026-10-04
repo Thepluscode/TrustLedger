@@ -468,14 +468,16 @@ public class CaseworkStore {
     }
 
     /** Matches of one run with either side among the given records. */
-    public List<MatchRow> matchesTouching(UUID tenantId, UUID runId, java.util.Collection<UUID> recordIds) {
-        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, runId));
+    public List<MatchRow> matchesTouching(UUID tenantId, UUID caseId, UUID runId, java.util.Collection<UUID> recordIds) {
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId, runId));
         args.addAll(recordIds);
         args.addAll(recordIds);
         return jdbc.query("""
-            SELECT id, left_record_id, right_record_id, rule_id, rule_version, stage, detail FROM recon_matches
-             WHERE tenant_id = ? AND run_id = ? AND (left_record_id IN (%1$s) OR right_record_id IN (%1$s))
-             ORDER BY stage, left_record_id, right_record_id""".formatted(marks(recordIds.size())),
+            SELECT m.id, m.left_record_id, m.right_record_id, m.rule_id, m.rule_version, m.stage, m.detail
+              FROM recon_matches m JOIN recon_runs r ON r.id = m.run_id AND r.tenant_id = m.tenant_id
+             WHERE m.tenant_id = ? AND r.case_id = ? AND m.run_id = ?
+               AND (m.left_record_id IN (%1$s) OR m.right_record_id IN (%1$s))
+             ORDER BY m.stage, m.left_record_id, m.right_record_id""".formatted(marks(recordIds.size())),
             (rs, n) -> new MatchRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
                 rs.getString(4), rs.getString(5), rs.getInt(6), rs.getString(7)), args.toArray());
     }

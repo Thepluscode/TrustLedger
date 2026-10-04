@@ -374,13 +374,20 @@ class PaymentTimelineIntegrationTest {
         List<UUID> importIds = jdbc.queryForList("select id from recon_imports where case_id = ?", UUID.class, caseA);
         assertEquals(3, store.recordsForTimeline(a.tenantId(), caseA, Set.of("pb_tx_001"), Set.of(), 10).size(), "positive twin");
         assertEquals(0, store.recordsForTimeline(b.tenantId(), caseA, Set.of("pb_tx_001"), recordIds, 10).size());
-        assertEquals(2, store.matchesTouching(a.tenantId(), runA, recordIds).size(), "positive twin");
-        assertEquals(0, store.matchesTouching(b.tenantId(), runA, recordIds).size());
+        assertEquals(2, store.matchesTouching(a.tenantId(), caseA, runA, recordIds).size(), "positive twin");
+        assertEquals(0, store.matchesTouching(b.tenantId(), caseA, runA, recordIds).size());
+        UUID otherCaseA = http.createCase(a.token(), "A-OTHER");
+        assertEquals(0, store.matchesTouching(a.tenantId(), otherCaseA, runA, recordIds).size(),
+            "a run id from another case is not sufficient inside the same tenant");
+        assertEquals(0, store.recordsForTimeline(a.tenantId(), otherCaseA, Set.of("pb_tx_001"), recordIds, 10).size(),
+            "record ids from another case are not sufficient inside the same tenant");
         assertEquals(4, store.importsByIds(a.tenantId(), caseA, importIds).size(), "positive twin");
         assertEquals(0, store.importsByIds(b.tenantId(), caseA, importIds).size());
+        assertEquals(0, store.importsByIds(a.tenantId(), otherCaseA, importIds).size(), "import ids from another case");
         List<UUID> p03 = jdbc.queryForList("select id from recon_records where case_id = ? and stable_ref = 'pb_tx_003'", UUID.class, caseA);
         assertEquals(1, store.issuesCiting(a.tenantId(), caseA, p03).size(), "positive twin");
         assertEquals(0, store.issuesCiting(b.tenantId(), caseA, p03).size());
+        assertEquals(0, store.issuesCiting(a.tenantId(), otherCaseA, p03).size(), "record ids from another case");
 
         // B's own case, using the very same reference, holds only B's record.
         UUID caseB = http.createCase(b.token(), "B-1");
@@ -565,10 +572,13 @@ class PaymentTimelineIntegrationTest {
         // The report-row and duplicate-row queries are tenant-scoped on their own.
         UUID stranger = http.register().tenantId();
         List<String> hashes = jdbc.queryForList("select evidence_row_sha256 from recon_records where case_id = ?", String.class, caseId);
+        UUID otherCase = http.createCase(owner.token(), "ADYEN-OTHER-" + UUID.randomUUID());
         assertEquals(1, store.reportRowsForTimeline(owner.tenantId(), caseId, Set.of("X4J8X927MZNPIFY2"), Set.of(), 10).size(), "positive twin");
         assertEquals(0, store.reportRowsForTimeline(stranger, caseId, Set.of("X4J8X927MZNPIFY2"), Set.of(), 10).size());
+        assertEquals(0, store.reportRowsForTimeline(owner.tenantId(), otherCase, Set.of("X4J8X927MZNPIFY2"), Set.of(), 10).size(), "same tenant, another case");
         assertEquals(1, store.duplicateRowsOf(owner.tenantId(), caseId, hashes, 10).size(), "positive twin");
         assertEquals(0, store.duplicateRowsOf(stranger, caseId, hashes, 10).size());
+        assertEquals(0, store.duplicateRowsOf(owner.tenantId(), otherCase, hashes, 10).size(), "same tenant, another case");
     }
 
     // ---- 9, and unresolved time: the official Checkout.com sample ------------------------------------

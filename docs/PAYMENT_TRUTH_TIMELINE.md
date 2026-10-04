@@ -90,7 +90,9 @@ not check.
 5. Amounts are exact decimal text, each in its own currency. Nothing is converted and nothing is summed
    across currencies.
 6. The conclusion is a pure function of the items shown and is recomputable from the response.
-7. Every query carries the tenant and the case.
+7. Every query carries the tenant and the case, in its own WHERE clause: a caller-supplied run id or
+   record id is never sufficient on its own. (Found false for the match query by the 2026-10-04
+   adversarial review and corrected; each query has a foreign-tenant and a wrong-case negative control.)
 
 **Constraints.** At most 500 records, 500 provider report rows and 500 duplicate rows per payment; beyond
 that the view is marked `TRUNCATED`. Six rounds of following references outward; a payment that has not
