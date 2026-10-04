@@ -413,10 +413,22 @@ class PaymentTimelineIntegrationTest {
         UUID caseId = acmeCase(owner);
         assertEquals("NO_DISCREPANCY_FOUND", timeline(owner.token(), caseId, "P01").get("conclusion").get("state").asString(), "positive twin");
 
-        int edited = jdbc.update("""
+        // V58 refuses the edit at the database; this test is about what happens if someone with the power to
+        // disable that guard edits anyway. First prove the guard is there, then step around it as such an
+        // actor would.
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> jdbc.update("""
             UPDATE recon_import_rows SET raw_row = replace(raw_row, '100.00', '900.00')
-             WHERE tenant_id = ? AND raw_row LIKE 'evt_b_001,%'""", owner.tenantId());
-        assertEquals(1, edited, "exactly the one stored row was edited behind the application's back");
+             WHERE tenant_id = ? AND raw_row LIKE 'evt_b_001,%'""", owner.tenantId()), "an ordinary UPDATE is refused");
+        jdbc.execute("ALTER TABLE recon_import_rows DISABLE TRIGGER recon_import_rows_write_once");
+        int edited;
+        try {
+            edited = jdbc.update("""
+                UPDATE recon_import_rows SET raw_row = replace(raw_row, '100.00', '900.00')
+                 WHERE tenant_id = ? AND raw_row LIKE 'evt_b_001,%'""", owner.tenantId());
+        } finally {
+            jdbc.execute("ALTER TABLE recon_import_rows ENABLE TRIGGER recon_import_rows_write_once");
+        }
+        assertEquals(1, edited, "exactly the one stored row was edited by a privileged actor");
 
         JsonNode v = timeline(owner.token(), caseId, "P01");
         assertEquals("EVIDENCE_INTEGRITY_FAILED", v.get("conclusion").get("state").asString());

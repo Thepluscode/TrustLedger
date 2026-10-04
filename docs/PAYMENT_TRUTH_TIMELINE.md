@@ -132,8 +132,9 @@ query loads a whole case. Not benchmarked yet (see Limits).
   Byte-identical duplicates are attributed.
 - Integrity is checked per row against the hash recorded at import. The raw file in the evidence store is
   not re-read on each request; `scripts/verify_recon_bundle.py` covers the file level.
-- `recon_import_rows` has no write-once trigger, unlike `recon_records` and `recon_provider_rows`. The
-  timeline detects an edited row; the database does not yet refuse the edit. Parked in `PARKING_LOT.md`.
+- Since V58 (2026-10-04) `recon_import_rows` is write-once like `recon_records` and `recon_provider_rows`:
+  the database refuses UPDATE, DELETE and TRUNCATE. The integrity check stays, because it is what catches
+  an actor privileged enough to disable the guard; `PaymentTimelineIntegrationTest` proves both halves.
 - A finding raised by an earlier run stays open until a person decides it, even if a later run would no
   longer raise it. The timeline says which run raised each finding; it does not re-run the engine.
 - There is no bank or cash evidence source yet. The timeline shows internal, provider and settlement
