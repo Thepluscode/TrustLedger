@@ -56,6 +56,18 @@ GET /api/v1/reconciliation/issues
 POST /api/v1/reconciliation/issues/{issueId}/resolve
 ```
 
+### Payment timeline (read-only, behind `RECON_CASEWORK_ENABLED`)
+
+```http
+GET /api/v1/reconciliation/cases/{caseId}/payments/timeline?ref={reference}[&provider={name}]
+```
+
+Everything a case holds about one payment, in source-time order, each item with its source row, the
+findings that cite it and what was decided. Derived on every call; nothing is stored. `ref` is a provider
+transaction reference, a provider event id, an internal reference or a record key. 404 for an unknown or
+foreign case and for a reference with no evidence; 409 when the reference names more than one payment.
+Specification: `docs/PAYMENT_TRUTH_TIMELINE.md`.
+
 ## v2 payment rails
 
 ```http

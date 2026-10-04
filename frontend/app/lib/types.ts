@@ -334,6 +334,97 @@ export interface ReconImportView { manifest: ReconImportManifest; currencyTotals
 
 export interface ReconCaseView { reconciliationCase: ReconCase; imports: ReconImportView[]; blockers: string[] }
 
+/** A source time as evidence. `instant` is null when nothing establishes it; `raw` is then all that is known. */
+export interface TimelineTime { raw: string | null; source: string; zoneEvidence: string | null; instant: string | null; unresolvedReason: string | null }
+
+/** One amount in one currency. `value` is exact decimal text and is never reformatted or summed across currencies. */
+export interface TimelineAmount { role: string; currency: string; value: string; direction: string | null; providerField: string | null; rawValue: string | null }
+
+export interface TimelineEvidence {
+  importId: string;
+  sourceType: string | null;
+  sourceIdentity: string | null;
+  filename: string | null;
+  profile: string | null;
+  fileSha256: string | null;
+  rowNumber: number;
+  rowSha256: string;
+  storageKey: string | null;
+  rawRow: string | null;
+  /** false when the stored row no longer hashes to what was recorded at import. */
+  intact: boolean;
+  deliveryCount: number;
+  feedId: string | null;
+  importedAt: string | null;
+  inLatestRun: boolean;
+}
+
+export interface TimelineEvent {
+  eventId: string;
+  position: number;
+  kind: string;
+  eventType: string | null;
+  provider: string | null;
+  status: string | null;
+  refs: { providerEventId: string | null; stableRef: string | null; internalRef: string | null; settlementBatch: string | null };
+  occurred: TimelineTime | null;
+  booked: TimelineTime | null;
+  receivedAt: string | null;
+  placement: "BY_SOURCE_TIME" | "UNPLACED";
+  arrivedOutOfOrder: boolean;
+  amounts: TimelineAmount[];
+  fxRate: string | null;
+  role: string;
+  roleReason: string | null;
+  duplicateOf: string | null;
+  linkedBy: string | null;
+  derivedInto: string | null;
+  matches: { ruleId: string; ruleVersion: string; counterpartEventId: string }[];
+  findingIds: string[];
+  evidence: TimelineEvidence;
+}
+
+export interface TimelineHistoryEntry { seq: number; kind: string; fromState: string | null; toState: string | null; actorId: string | null; body: string | null; evidenceSha256: string | null; evidenceFilename: string | null; at: string | null }
+
+export interface TimelineFinding {
+  exceptionId: string;
+  type: string;
+  classification: string;
+  severity: string;
+  expected: string | null;
+  actual: string | null;
+  explanation: string | null;
+  exposureAmount: string | null;
+  exposureCurrency: string | null;
+  ruleId: string | null;
+  ruleVersion: string | null;
+  raisedByRunId: string | null;
+  raisedByLatestRun: boolean;
+  raisedAt: string;
+  open: boolean;
+  lifecycleState: string;
+  ownerUserId: string | null;
+  dueAt: string | null;
+  decision: { closedAs: string; reasonCode: string; explanation: string | null; decidedBy: string | null; decidedAt: string | null } | null;
+  eventIds: string[];
+  history: TimelineHistoryEntry[];
+}
+
+export interface PaymentTimelineView {
+  payment: { ref: string; providers: string[]; stableRefs: string[]; internalRefs: string[]; currencies: string[] };
+  conclusion: {
+    state: string;
+    statement: string;
+    openFindingTypes: string[];
+    decidedFindingTypes: string[];
+    openExposureByCurrency: { currency: string; amount: string }[];
+    notes: { code: string; detail: string }[];
+    basis: { runId: string; runKey: string; rulesetVersion: string; completedAt: string } | null;
+  };
+  timeline: TimelineEvent[];
+  findings: TimelineFinding[];
+}
+
 export interface ReconSourceRow {
   rowNumber: number;
   rawRow: string;
