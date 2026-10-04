@@ -138,7 +138,8 @@ export const FIFTY_THOUSAND_STORY: PaymentTimelineView = {
     decidedFindingTypes: ["DUPLICATE_PROVIDER_EVENT"],
     openExposureByCurrency: [{ currency: "GBP", amount: "600.0000" }],
     notes: [],
-    basis: { runId: RUN_ID, runKey: "0807e3c3b2625d91f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0", rulesetVersion: "recon-rules/1.2.0", completedAt: "2026-08-13T16:05:12Z" },
+    // A real run key is a SHA-256 of the inputs; this one reads as what it is, and does not look like a credential.
+    basis: { runId: RUN_ID, runKey: "synthetic-showcase-run".padEnd(64, "0"), rulesetVersion: "recon-rules/1.2.0", completedAt: "2026-08-13T16:05:12Z" },
   },
   timeline: [INTERNAL, CHARGE, DUPLICATE, SETTLEMENT],
   findings: [DUP, FEE],
