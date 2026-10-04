@@ -8,26 +8,24 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  task: payment_truth_timeline
-  priority: P0                 # founder instruction, 2026-10-02
-  status: IN_PROGRESS
-  claim_level: tested          # locally, scoped; CI has not run on this branch. Not production-observed.
-  branch: feat/payment-truth-timeline   # stacked on docs/record-provider-evidence-merge (PR 159)
-  source: "docs/PAYMENT_TRUTH_TIMELINE.md"
-  scope: >
-    A read-only, per-payment timeline inside a reconciliation case: one derived view over the canonical
-    records, provider evidence rows, the latest run's matches, the findings and the exception history,
-    every item linked to its source row. Closes Golden Workflow acceptance criterion 5 for the read-only
-    wedge. It is a view, not a store: no new table, no money movement, no retries, reversals or routing.
-    Duplicates, ambiguity, unresolved timestamps, separate currencies and PENDING_UNKNOWN are shown as
-    they are, never simplified.
-  next_after_this: bank/cash evidence ingestion (to be evaluated, not authorised)
+  # Nothing is authorised until the founder names the next task.
+  task: none
+  note: >
+    payment_truth_timeline is COMPLETE: merged to main (PR 160, merge commit 3e72160) after the
+    Codex adversarial review (docs/reviews/2026-10-04-codex-adversarial-pr160.md) disproved one
+    specification claim, which was corrected on the branch before merge. Candidates, none authorised:
+    bank/cash evidence ingestion (the founder named it as the next gap to evaluate, not to build);
+    a write-once trigger on recon_import_rows (parked, a migration over existing data); Stripe
+    itemized payout reconciliation (needs a real test-mode export); Adyen refunds/chargebacks (needs
+    a real Adyen report containing them); the market gate (0 of 25 qualified interviews, discharged
+    by conversations, not code).
   last_completed:
-    task: provider_evidence_ingestion
+    task: payment_truth_timeline
     claim_level: tested        # CI-verified on main; not production-observed, no customer file yet
-    pull_requests: [152, 158]
-    merge_commits: [fa858ba, ef1e6f2]
+    pull_requests: [160]
+    merge_commits: [3e72160]
     feature_flag: RECON_CASEWORK_ENABLED   # still default off
+    review: docs/reviews/2026-10-04-codex-adversarial-pr160.md
 
 # Standing conditions, true regardless of the active task. Not work items.
 invariants_in_force:
@@ -109,3 +107,11 @@ history:
     evidence: "docs/GOLDEN_WORKFLOW.md acceptance criterion 5; docs/PAYMENT_TRUTH_TIMELINE.md"
     authorising_condition: FOUNDER_OVERRIDE
     approved_by: FOUNDER (GO confirmed in session, 2026-10-02)
+  - date: 2026-10-04
+    change: task completed
+    previous_task: payment_truth_timeline
+    new_task: none
+    reason: merged to main by the founder after CI green on the final commit and the adversarial review
+    evidence: "PR 160 -> 3e72160; CI on 7615bae: 680 tests, 134 classes, none skipped; review correction 920fb14"
+    authorising_condition: CURRENT_TASK_COMPLETED
+    approved_by: FOUNDER (merged PR 160)
