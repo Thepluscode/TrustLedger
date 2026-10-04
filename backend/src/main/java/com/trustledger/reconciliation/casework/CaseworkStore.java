@@ -105,9 +105,10 @@ public class CaseworkStore {
 
     // --- imports -----------------------------------------------------------------------------------
 
-    public Optional<ImportRow> findImportByHash(UUID tenantId, UUID caseId, String fileSha256) {
-        return one(jdbc.query("SELECT * FROM recon_imports WHERE tenant_id = ? AND case_id = ? AND file_sha256 = ?",
-            CaseworkStore::mapImport, tenantId, caseId, fileSha256));
+    /** A file upload replays an earlier upload; a feed delivery only an earlier delivery to the same feed (V59). */
+    public Optional<ImportRow> findImportByHash(UUID tenantId, UUID caseId, UUID feedId, String fileSha256) {
+        return one(jdbc.query("SELECT * FROM recon_imports WHERE tenant_id = ? AND case_id = ? AND feed_id IS NOT DISTINCT FROM CAST(? AS uuid) AND file_sha256 = ?",
+            CaseworkStore::mapImport, tenantId, caseId, feedId, fileSha256));
     }
 
     public Optional<ImportRow> findImport(UUID tenantId, UUID caseId, UUID importId) {
@@ -344,9 +345,9 @@ public class CaseworkStore {
             CaseworkStore::mapFeed, tenantId, caseId);
     }
 
-    public int revokeFeed(UUID tenantId, UUID feedId) {
-        return jdbc.update("UPDATE recon_feeds SET status = 'REVOKED', revoked_at = now() WHERE tenant_id = ? AND id = ? AND status = 'ACTIVE'",
-            tenantId, feedId);
+    public int revokeFeed(UUID tenantId, UUID caseId, UUID feedId) {
+        return jdbc.update("UPDATE recon_feeds SET status = 'REVOKED', revoked_at = now() WHERE tenant_id = ? AND case_id = ? AND id = ? AND status = 'ACTIVE'",
+            tenantId, caseId, feedId);
     }
 
     // --- runs --------------------------------------------------------------------------------------
