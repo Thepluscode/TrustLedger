@@ -8,17 +8,21 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  # Nothing is authorised until the founder names the next task.
-  task: none
-  note: >
-    payment_truth_timeline is COMPLETE: merged to main (PR 160, merge commit 3e72160) after the
-    Codex adversarial review (docs/reviews/2026-10-04-codex-adversarial-pr160.md) disproved one
-    specification claim, which was corrected on the branch before merge. Candidates, none authorised:
-    bank/cash evidence ingestion (the founder named it as the next gap to evaluate, not to build);
-    a write-once trigger on recon_import_rows (parked, a migration over existing data); Stripe
-    itemized payout reconciliation (needs a real test-mode export); Adyen refunds/chargebacks (needs
-    a real Adyen report containing them); the market gate (0 of 25 qualified interviews, discharged
-    by conversations, not code).
+  task: imported_source_evidence_immutability
+  priority: P0                 # founder instruction, 2026-10-04
+  status: IN_PROGRESS
+  claim_level: implemented     # implemented -> tested -> production-observed -> customer-validated
+  branch: feat/import-rows-write-once
+  source: "PARKING_LOT.md (\"Imported source rows are not write-once at the database\", 2026-10-02)"
+  scope: >
+    Make recon_import_rows write-once at the PostgreSQL boundary with the repository's existing
+    evidence-mutation rejection mechanism: INSERT stays allowed; UPDATE, DELETE and TRUNCATE are
+    refused. One migration, one real-PostgreSQL negative control that reddens when the guard is
+    removed, the import/reconciliation/timeline/bundle surface re-run. No UI, no money movement,
+    no schema redesign. A correction to imported evidence is a new import, never an edit.
+  next_after_this: timeline-backed executive showcase (authorised to follow, not yet started)
+  founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV);
+    no bank ingestion is built until a real file exists
   last_completed:
     task: payment_truth_timeline
     claim_level: tested        # CI-verified on main; not production-observed, no customer file yet
@@ -115,3 +119,13 @@ history:
     evidence: "PR 160 -> 3e72160; CI on 7615bae: 680 tests, 134 classes, none skipped; review correction 920fb14"
     authorising_condition: CURRENT_TASK_COMPLETED
     approved_by: FOUNDER (merged PR 160)
+  - date: 2026-10-04
+    change: task switch
+    previous_task: none (payment_truth_timeline completed 2026-10-04)
+    new_task: imported_source_evidence_immutability
+    reason: >
+      the timeline can detect an edited source row but the database still accepts the edit; raw
+      imported evidence must be immutable by construction, as the ledger and audit tables already are
+    evidence: "PARKING_LOT.md entry of 2026-10-02; PaymentTimelineIntegrationTest.anEditedSourceRowCannotSupportAConclusion edits a row with a plain UPDATE"
+    authorising_condition: FOUNDER_OVERRIDE
+    approved_by: FOUNDER (directive pasted in session, 2026-10-04 — options 1, 2 in parallel, 3 after 1)

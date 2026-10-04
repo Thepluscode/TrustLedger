@@ -54,9 +54,11 @@ post-gate exception-operations infrastructure. It is a standing gate, not a task
 discharged by conversations, not by code, and it is recorded here so no session mistakes it
 for something to build around.
 
-## Imported source rows are not write-once at the database
+## Imported source rows are not write-once at the database — RESOLVED 2026-10-04
 
-Found 2026-10-02 while building the payment timeline. `recon_records` (V52) and `recon_provider_rows`
+Authorised by the founder on 2026-10-04 and closed by V58 (`recon_import_rows_write_once`,
+`recon_import_rows_no_truncate`); `ImportRowsWriteOnceIntegrationTest` is the control. Kept here as
+the record of what was found. Originally: found 2026-10-02 while building the payment timeline. `recon_records` (V52) and `recon_provider_rows`
 (V57) carry the `trustledger_reject_evidence_mutation` trigger; `recon_import_rows` (V51), which holds
 the raw text of every imported row, does not. `PaymentTimelineIntegrationTest
 .anEditedSourceRowCannotSupportAConclusion` edits a stored row with a plain `UPDATE` and it succeeds.
@@ -76,4 +78,15 @@ reconciliation-cases API apart from the payment timeline added on 2026-10-02. A 
 "embedded" mode has no accurate reference.
 
 **Resume when:** a prospect asks for API documentation, or an OpenAPI spec is authorised.
+
+## The other evidence tables refuse UPDATE and DELETE but not TRUNCATE
+
+Found 2026-10-04 while closing the entry above. `evidence_objects` (V50), `recon_records` (V52) and
+`recon_provider_rows` (V57) carry row-level `BEFORE UPDATE OR DELETE` triggers only. PostgreSQL does not
+fire row-level triggers on `TRUNCATE`, the same hole V40 closed for the audit tables. A plain
+`TRUNCATE recon_records` is refused today only because other tables reference it by foreign key;
+`TRUNCATE ... CASCADE` would not be. Out of the authorised scope (one table), so parked rather than
+quietly widened. The function `trustledger_reject_evidence_truncate` from V58 is ready to attach.
+
+**Resume when:** a migration is authorised; it is three `CREATE TRIGGER` statements and one test.
 

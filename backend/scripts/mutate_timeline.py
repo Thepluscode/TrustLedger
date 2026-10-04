@@ -7,6 +7,7 @@ state is run last; a red baseline refuses to classify anything.
 
     python3 backend/scripts/mutate_timeline.py unit          # PaymentTimelineTest, no Docker
     python3 backend/scripts/mutate_timeline.py integration   # PaymentTimelineIntegrationTest, needs Docker
+    python3 backend/scripts/mutate_timeline.py write-once    # ImportRowsWriteOnceIntegrationTest, needs Docker
 
 Needs the Testcontainers environment for the integration batch (see FEATURE_TRACKER.md / the colima
 notes). Do not edit the mutated sources while a batch runs: the restore writes back the copy taken
@@ -20,6 +21,7 @@ PT = SRC + "reconciliation/casework/timeline/PaymentTimeline.java"
 SVC = SRC + "reconciliation/casework/timeline/PaymentTimelineService.java"
 STORE = SRC + "reconciliation/casework/CaseworkStore.java"
 CTRL = SRC + "api/ReconciliationCaseController.java"
+MIG58 = BACKEND + "/src/main/resources/db/migration/V58__recon_import_rows_write_once.sql"
 
 UNIT = [
     ("hide-duplicate-delivery", PT, "d.subList(1, d.size())) duplicateOf.put", "d.subList(d.size(), d.size())) duplicateOf.put"),
@@ -65,6 +67,16 @@ INTEGRATION = [
     ("findings-not-loaded", SVC, "            if (c.getValue().stream().noneMatch(groupIds::contains)) continue;", "            if (true) continue;"),
 ]
 
+# The write-once guard on imported source rows. Each mutant keeps the trigger but makes it never fire
+# (WHEN (false)), so the migration still applies and only the refusal disappears. Sentinel:
+# ImportRowsWriteOnceIntegrationTest, on a fresh PostgreSQL container, so the mutated migration is what runs.
+WRITE_ONCE = [
+    ("row-guard-never-fires", MIG58, "    FOR EACH ROW EXECUTE FUNCTION trustledger_reject_evidence_mutation();", "    FOR EACH ROW WHEN (false) EXECUTE FUNCTION trustledger_reject_evidence_mutation();"),
+    ("truncate-guard-never-fires", MIG58, "    FOR EACH STATEMENT EXECUTE FUNCTION trustledger_reject_evidence_truncate();", "    FOR EACH STATEMENT WHEN (false) EXECUTE FUNCTION trustledger_reject_evidence_truncate();"),
+    ("row-guard-on-update-only", MIG58, "    BEFORE UPDATE OR DELETE ON recon_import_rows\n    FOR EACH ROW EXECUTE", "    BEFORE UPDATE ON recon_import_rows\n    FOR EACH ROW EXECUTE"),
+    ("row-guard-on-delete-only", MIG58, "    BEFORE UPDATE OR DELETE ON recon_import_rows\n    FOR EACH ROW EXECUTE", "    BEFORE DELETE ON recon_import_rows\n    FOR EACH ROW EXECUTE"),
+]
+
 
 def sha(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
@@ -87,7 +99,8 @@ def run(test):
 
 
 def main(which):
-    mutants, test = (UNIT, "PaymentTimelineTest") if which == "unit" else (INTEGRATION, "PaymentTimelineIntegrationTest")
+    mutants, test = {"unit": (UNIT, "PaymentTimelineTest"), "integration": (INTEGRATION, "PaymentTimelineIntegrationTest"),
+                     "write-once": (WRITE_ONCE, "ImportRowsWriteOnceIntegrationTest")}[which]
     rc, ran, failed, _ = run(test)
     print(f"BASELINE {test}: rc={rc} ran={ran} failed={failed}", flush=True)
     if rc != 0 or failed or ran == 0:

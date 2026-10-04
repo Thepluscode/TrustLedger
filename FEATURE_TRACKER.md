@@ -3,7 +3,20 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
+
+## Imported source evidence immutability (2026-10-04, branch `feat/import-rows-write-once`)
+
+Founder-authorised 2026-10-04 (`ACTIVE_WORK.yaml`), closing the parking-lot entry the timeline work raised: the raw text of every imported row is evidence, and the database accepted plain UPDATEs to it. V58 makes `recon_import_rows` write-once with the mechanism V50/V52/V57 already use; INSERT is untouched. A correction to imported evidence is a new import. No UI, no money movement, no schema redesign. **Not CI-verified until the branch's pipeline is green. Not production-observed.**
+
+| Outcome | Status | Evidence |
+|---------|--------|----------|
+| V58: UPDATE and DELETE refused by `trustledger_reject_evidence_mutation`; TRUNCATE refused by a statement-level guard (`trustledger_reject_evidence_truncate`, the V40 lesson) | **VERIFIED (local, PostgreSQL)** | `ImportRowsWriteOnceIntegrationTest` 1/1 over HTTP + SQL: the four ACME files insert 31 rows; then raw text, parsed outcome, rejection reason, row hash, row number and a no-op update are each refused "write-once"; deleting one row, an import's rows, everything, and `TRUNCATE ... CASCADE` are refused; all 31 rows byte-identical afterwards, the 30 derived records intact, the P01 timeline response identical before and after; a later import into the same case still inserts (32). |
+| The guard is load-bearing | **VERIFIED (4/4 mutants killed)** | `backend/scripts/mutate_timeline.py write-once`, fresh container per run so the mutated migration is what applies: row guard never fires, truncate guard never fires, guard on UPDATE only, guard on DELETE only — each reddens the test; baseline and final green; migration restored hash-identical. |
+| Nothing in the application updates or deletes these rows | **VERIFIED (repository search)** | `ImportService` only inserts; acknowledging rejections and discarding an import update `recon_imports`. The one UPDATE in the repository was the timeline's tamper test, now rewritten to prove the refusal first and then step around it as a privileged actor would (`ALTER TABLE ... DISABLE TRIGGER`), so detection is still proven. |
+| Upgrade over existing data | **VERIFIED (local)** | `verify-migrations-over-existing-data.sh upgrade_check 38`: baseline V38, 5002 seeded rows, 18 upgrade migrations incl. V58 applied cleanly; both triggers present on the upgraded table. |
+| Regression surface | **VERIFIED (local, PostgreSQL)** | Casework tree + audit immutability and tamper-evidence + evidence export and signing: 21 classes, `Tests run: 173, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`. The full backend suite was not run on this host; CI is the complete verdict. |
+| Found and parked, not fixed | **OPEN** | `evidence_objects`, `recon_records` and `recon_provider_rows` refuse UPDATE/DELETE but not TRUNCATE (`PARKING_LOT.md`); out of the one-table scope. |
 
 ## Payment Truth Timeline (2026-10-02, branch `feat/payment-truth-timeline`)
 
