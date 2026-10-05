@@ -26,7 +26,8 @@ class CaseworkBoundaryTest {
     void caseworkNeverReachesTheMoneyPath() throws IOException {
         List<Path> sources = new ArrayList<>();
         for (String root : List.of("src/main/java/com/trustledger/reconciliation/casework",
-                                   "src/main/java/com/trustledger/api/ReconciliationCaseController.java")) {
+                                   "src/main/java/com/trustledger/api/ReconciliationCaseController.java",
+                                   "src/main/java/com/trustledger/api/ReconciliationEventController.java")) {
             try (Stream<Path> walk = Files.walk(Path.of(root))) {
                 walk.filter(p -> p.toString().endsWith(".java")).forEach(sources::add);
             }

@@ -386,7 +386,7 @@ public class ImportService {
         if ("CLOSED".equals(c.status())) throw new ConflictException("the case is closed; no further imports are accepted");
 
         String fileSha = Hashes.sha256(content);
-        var existing = store.findImportByHash(tenantId, caseId, fileSha);
+        var existing = store.findImportByHash(tenantId, caseId, feedId, fileSha);
         if (existing.isPresent()) {
             store.countDelivery(tenantId, existing.get().id());
             metrics.replay(feedId == null ? "import" : "event");
