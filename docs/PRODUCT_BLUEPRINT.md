@@ -187,6 +187,11 @@ When the system cannot prove that a transaction is safe, authorised or eligible,
 
 Repeated client requests, job retries and webhook redelivery must not create duplicate financial effects.
 
+TrustLedger does not guarantee that external systems deliver an event exactly once. It guarantees
+that identifiable duplicate evidence cannot silently produce a duplicate financial effect.
+Transport delivery may repeat; every delivery remains evidenced, while the same stable source and
+canonical identity cannot create a second state transition or ledger mutation.
+
 ## Provider independent
 
 Business logic should not depend directly on Paystack or another provider. Provider-specific behaviour is isolated behind adapters.
@@ -194,6 +199,8 @@ Business logic should not depend directly on Paystack or another provider. Provi
 ## Financial truth over provider convenience
 
 A timeout does not mean failure. An HTTP success response does not necessarily mean settlement.
+TrustLedger does not guess financial state when external evidence is ambiguous; ambiguity remains
+explicit until reconciled.
 
 ## Evidence attached to every decision
 
@@ -1268,13 +1275,15 @@ Sell the reliability wedge, not the platform. Do not call the MVP a global finan
 
 ## Commercial packaging
 
-**Paid discovery — £5,000–£15,000.** Payment-flow mapping, failure taxonomy, reconciliation assessment, data-access plan, estimated financial exposure, pilot architecture.
+**Payment Reliability Diagnostic — £1,500.** Use only when the buyer cannot yet share data. Credit the fee to Discovery booked within 30 days.
 
-**Read-only pilot — £15,000–£40,000 over 30–60 days.** Two integrations, transaction timeline, reconciliation, exception detection, weekly evidence report, quantified operational findings.
+**Payment Reliability Discovery — £4,000.** Map one real workflow, failure taxonomy, reconciliation assessment, data-access boundary, current exposure, integration plan and measurable pilot success criteria. Credit the fee to a pilot booked within 30 days.
 
-**Production contract.** Priced on some combination of base platform fee, payment volume observed, number of providers, legal entities and currencies, evidence-retention period, premium workflow modules and enterprise deployment requirements.
+**Founding Design Partner Pilot — £10,000.** First three qualified customers only: one corridor, two data sources, six weeks, weekly feedback, a named operational sponsor and permission to use approved results. This is narrower scope with obligations, not a discounted standard pilot.
 
-An early annual contract target of **£30,000–£150,000** is a working assumption, not validated market pricing. Nothing here has been tested against a signed deal.
+**Standard Payment Reliability Pilot — £20,000.** Broader integration and security review, operational metrics and a value report, scoped after Discovery.
+
+**Production deployment.** Quote one exact figure after Discovery for the evidenced scope. Do not quote an annual range, and do not publish subscription pricing until three pilots establish support and infrastructure cost per customer. Nothing here has been tested against a signed deal.
 
 ## Defensibility
 

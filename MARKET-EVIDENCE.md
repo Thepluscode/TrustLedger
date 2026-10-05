@@ -13,8 +13,8 @@ Rule 0b: no further significant engineering until every line below is met with e
 
 | Key | Count | Evidence (names, dates, links — not adjectives) |
 |-----|-------|--------------------------------------------------|
-| contacted | 16 | 2026-08-04: 18 companies emailed, 16 sent without a bounce, **0 confirmed delivered**. PalmPay and MultiBank bounced on every address tried and have no email route. The other 16 are `SENT-UNCONFIRMED`: no bounce came back, which is not the same as arrival — most addresses were pattern guesses, and a silently-discarded message looks identical to a delivered one. Named recipients, sources and confidence per company in `pilot/sends/batch-01-recipients.md` and `batch-02-03-recipients.md`; Gmail message IDs in the tracker. |
-| conversations | 0 | No reply from any of the 16 at four days. Verified against Gmail Sent/Inbox on 2026-08-06 and 2026-08-08, not assumed from silence. Note that 0 replies is weaker evidence than it looks while delivery itself is unconfirmed. **Quantified 2026-08-15: of 19 sends, exactly 1 is confirmed delivered** (PalmPay, on a second address after the first bounced); 4 bounced; 14 remain SENT-UNCONFIRMED. A denominator of one cannot distinguish a bad message from mail that never arrived. |
+| contacted | 23 | Counted from `pilot/kill-test-tracker.csv` on 2026-08-27 with bounced attempts excluded. The generated portfolio view records 30 researched and 23 contacted. Earlier email delivery was often unconfirmed; later LinkedIn sends have platform evidence in the tracker. |
+| conversations | 0 | Exness (Artem Ermakov) interview held 2026-08-31; the final unknown-preserving reconstruction was sent 2026-09-17 and agreed with a 👍 and no corrections on 2026-09-22. It records no named incident, frequency, quantified exposure or data access, so it is held but NOT qualified and earns no gate credit (`pilot/kill-test-tracker.csv`, `score_kill_test.py`: 0 of 25). CMC Markets accepted and read the follow-up but did not reply. |
 | confirmed_pain | 0 | |
 | requested | 0 | |
 | committed | 0 | |
@@ -49,11 +49,12 @@ spent investigating settlement exceptions, plus quarterly leakage written off as
 ## Decision
 
 **Status:** UNTESTED
-163 commits in 90 days — the largest engineering investment in the portfolio — against 16
-emails that did not bounce, none confirmed delivered, and 0 replies. The premise kill-test (`pilot/PREMISE_KILL_TEST.md`) is the
-governing gate and remains **UNVALIDATED at 0 of 25 interviews**, with pre-committed thresholds
-of pain ≥6, data ≥3, paid ≥2. Rule 0b: no further significant engineering here until
-conversations exist.
+The premise kill-test (`pilot/PREMISE_KILL_TEST.md`) remains **UNVALIDATED at
+0 qualified interviews**, despite 23 contacts (counted 2026-08-27), one reply and one held interview. Pre-committed
+thresholds remain pain ≥6, data ≥3, and paid ≥2. Rule 0b: no further significant
+engineering here until conversations exist. The one held interview (Exness,
+2026-08-31) closed on 2026-09-22 without qualifying. The single next action is the
+next named incident reconstruction with a different company.
 
 ## Why delivery is unconfirmed — checked, not assumed (2026-08-15)
 
