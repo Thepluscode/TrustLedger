@@ -3,7 +3,22 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
+
+## Feed-scoped replay and run membership by import id (2026-10-04, PR 164)
+
+Founder-authorised 2026-10-04 after the Codex adversarial review of `279377f` (PR 152) found two defects in the canonical event feeds. A second review, of the fix itself, found a third. Merged as `3d11a20`. **Not production-observed; `RECON_CASEWORK_ENABLED` still defaults off.**
+
+Invariant: **reconciliation-run membership is explicit provenance. It is recorded from the exact evidence consumed and never reconstructed from byte hashes alone.**
+
+| Outcome | Status | Evidence |
+|---------|--------|----------|
+| Identical bytes on two feeds are two imports; a feed replays only its own deliveries; file-upload replay unchanged (V59: partial unique indexes, both looser than V51's constraint) | **VERIFIED (CI on merge commit)** | `AcmeFeedConvergenceIntegrationTest.identicalBytesOnTwoFeeds…` red on `e510cc6` (`expected <201> but was <200>`), green after. Mutants killed: lookup without the feed predicate; V59 removed from source and `target/classes`. |
+| A feed is revoked only through its own case | **VERIFIED (CI on merge commit)** | `aFeedIsRevokedOnlyThroughItsOwnCase` red on `e510cc6` (`expected <404> but was <500>`: the wrong case revoked the feed, then failed to find it); green after. Mutant killed: revoke without `case_id`. |
+| Timeline run membership by import id; a run records `importIds` | **VERIFIED (CI on merge commit)** | Found by the review of `8cbab26`: a second feed's delivery after a run read `inLatestRun=true` / `NO_DISCREPANCY_FOUND`. Reproduced red over HTTP/PostgreSQL (`PaymentTimelineIntegrationTest.anotherFeedsIdenticalBytes…`), then fixed. Mutants killed: membership ignoring ids; fallback without its time guard; run not recording ids. `listImports` gains an `id` tie-break. |
+| Legacy fallback for runs recorded before this change | **COMPATIBILITY HEURISTIC** | Hash membership plus `imported_at <= completedAt`. It compares the DB clock with the JVM clock, so it is skew-sensitive (local Colima VM ≥60 ms ahead of the host, which errs safe: "not reconciled"). **Retire it once no retained environment can contain pre-V59 reconciliation runs.** |
+| Whole build | **VERIFIED** | Local `mvn verify` on `aca2e9b`: 685 tests, 135 classes, 0 failures, 0 skipped. CI + Security green on PR head `aca2e9b` and on merge commit `3d11a20` (8/8 jobs, incl. migrations over existing data). |
+| Not checked | **UNKNOWN** | Concurrent deliveries under load; whether the replay lookup uses the new partial index (`EXPLAIN` not run); V59 over a populated `recon_imports` (the CI upgrade job seeds no imports). |
 
 ## Imported source evidence immutability (2026-10-04, branch `feat/import-rows-write-once`)
 
