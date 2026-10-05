@@ -18,6 +18,7 @@ exits non-zero. It answers two questions a fresh session cannot answer from memo
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -199,6 +200,11 @@ def check_generated_state() -> None:
 
 
 def check_preflight() -> None:
+    # The preflight is a workstation tool under ~/.claude; a CI runner has no home directory to
+    # install it in. Skipped there by name, never silently: everywhere else its absence fails.
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        ck("portfolio preflight: workstation-only, skipped on CI", True, "GITHUB_ACTIONS=true")
+        return
     if not PREFLIGHT.exists():
         ck("portfolio preflight installed", False, str(PREFLIGHT))
         return
