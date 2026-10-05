@@ -57,6 +57,31 @@ products. Single-provider, low-volume businesses without a dedicated operations 
 - Missing state or financial exposure remains unknown. It is never defaulted to zero or failure.
 - No disagreement may disappear without an attributable resolution.
 
+## Platform guarantees
+
+> **TrustLedger does not guarantee that external systems deliver an event exactly once.
+> TrustLedger guarantees that identifiable duplicate evidence cannot silently produce duplicate
+> financial effects.**
+
+> **TrustLedger does not guess financial state when external evidence is ambiguous. Ambiguity
+> remains explicit until reconciled.**
+
+The enforceable contract is a sequence, not a slogan:
+
+```text
+source event
+  → stable source identity
+  → canonical TrustLedger identity
+  → duplicate detection
+  → idempotent state transition
+  → idempotent financial effect
+  → traceable evidence of what happened
+```
+
+Duplicate delivery is acceptable. Duplicate financial effect is not. A repeated delivery must
+remain evidenced, must not create a second state transition or ledger mutation, and must be
+distinguishable from contradictory evidence that requires reconciliation.
+
 ## Two gates, in order
 
 ### Market gate

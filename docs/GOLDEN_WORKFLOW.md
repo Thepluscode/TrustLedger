@@ -17,8 +17,11 @@ path with execution removed. A read-only pilot ships the wedge path only.
 provider webhook / settlement row / ledger import
   → store raw evidence before parsing   (evidence persisted independent of outcome)
   → verify signature + integrity        (rails/WebhookSigner)
+  → retain stable source identity       (provider ID, or a deterministic derived identity)
   → normalise to a canonical event      (provider states → canonical states, original retained)
-  → append to the event stream          (idempotent on tenant+provider+event id+type+ref)
+  → assign canonical identity           (TrustLedger identity is stable across replay)
+  → detect duplicate delivery           (delivery remains evidenced; no second transition)
+  → append to the event stream          (at-least-once delivery is expected)
   → compare against internal ledger     (reconciliation/)
   → classify the break                  (closed taxonomy — see PRODUCT_BLUEPRINT §1.3)
   → raise an operator exception         (current: severity + evidence; owner/exposure after gates)
@@ -55,7 +58,8 @@ The workflow is `VERIFIED` only when all of these hold with pasted test evidence
 
 1. A payout can be created, submitted, confirmed by webhook, ledgered, settled and reconciled
    without manual intervention on the happy path.
-2. Replaying **any** step — the request, the webhook, the settlement row — changes nothing.
+2. Replaying **the same stable identity** — request, webhook or settlement row — leaves the repeated
+   delivery visible but creates no second state transition or financial effect.
 3. Every stage emits an audit record attributable to a real actor (or a named system principal).
 4. A cross-tenant actor cannot read or affect any object on the path, at any stage.
 5. An operator can answer "where is this money and why is it in that state?" from the timeline
@@ -70,11 +74,11 @@ No provider-touching stage is done until each of these has a test:
 | Failure | Required behaviour |
 |---|---|
 | Duplicate request | Original response replayed; no second money movement |
-| Duplicate webhook | No second state transition, no second ledger posting |
+| Duplicate webhook | Delivery count/evidence retained; no second state transition or ledger posting |
 | Delayed / out-of-order webhook | Terminal state wins; stale event is recorded, not applied |
 | Provider timeout | Treated as **ambiguous**, never as failure (invariant 10) |
 | Provider outage | Circuit break / route away; funds stay reserved, not lost |
-| Ambiguous response | Held for reconciliation; no release, no double-submit |
+| Ambiguous response | Ambiguity remains explicit and held for reconciliation; no release, no double-submit |
 | Failure after provider accept, before local commit | Recovered by reconciliation, not by guesswork |
 | DB rollback mid-flow | No orphaned outbox row, no partial ledger |
 | Event redelivery | Consumer idempotent |
