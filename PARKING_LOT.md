@@ -81,9 +81,14 @@ reconciliation-cases API apart from the payment timeline added on 2026-10-02. A 
 
 **Resume when:** a prospect asks for API documentation, or an OpenAPI spec is authorised.
 
-## The other evidence tables refuse UPDATE and DELETE but not TRUNCATE
+## The other evidence tables refuse UPDATE and DELETE but not TRUNCATE — RESOLVED 2026-10-05
 
-Found 2026-10-04 while closing the entry above. `evidence_objects` (V50), `recon_records` (V52) and
+Closed by V60 (`evidence_tables_no_truncate`); `EvidenceTablesNoTruncateIntegrationTest` is the control.
+Measured before the fix, not assumed: `TRUNCATE recon_provider_rows` (plain and `CASCADE`) and
+`TRUNCATE recon_records CASCADE` **succeeded**. `TRUNCATE evidence_objects CASCADE` was already refused,
+because the cascade reaches `recon_import_rows` and V58's guard. Kept here as the record of what was found.
+
+Originally: found 2026-10-04 while closing the entry above. `evidence_objects` (V50), `recon_records` (V52) and
 `recon_provider_rows` (V57) carry row-level `BEFORE UPDATE OR DELETE` triggers only. PostgreSQL does not
 fire row-level triggers on `TRUNCATE`, the same hole V40 closed for the audit tables. A plain
 `TRUNCATE recon_records` is refused today only because other tables reference it by foreign key;

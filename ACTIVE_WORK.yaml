@@ -152,3 +152,14 @@ history:
       if they return.
     evidence: "AGENT_CONTEXT.md → The governor; scripts/check_continuity.py → check_governor"
     approved_by: FOUNDER (governance-correction directive, 2026-09-22; reapplied to current main 2026-10-05, superseding PR 154)
+  - date: 2026-10-05
+    change: TRUNCATE guard attached to the three remaining evidence tables (V60)
+    previous_task: imported_source_evidence_immutability
+    new_task: imported_source_evidence_immutability
+    reason: >
+      Within the active task's own scope (evidence immutability at the PostgreSQL boundary; TRUNCATE
+      refusal was already part of it for one table). The parked entry said it was "three CREATE TRIGGER
+      statements and one test"; measured before the fix, TRUNCATE recon_records CASCADE and
+      TRUNCATE recon_provider_rows succeeded. The active task is unchanged.
+    evidence: "V60__evidence_tables_no_truncate.sql; EvidenceTablesNoTruncateIntegrationTest (red without V60, green with it)"
+    approved_by: "FOUNDER session instruction 2026-10-05 (\"keep improving my projects\"); governor DEFAULT CONTINUE"
