@@ -13,6 +13,11 @@ active:
   status: IN_PROGRESS
   claim_level: implemented     # implemented -> tested -> production-observed -> customer-validated
   branch: feat/timeline-showcase
+  source: "ACTIVE_WORK.yaml history 2026-10-04 (CURRENT_TASK_COMPLETED: PR 162 merged; founder directive: option 3 immediately after option 1)"
+  corroborated_by:
+    - frontend/app/showcase/story.ts
+    - frontend/app/components/PaymentTimeline.tsx
+    - "PR 163 head 0e9fbdd (8/8 CI green: tsc, Vitest 15/15, build, public-exposure guard, live browser)"
   scope: >
     The executive showcase and the demo scripts demonstrate TrustLedger through the real Payment
     Truth Timeline instead of narrative cards: the public /showcase renders the GBP 50,000 story with
