@@ -2,8 +2,10 @@
 
 This package supports a paid, six-week real-data test of one claim: TrustLedger gives payment teams
 a faster, defensible answer when provider, bank, settlement, webhook and internal records disagree.
-The market gate must pass before this product pilot begins, and the product gate must pass before
-the platform expands.
+The market gate must pass before a customer pilot begins, and the product gate must pass before
+customer-proven expansion. Neither gate pauses the implementation track: essential build of the
+approved golden workflow continues in parallel with this market work (`AGENT_CONTEXT.md` → *The
+governor*).
 
 | Audience | Document |
 |----------|----------|

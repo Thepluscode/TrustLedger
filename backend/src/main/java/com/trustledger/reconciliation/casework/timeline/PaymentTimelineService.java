@@ -196,7 +196,8 @@ public class PaymentTimelineService {
     private RunInfo runInfo(RunRow run) {
         JsonNode summary = json.readTree(run.summary());
         return new RunInfo(run.id(), run.runKey(), run.rulesetVersion(), run.completedAt(),
-            strings(summary.get("importFileHashes")), strings(summary.get("providersWithoutSettlementFile")));
+            strings(summary.get("importFileHashes")), strings(summary.get("providersWithoutSettlementFile")),
+            strings(summary.get("importIds")));
     }
 
     private static Set<String> strings(JsonNode array) {

@@ -54,8 +54,14 @@ public final class PaymentTimeline {
 
     public record MatchLink(UUID leftRecordId, UUID rightRecordId, String ruleId, String ruleVersion) {}
 
+    /** @param importIds the imports the run read; empty for runs recorded before V59, which kept hashes only */
     public record RunInfo(UUID id, String runKey, String rulesetVersion, Instant completedAt,
-                          Set<String> importFileHashes, Set<String> providersWithoutSettlementFile) {}
+                          Set<String> importFileHashes, Set<String> providersWithoutSettlementFile, Set<String> importIds) {
+        public RunInfo(UUID id, String runKey, String rulesetVersion, Instant completedAt,
+                       Set<String> importFileHashes, Set<String> providersWithoutSettlementFile) {
+            this(id, runKey, rulesetVersion, completedAt, importFileHashes, providersWithoutSettlementFile, Set.of());
+        }
+    }
 
     public record HistoryEntry(int seq, String kind, String fromState, String toState, UUID actorId, String body,
                                String evidenceSha256, String evidenceFilename, Instant at) {}
@@ -413,7 +419,10 @@ public final class PaymentTimeline {
     }
 
     private static boolean inRun(RunInfo run, SourceImport imp) {
-        return run != null && imp != null && run.importFileHashes().contains(imp.fileSha256());
+        if (run == null || imp == null) return false;
+        if (!run.importIds().isEmpty()) return run.importIds().contains(imp.id().toString());
+        // A run recorded before V59 kept only hashes. An import that arrived after it completed cannot have been read by it.
+        return run.importFileHashes().contains(imp.fileSha256()) && !imp.importedAt().isAfter(run.completedAt());
     }
 
     private static Evidence evidence(SourceImport imp, UUID importId, int rowNumber, String rowSha256, String storageKey,

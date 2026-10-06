@@ -97,7 +97,7 @@ public class FeedService {
     @Transactional
     public FeedRow revoke(UUID tenantId, UUID actorId, UUID caseId, UUID feedId) {
         cases.require(tenantId, caseId);
-        if (store.revokeFeed(tenantId, feedId) == 0) throw new NotFoundException("Active feed not found: " + feedId);
+        if (store.revokeFeed(tenantId, caseId, feedId) == 0) throw new NotFoundException("Active feed not found: " + feedId);
         auditLogs.save(new AuditLogEntity(UUID.randomUUID(), tenantId, "USER", actorId, "RECON_FEED_REVOKED", "RECON_CASE", caseId,
             json.writeValueAsString(Map.of("feedId", feedId.toString()))));
         return store.listFeeds(tenantId, caseId).stream().filter(x -> x.id().equals(feedId)).findFirst().orElseThrow();

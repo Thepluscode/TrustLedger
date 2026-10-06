@@ -136,6 +136,8 @@ public class RunService {
         // Said out loud: for these providers no settlement file was supplied, so settlement was NOT checked.
         summary.put("providersWithoutSettlementFile", uncovered);
         summary.put("importFileHashes", imports.stream().map(ImportRow::fileSha256).sorted().toList());
+        // Since V59 two feeds can hold identical bytes, so a hash no longer names one import. The ids do.
+        summary.put("importIds", imports.stream().map(i -> i.id().toString()).sorted().toList());
 
         int rejectedInputs = imports.stream().mapToInt(ImportRow::rejectedCount).sum();
         RunRow run = new RunRow(runId, caseId, runKey, ReconciliationEngine.RULESET_VERSION, result.recordsProcessed(),

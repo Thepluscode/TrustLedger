@@ -83,7 +83,11 @@ class AcmeFeedConvergenceIntegrationTest {
     private record Feed(UUID id, String token) {}
 
     private Feed createFeed(String token, UUID caseId) throws Exception {
-        HttpResponse<String> r = http.post(CASES + caseId + "/feeds", token, "{\"providerIdentity\":\"provider-b\"}");
+        return createFeed(token, caseId, "provider-b");
+    }
+
+    private Feed createFeed(String token, UUID caseId, String providerIdentity) throws Exception {
+        HttpResponse<String> r = http.post(CASES + caseId + "/feeds", token, "{\"providerIdentity\":\"" + providerIdentity + "\"}");
         assertEquals(201, r.statusCode(), r.body());
         JsonNode t = http.tree(r);
         return new Feed(UUID.fromString(t.get("feed").get("id").asString()), t.get("token").asString());
@@ -279,5 +283,42 @@ class AcmeFeedConvergenceIntegrationTest {
         assertEquals(1, count("select count(*) from recon_imports where tenant_id = ? and case_id = ?", a.tenantId(), caseA));
         assertEquals(0, count("select count(*) from recon_imports where tenant_id = ?", b.tenantId()));
         assertEquals(403, http.post(CASES + caseA + "/feeds", http.inviteAndLogin(a, "VIEWER").token(), "{\"providerIdentity\":\"provider-b\"}").statusCode());
+    }
+
+    @Test
+    void identicalBytesOnTwoFeedsAreTwoImportsEachCountingOnlyItsOwnRedeliveries() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "ACME-2026-08");
+        Feed b = createFeed(owner.token(), caseId, "provider-b");
+        Feed c = createFeed(owner.token(), caseId, "provider-c");
+        String body = PROVIDER_B_EVENTS.get(0);
+
+        assertEquals(201, deliver(b.id(), b.token(), body).statusCode());
+        assertEquals(201, deliver(c.id(), c.token(), body).statusCode(), "another feed's first delivery is not a replay of this one");
+        assertEquals(200, deliver(c.id(), c.token(), body).statusCode(), "positive twin: the same feed's redelivery still replays");
+
+        Map<String, String> byFeed = new TreeMap<>();
+        for (Map<String, Object> row : jdbc.queryForList(
+                "select feed_id, source_identity, delivery_count from recon_imports where case_id = ?", caseId)) {
+            byFeed.put(row.get("feed_id").toString(), row.get("source_identity") + "/" + row.get("delivery_count"));
+        }
+        assertEquals(Map.of(b.id().toString(), "provider-b/1", c.id().toString(), "provider-c/2"), byFeed);
+    }
+
+    @Test
+    void aFeedIsRevokedOnlyThroughItsOwnCase() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseA = http.createCase(owner.token(), "A-1");
+        UUID caseB = http.createCase(owner.token(), "B-1");
+        Feed feedA = createFeed(owner.token(), caseA);
+
+        assertEquals(404, http.post(CASES + caseB + "/feeds/" + feedA.id() + "/revoke", owner.token(), null).statusCode(),
+            "a feed of case A is unknown under case B, even in the same tenant");
+        assertEquals(201, deliver(feedA.id(), feedA.token(), PROVIDER_B_EVENTS.get(0)).statusCode(), "and it is still active");
+        assertEquals(0, count("select count(*) from audit_logs where action = 'RECON_FEED_REVOKED'"
+            + " and resource_id = ?", caseB), "no revocation is recorded against the wrong case");
+
+        CaseworkHttp.expect2xx(http.post(CASES + caseA + "/feeds/" + feedA.id() + "/revoke", owner.token(), null));
+        assertEquals(401, deliver(feedA.id(), feedA.token(), PROVIDER_B_EVENTS.get(1)).statusCode(), "positive twin: its own case revokes it");
     }
 }

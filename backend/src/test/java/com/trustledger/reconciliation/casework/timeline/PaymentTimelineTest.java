@@ -394,4 +394,31 @@ class PaymentTimelineTest {
             List.of(List.of(UUID.randomUUID())), "P01", null);
         assertEquals(3, dangling.group().size());
     }
+
+    /** Two feeds may share a hash since V59; a run must not claim an import it never read. */
+    @Test
+    void aRunDoesNotClaimAnImportThatOnlySharesTheBytesOfOneItRead() {
+        World w = matchedPayment();
+        RunInfo legacy = w.run();   // recorded before V59: hashes only, completed 00:30
+        UUID b = w.imports.values().stream().filter(i -> i.sourceIdentity().equals("provider-b") && i.sourceType().equals("PROVIDER_TRANSACTION"))
+            .findFirst().orElseThrow().id();
+        UUID c = new UUID(1, 99);
+        w.imports.put(c, new SourceImport(c, "PROVIDER_TRANSACTION", "provider-c", "evt.json", "p/v1", w.imports.get(b).fileSha256(),
+            Instant.parse("2026-08-12T01:00:00Z"), 1, UUID.randomUUID()));
+        w.rec("c-charge", c, SourceType.PROVIDER_TRANSACTION, "provider-c", "evt_b_001", "pb_tx_001", "P01", EventType.CHARGE,
+            "2026-08-03T10:00:00Z", "2026-08-03T10:00:02Z", "GBP", "100.00", "1.50", "SUCCESS");
+
+        View legacyView = w.view("pb_tx_001", "provider-c", legacy, w.records);
+        assertEquals("NOT_IN_LATEST_RUN", event(legacyView, "rec:c-charge").role(), "arrived after a hash-only run completed");
+        assertEquals("NOT_RECONCILED", legacyView.conclusion().state());
+
+        Set<String> read = new java.util.TreeSet<>();
+        w.imports.keySet().stream().filter(id -> !id.equals(c)).forEach(id -> read.add(id.toString()));
+        RunInfo byId = new RunInfo(RUN_ID, "k".repeat(64), "recon-rules/1.2.0", Instant.parse("2026-08-12T02:00:00Z"), legacy.importFileHashes(), Set.of(), read);
+        assertEquals("NOT_IN_LATEST_RUN", event(w.view("pb_tx_001", "provider-c", byId, w.records), "rec:c-charge").role(), "the run's ids, not its hashes, decide");
+
+        read.add(c.toString());
+        RunInfo includes = new RunInfo(RUN_ID, "k".repeat(64), "recon-rules/1.2.0", Instant.parse("2026-08-12T02:00:00Z"), legacy.importFileHashes(), Set.of(), read);
+        assertNotEquals("NOT_IN_LATEST_RUN", event(w.view("pb_tx_001", "provider-c", includes, w.records), "rec:c-charge").role(), "positive twin");
+    }
 }
