@@ -11,7 +11,11 @@ separate canonical main, open-PR work, local verification and missing commercial
 Open the public presentation at `http://localhost:3000/showcase`; it requires no tenant session. The
 page is deliberately isolated from the authenticated operations shell and contains no API calls,
 customer data or session-derived identity. The default scenario tells one story: a £50,000 payment
-settles, but the provider charges £100 more than the historical contract allows.
+settles at £49,150; the provider deducted £850 where the contract says £250, and £600 is unexplained.
+Since 2026-10-04 that scenario is rendered by the console's own Payment Truth Timeline component on
+fictional records in the exact shape the timeline API returns, so the visitor sees the product's
+real answer form, not a narrative card: every item carries its source row, and the conclusion is
+derived from the items on the page.
 
 ## The message
 
@@ -26,11 +30,11 @@ ledger replacement, fraud platform or autonomous decision-maker.
 | Time | Screen | Narration |
 |---|---|---|
 | 0–10 s | Showcase header and six scenarios | “A payment can look settled in one system and unexplained in another.” |
-| 10–22 s | £50,000 incident docket | “This payment is posted internally and settled at the provider, but its webhook trail is incomplete.” |
-| 22–38 s | Four source records | “TrustLedger preserves every source as received. It never rewrites disagreement away.” |
-| 38–55 s | Reconstructed timeline | “The settlement file reports a £425.25 fee. The contract in force for that period calculates £325.25.” |
-| 55–68 s | Supported conclusion | “TrustLedger opens a HIGH fee-mismatch exception with the expected fee, received fee and £100 delta.” |
-| 68–80 s | Evidence dossier | “The exact evidence bytes can be signed with Ed25519 and verified independently.” |
+| 10–22 s | £50,000 incident docket | “The ledger expected £50,000. The provider charged it. The settlement arrived at £49,150.” |
+| 22–38 s | Timeline, items 1–3 (replay) | “TrustLedger lays out what each system said, in the order it happened: the expectation, the charge, and the same event delivered twice, kept and marked but counted once.” |
+| 38–55 s | Timeline, item 4 and the conclusion | “The settlement pays out £49,150. The contract in force for that period says the fee was £250, not £850. £600 is at risk, and the page says exactly that.” |
+| 55–68 s | Findings and their history | “The duplicate was examined and closed by a person. The fee is open, assigned, with the signed schedule attached and the provider's reply on record.” |
+| 68–80 s | Source row of any item | “Every item opens to the row it came from, with the file and row hashes it was imported under. This is reconstructed from evidence, not asserted by a dashboard.” |
 | 80–90 s | Honesty boundary | “The mechanics are test-backed. Customer ROI and production-scale operation are not yet proven; that is what the paid pilot measures.” |
 
 Keep the recording inside the browser viewport. Do not show source code, test counts or architecture
@@ -42,43 +46,46 @@ diagrams unless the audience asks for technical depth.
 
 Open **Settlement fee overcharge**.
 
-> “A £50,000 payment settled. Provider A charged £425.25. The contract says £325.25. What actually
-> happened to the money?”
+> “A £50,000 payment settled at £49,150. The provider deducted £850. The contract says £250. What
+> actually happened to the money?”
 
-Point out `SYNTHETIC INCIDENT REPLAY`, `NO CUSTOMER DATA` and `NO MONEY MOVEMENT` before discussing
-the result.
+Point out `SYNTHETIC`, `NO CUSTOMER DATA` and `NO MONEY MOVEMENT` before discussing the result, and
+say that the timeline on this page is the console's own component on fictional records.
 
-### 0:35–1:35 — Show the disagreement
+### 0:35–1:35 — Show the disagreement, in order
 
-Walk through the four source records:
+Select **Replay incident**. The timeline reveals one item at a time, and the conclusion panel says
+"No conclusion yet" until every item is on the page:
 
-- internal ledger: posted;
-- provider: settled;
-- webhook inbox: incomplete;
-- settlement file: fee break.
+1. internal record: £50,000 expected through provider-a;
+2. provider event: charged £50,000, fee £850, net £49,150;
+3. the same provider event delivered again eight seconds later: marked `duplicate delivery · not
+   counted`, matched to nothing;
+4. settlement line, batch ST-5001: £49,150 paid out the next day.
 
-State that TrustLedger retains the raw states. It does not force the systems to agree.
+State that each item is shown as its source wrote it. Nothing is rewritten to make the systems agree.
 
-### 1:35–2:45 — Replay the reconstruction
+### 1:35–2:45 — Read the conclusion and the findings
 
-Select **Replay incident**. Follow the timeline as it correlates the provider reference, internal
-posting, incomplete callback trail, settlement statement and historical fee schedule.
-
-The arithmetic is intentionally visible:
+When the fourth item lands the panel turns to `Discrepancy open`: "1 open finding(s): FEE_MISMATCH.
+At risk: GBP 600.0000." The arithmetic is on the finding:
 
 ```text
-£50,000.00 × 0.65% + £0.25 = £325.25 expected
-£425.25 received
-£100.00 overcharge
+£50,000.00 × 0.5% = £250.00 expected (the schedule in force for the period)
+£850.00 received
+£600.00 at risk
 ```
 
-The fee schedule is selected by the statement period, not the current date. This avoids inventing a
-break when a contract changed after the historical transaction.
+Two findings sit under the timeline. The duplicate was raised, assigned and closed by a person as a
+false positive with the reason on record: one charge, one settlement line, no money counted twice.
+The fee finding is open, assigned, `INVESTIGATING`, with the signed schedule attached and the
+provider's admission in a comment. It stays open until the credit note lands.
 
-### 2:45–3:35 — Explain the supported conclusion
+### 2:45–3:35 — Open an item's source row
 
-Show `SETTLEMENT_FEE_MISMATCH`, HIGH severity and the £100 probable exposure. The issue remains open
-until an accountable operator records a supported outcome.
+Expand the source line under any item. It shows the file, the row number, the file and row hashes and
+the raw CSV line. Say: the console does exactly this on a real case; the difference here is that these
+records are fictional and the hashes identify no real file.
 
 If asked about AI:
 

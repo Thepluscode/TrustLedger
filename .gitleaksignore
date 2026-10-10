@@ -3,3 +3,10 @@
 # mocks the credential resolver. It was replaced at HEAD by "sk_test_not-real". gitleaks scans full
 # history, so the old commit keeps failing the scan. Verified 2026-09-17.
 fcdeeb0ace9423b1cda34ad6b9730b9e3691e493:backend/src/test/java/com/trustledger/rails/stripe/StripePayoutRailAdapterTest.java:stripe-access-token:28
+
+# Synthetic showcase data, not a credential: the historical value was a made-up 64-hex "runKey" in
+# the fictional GBP 50,000 story (frontend/app/showcase/story.ts), which gitleaks read as a generic
+# API key because of the "key" token. It was replaced at the next commit (2eaf4f7) by
+# "synthetic-showcase-run" padded to 64 characters. The old commit keeps failing the history scan.
+# Verified 2026-10-04.
+ff946a3f2265222619a891a42b20a0547787e232:frontend/app/showcase/story.ts:generic-api-key:141

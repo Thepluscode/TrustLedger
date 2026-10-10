@@ -76,7 +76,8 @@ only when demonstrating the separate sandbox execution/fraud capabilities descri
 - [ ] The printed statement path shows 1 unmatched line and links to Reconciliation
 - [ ] The printed exception path shows `SETTLEMENT_LINE_UNMATCHED`, GBP 125 exposure, an owner and an assignment activity entry
 - [ ] Unassign and reassign the owner once; both attributable transitions remain in Activity
-- [ ] `/showcase` loads the £50,000 fee-overcharge replay with the synthetic/no-money boundary visible
+- [ ] `/showcase` loads the £50,000 fee-overcharge story through the timeline component, replay reveals four items, and the synthetic/no-money boundary is visible
+- [ ] `/reconciliation/cases/<seeded case>/payments?ref=P03` renders the same timeline on the seeded ACME evidence
 - [ ] Replay advances the evidence counter and all six scenario tabs produce a supported conclusion
 - [ ] If the optional execution seed was run: Transfers shows completed transfers, Fraud Cases shows the £900 held case and ML lists the registered model
 

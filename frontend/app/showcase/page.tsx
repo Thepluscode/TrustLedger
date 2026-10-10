@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PaymentTimelineView } from "../components/PaymentTimeline";
+import { FIFTY_THOUSAND_STORY } from "./story";
 
 type SourceState = {
   source: string;
@@ -124,30 +126,28 @@ const SCENARIOS: Scenario[] = [
     number: "04",
     title: "Settlement fee overcharge",
     shortTitle: "Fee overcharge",
-    question: "A £50,000 payment settles, but the received fee exceeds the contract.",
+    question: "A £50,000 payment settles at £49,150. The contract says the fee should have been £250.",
     amount: "£50,000.00",
-    exposure: "£100.00 probable fee leakage",
-    classification: "SETTLEMENT_FEE_MISMATCH",
+    exposure: "£600.00 at risk",
+    classification: "FEE_MISMATCH",
     severity: "HIGH",
-    control: "Temporal fee-schedule comparison",
-    conclusion: "Provider A charged £425.25. The fee schedule in force for this statement period calculates £325.25. Delta: +£100.00.",
-    explanation: "The expected fee is calculated against the historical contract period, not today’s schedule. The issue remains open until an operator records a supported outcome.",
+    control: "Payment truth timeline",
+    conclusion: "provider-a deducted £850.00. The fee schedule in force for this period calculates £250.00. The settlement arrived; £600.00 is unexplained and stays open until it is.",
+    explanation: "This scenario is rendered by the same timeline component the console uses on a real case. Every item on it carries its source row; the conclusion is derived from those items and never stored.",
     sources: [
-      { source: "Internal ledger", state: "POSTED", detail: "Gross amount £50,000.00", tone: "ok" },
-      { source: "Provider A", state: "SETTLED", detail: "Reference pa_500001", tone: "ok" },
-      { source: "Webhook inbox", state: "INCOMPLETE", detail: "Acceptance present; settlement event absent", tone: "warning" },
-      { source: "Settlement file", state: "FEE BREAK", detail: "Received fee £425.25", tone: "danger" },
+      { source: "Internal ledger", state: "EXPECTED", detail: "£50,000.00 through provider-a", tone: "ok" },
+      { source: "Provider A", state: "CHARGED", detail: "£50,000.00 · fee £850.00 · delivered twice", tone: "warning" },
+      { source: "Settlement file", state: "SETTLED", detail: "Batch ST-5001 · net £49,150.00", tone: "ok" },
+      { source: "Fee schedule", state: "0.5%", detail: "Contracted fee £250.00", tone: "danger" },
     ],
+    // One step per timeline item; the replay reveals the real component one item at a time.
     steps: [
-      { time: "08:41:06", label: "Payment accepted", detail: "Provider reference pa_500001 is linked to transfer tl_500001.", source: "Provider A", tone: "ok" },
-      { time: "08:41:07", label: "Internal posting completed", detail: "The £50,000 gross movement posts as balanced debit and credit entries.", source: "Ledger", tone: "ok" },
-      { time: "08:41:08", label: "Webhook trail incomplete", detail: "The accepted event is present; no settlement callback arrives.", source: "Webhook", tone: "warning" },
-      { time: "16:03:44", label: "Statement ST-5001 ingested", detail: "Provider reports settled with a £425.25 fee and £49,574.75 net.", source: "Settlement", tone: "ok" },
-      { time: "16:03:44", label: "Historical schedule applied", detail: "0.65% + £0.25 calculates an expected fee of £325.25.", source: "Reconciliation", tone: "ok" },
-      { time: "16:03:45", label: "Fee exception opened", detail: "A HIGH issue records expected, received, direction and £100.00 delta.", source: "TrustLedger", tone: "danger" },
-      { time: "16:05:12", label: "Evidence pack prepared", detail: "Exact bytes can be signed with Ed25519 and independently verified using the public key.", source: "Evidence", tone: "ok" },
+      { time: "08:40:51", label: "Internal expectation", detail: "The ledger expects £50,000.00 through provider-a.", source: "Internal", tone: "ok" },
+      { time: "08:41:06", label: "Provider charge", detail: "provider-a charges £50,000.00, fee £850.00, net £49,150.00.", source: "Provider A", tone: "ok" },
+      { time: "08:41:14", label: "Duplicate delivery", detail: "The same event arrives again; kept, marked, not counted.", source: "Provider A", tone: "warning" },
+      { time: "16:03:44", label: "Settlement", detail: "Batch ST-5001 pays out £49,150.00 the next day.", source: "Settlement", tone: "danger" },
     ],
-    proof: "34 settlement tests cover fee arithmetic and statement matching; temporal lookup and plausibility controls are mutation-verified.",
+    proof: "The timeline component and its conclusion logic are covered by 14 pure tests, 8 PostgreSQL integration tests and 39 killed mutants; this page feeds it fictional records.",
   },
   {
     id: "audit-tamper",
@@ -376,6 +376,22 @@ export default function ShowcasePage() {
         </div>
       </section>
 
+      {scenario.id === "fee-overcharge" ? (
+        <section className="showcase-timeline" aria-label="Payment truth timeline, synthetic">
+          <p className="muted" style={{ margin: "0 0 4px", fontSize: 12.5 }}>
+            <span className="mono">SYNTHETIC</span> · the console&apos;s payment timeline component on fictional records. Every record below is fictional; the hashes do not identify any real file.
+          </p>
+          <PaymentTimelineView view={FIFTY_THOUSAND_STORY} reveal={visibleStep + 1} linkExceptions={false} />
+          <div className="panel" style={{ marginTop: 18 }}>
+            <div className="panelBody">
+              <dl className="evidence-dossier">
+                <div><dt>Customer proof</dt><dd>NOT YET ESTABLISHED</dd></div>
+                <div><dt>Repository evidence</dt><dd>{scenario.proof}</dd></div>
+              </dl>
+            </div>
+          </div>
+        </section>
+      ) : (
       <div className="showcase-workbench">
         <section className="panel source-board">
           <div className="panelHeader">
@@ -438,6 +454,7 @@ export default function ShowcasePage() {
           </div>
         </aside>
       </div>
+      )}
 
       <section className="showcase-honesty">
         <div>

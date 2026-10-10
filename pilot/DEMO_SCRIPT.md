@@ -14,7 +14,10 @@ break. Confirm the output says the issue was detected, assigned and audit-verifi
 production provider configurations or controlled-exposure workflows.
 
 Open `/showcase` with **Settlement fee overcharge** selected. Confirm the page says synthetic replay,
-no customer data and no money movement.
+no customer data and no money movement. That scenario is the console's Payment Truth Timeline
+component on fictional records; the console shows the same component on the seeded case at
+`/reconciliation/cases/<case>/payments?ref=P03` (amount break), `?ref=P04` (fee break) and
+`?ref=P08` (duplicate delivery).
 
 ## 1. Start with the question (30 seconds)
 
@@ -24,19 +27,24 @@ no customer data and no money movement.
 TrustLedger is the read-only reliability layer that reconstructs that answer, raises the break and
 preserves the evidence. It is not the bank, gateway or autonomous decision-maker.
 
-## 2. Show the source disagreement (1 minute)
+## 2. Replay the £50,000 timeline (1 minute)
 
-- Show the £50,000 synthetic incident: internal ledger `POSTED`, provider `SETTLED`, webhook trail
-  `INCOMPLETE` and settlement file `FEE BREAK`.
-- The received fee is £425.25; the historical schedule calculates £325.25.
-- Emphasise that original source state is retained; nothing is rewritten to make the systems agree.
+- Select **Replay incident**. Items appear in source-time order: the £50,000 expectation, the £50,000
+  charge with an £850 fee, the same event delivered again (kept, marked, not counted), and the £49,150
+  settlement the next day. The conclusion stays "No conclusion yet" until the last item lands.
+- Then it reads `Discrepancy open` — "1 open finding(s): FEE_MISMATCH. At risk: GBP 600.0000" — and
+  the finding shows £250 expected against £850 received, with the duplicate finding already closed by
+  a person as a false positive.
+- Emphasise that every item is shown as its source wrote it, and opens to its source row and hashes.
 
-## 3. Replay deterministic reconstruction (1 minute)
+## 3. Show the same page on real evidence (1 minute)
 
-- Select **Replay incident** and follow the correlated timeline.
-- Show expected versus actual, `SETTLEMENT_FEE_MISMATCH`, HIGH severity and the £100 delta.
-- If the cause is not proved, keep the case `UNKNOWN`; a probable-cause suggestion would remain
-  non-binding and could not close the case.
+- In the console, open the seeded ACME case and look up `P03`: internal £80 against provider £85,
+  `AMOUNT_MISMATCH`, GBP 5 at risk, the finding citing items #2 and #1. Then `P08`: two deliveries of
+  one event, the second marked `duplicate delivery · not counted`.
+- These are synthetic fixture files reconciled by the real engine, not a story: say so.
+- If the outcome is not known, the page says `Outcome unknown` and lists `PENDING_UNKNOWN`; it never
+  infers success or failure.
 
 ## 4. Show the three-role workflow (1 minute)
 
