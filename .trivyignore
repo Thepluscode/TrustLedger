@@ -1,8 +1,8 @@
 # Trivy suppressions for the blocking dependency scan (.github/workflows/security.yml).
 #
-# This file is INTENTIONALLY EMPTY. As of the Spring Boot 4.0.7 upgrade the backend and
-# frontend scan clean at 0 HIGH/CRITICAL, so nothing is suppressed and the gate blocks on
-# every HIGH/CRITICAL finding.
+# This file is INTENTIONALLY EMPTY. With Spring Boot 4.0.8 plus the version overrides in
+# backend/pom.xml, the backend and frontend scan at 0 HIGH/CRITICAL under Trivy v0.71.2
+# (2026-10-12), so nothing is suppressed and the gate blocks on every HIGH/CRITICAL finding.
 #
 # Only add an entry when a HIGH/CRITICAL vulnerability has NO available fix yet and is
 # genuinely not exploitable in our usage. Each entry MUST carry a justification and a review
