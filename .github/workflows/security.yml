@@ -28,15 +28,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Trivy resolves pom.xml parents and BOMs; fetching them itself from Maven Central hit
+      # HTTP 429. Resolve them with Maven first and let Trivy read ~/.m2 offline.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Resolve backend dependencies for the scan
+        working-directory: backend
+        run: mvn -B -ntp -q dependency:resolve
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_OFFLINE_SCAN: "true"
         with:
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
-          # Blocking. The backend (Spring Boot 4.0.7) and frontend both scan clean at 0
-          # HIGH/CRITICAL, so this gates regressions rather than an existing backlog — no
-          # suppressions are needed today. When a HIGH/CRITICAL has no fix yet, add a dated,
+          # Pinned: the action's default Trivy (v0.70.0) reported backend/pom.xml clean while it
+          # resolved tomcat 11.0.22, spring-webmvc 7.0.8, jackson 2.21.4/3.1.4 and lz4 1.10.1
+          # (16 HIGH/CRITICAL that v0.71.2 reports). Raise this deliberately, never drop it.
+          version: v0.71.2
+          # Blocking. A pass means "0 HIGH/CRITICAL known to this Trivy version and DB on this
+          # run", not that the code is clean. When a HIGH/CRITICAL has no fix yet, add a dated,
           # justified entry to .trivyignore rather than weakening this gate.
           exit-code: "1"
           trivyignores: .trivyignore
