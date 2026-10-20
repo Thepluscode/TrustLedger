@@ -11,6 +11,8 @@
    fee schedules in the bundle. For the three simple CSV profiles, canonical fields are independently read
    from named source columns and the complete run is replayed for missing counterparts and unique refund pairs.
    Unsupported absence checks are reported as incomplete, never passed.
+4. Single-run inventory: the listed exceptions agree with the run's recorded counts and currency totals.
+   A multi-run case's historical issue inventory cannot be established from this format and stays incomplete.
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
         was re-derived.
@@ -28,7 +30,7 @@ import io
 import json
 import re
 import sys
-from collections import defaultdict, namedtuple
+from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 
@@ -798,6 +800,52 @@ def check_findings(c, currency_unconfirmed, given_files):
     return failed, not_rederivable, reproduced
 
 
+def check_finding_inventory(c):
+    """Bind a single run's exported issue list to its recorded finding counts."""
+    run, exceptions = c["run"], c["exceptions"]
+    summary = run["summary"]
+    expected = summary.get("exceptionsByType")
+    if not isinstance(expected, dict) or any(not isinstance(n, int) or isinstance(n, bool) or n < 1
+                                              for n in expected.values()):
+        print("FAIL run has no valid exceptionsByType inventory")
+        return 1, 0
+    if sum(expected.values()) != run.get("exceptionCount"):
+        print("FAIL run exceptionCount differs from its exceptionsByType inventory")
+        return 1, 0
+    ids = [ex.get("exceptionId") for ex in exceptions]
+    if len(ids) != len(set(ids)):
+        print("FAIL bundle lists one exception more than once")
+        return 1, 0
+    earlier = run.get("earlierRunKeys")
+    if not isinstance(earlier, list):
+        print("---- finding inventory: earlier-run membership is not available")
+        return 0, 1
+    if earlier:
+        print("---- finding inventory: case issues can originate in earlier runs; complete run findings are not exported")
+        return 0, 1
+    actual = Counter(ex["type"] for ex in exceptions)
+    if dict(actual) != expected or len(exceptions) != run["exceptionCount"]:
+        print("FAIL bundle exception list differs from the run's finding inventory")
+        return 1, 0
+    totals = defaultdict(Decimal)
+    for ex in exceptions:
+        if ex["exposureAmount"] is not None:
+            totals[ex["exposureCurrency"]] += d(ex["exposureAmount"])
+    stated_totals = {item["currency"]: d(item["unresolvedAmount"])
+                     for item in run["unresolvedAtRunByCurrency"]}
+    if dict(totals) != stated_totals:
+        print("FAIL bundle exception exposure totals differ from the run's unresolved totals")
+        return 1, 0
+    for ex in exceptions:
+        evidence = ex.get("evidence") or {}
+        if ex.get("raisedByRunId") != run["runId"] or evidence.get("runId") != run["runId"] \
+                or ex.get("ruleVersion") != run["rulesetVersion"] or evidence.get("ruleVersion") != run["rulesetVersion"]:
+            print("FAIL exception %s is not bound to this run and ruleset" % ex["exceptionId"])
+            return 1, 0
+    print("     finding inventory: %d listed across %d type(s), bound to this run" % (len(exceptions), len(actual)))
+    return 0, 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -842,18 +890,19 @@ def main(argv):
     if "findingInputs" not in c:
         print("FAIL recon-case-bundle/2 carries no finding inputs: exceptions cannot be re-derived")
         return 1
+    inventory_failed, inventory_incomplete = check_finding_inventory(c)
     failures, unbound, currency_unconfirmed = check_provenance(c, given)
     ok = failures == 0 and ok
     failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given)
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
-    if not ok or failed:
+    if not ok or failed or inventory_failed:
         return 1
     missing_sources = set(declared) - set(given)
     if missing_sources:
         print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
               % (len(missing_sources), len(declared)))
-    return 3 if not_rederivable or unbound or missing_sources else 0
+    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete else 0
 
 
 if __name__ == "__main__":

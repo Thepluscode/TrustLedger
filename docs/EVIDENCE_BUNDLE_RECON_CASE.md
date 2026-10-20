@@ -73,6 +73,7 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | A duplicate-delivery finding cites every delivery of its provider event; a duplicate-financial-effect finding cites every distinct successful charge after delivery deduplication | an extra delivery was omitted, or two deliveries were mistaken for two charges |
 | For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
 | For simple CSV runs, a two-record `D-REFUND` mismatch has exactly one possible internal and provider refund allocation under the reference rules | the rows are unrelated or multiple allocations fit; ambiguity returns exit 3 |
+| For a case with one run, the exported exception count, types, and exposure totals by currency agree with the run inventory; each exception ID is unique and its run and ruleset references agree | a finding is removed, duplicated, retyped, or attributed to another run while its amount remains plausible |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
@@ -92,7 +93,13 @@ their settlement allocation or complete dispute history is not replayed. A run u
 also returns exit 3 for absence findings. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks forty-four cases, including edits to a real
+A case with earlier runs returns exit 3 for finding-inventory completeness. The exporter lists case issues,
+including issues raised by earlier runs, but exports only the latest run's finding counts; the current format
+cannot prove the historical issue inventory. For a single run, the count and type checks bind the list to the
+recorded run inventory and the per-currency exposure totals. A coordinated rewrite of both the list and the run inventory still requires a full
+independent finding replay to detect, so this check alone is not a completeness proof.
+
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-three cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
 PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, and a unique refund mismatch to reproduce.

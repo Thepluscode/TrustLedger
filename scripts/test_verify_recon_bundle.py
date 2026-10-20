@@ -69,6 +69,36 @@ def main():
     expect("intact bundle with one source missing is incomplete", 3, "source files: 1 of 4 not supplied", intact, *sources[:-1])
 
     b = copy.deepcopy(intact)
+    b["content"]["exceptions"].pop()
+    expect("omitted finding fails run inventory", 1, "exception list differs from the run's finding inventory",
+           rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["content"]["exceptions"][1]["exceptionId"] = b["content"]["exceptions"][0]["exceptionId"]
+    expect("repeated exception identity fails", 1, "lists one exception more than once", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["content"]["run"]["exceptionCount"] -= 1
+    expect("run count and type inventory disagree", 1, "exceptionCount differs from its exceptionsByType inventory",
+           rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    removed = b["content"]["exceptions"].pop()
+    b["content"]["run"]["exceptionCount"] -= 1
+    b["content"]["run"]["summary"]["exceptionsByType"].pop(removed["type"])
+    expect("omission with matching count and type still breaks exposure totals", 1,
+           "exposure totals differ from the run's unresolved totals", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["content"]["exceptions"][0]["raisedByRunId"] = "another-run"
+    expect("exception claims another run", 1, "is not bound to this run and ruleset", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["content"]["run"]["earlierRunKeys"] = ["previous-run-key"]
+    expect("historical issue inventory is incomplete", 3, "case issues can originate in earlier runs",
+           rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     b["content"]["run"]["exceptionCount"] = 0
     expect("edited without rehashing", 1, "FAIL contentHash", b)
 
@@ -178,7 +208,13 @@ def main():
     for ref in e["evidence"]["records"]:
         record(b, ref["recordKey"])["currency"] = "USD"
     expect("record and exception currency changed together", 1, "its currency column says GBP", rehash(b), *sources)
-    expect("the same, without the source files: not confirmed", 3, "USD does not appear in the row", rehash(b))
+    expect("changed currency also contradicts run totals", 1,
+           "exposure totals differ from the run's unresolved totals", rehash(b))
+    totals = b["content"]["run"]["unresolvedAtRunByCurrency"]
+    next(t for t in totals if t["currency"] == "GBP")["unresolvedAmount"] = "45.6000"
+    totals.append({"currency": "USD", "unresolvedAmount": "5.0000"})
+    expect("currency and run totals changed without source files is incomplete", 3,
+           "USD does not appear in the row", rehash(b))
 
     # TrustLedger reads columns by name, so a valid file may order them differently; the check must follow the header.
     with open(sources[0], encoding="utf-8") as f:
@@ -246,7 +282,11 @@ def main():
     e = exception(b, "MISSING_PROVIDER_RECORD")
     record(b, e["evidence"]["records"][0]["recordKey"])["grossAmount"] = "16000.0000"
     e["exposureAmount"] = "16000.0000"
-    expect("record and exception changed together, not confirmed", 3, "is not a value in the row", rehash(b))
+    expect("record and exception changed together contradict run totals", 1,
+           "exposure totals differ from the run's unresolved totals", rehash(b))
+    next(t for t in b["content"]["run"]["unresolvedAtRunByCurrency"] if t["currency"] == "NGN")["unresolvedAmount"] = "46000.0000"
+    expect("record, exception, and run totals changed without source files is incomplete", 3,
+           "is not a value in the row", rehash(b))
 
     b = copy.deepcopy(intact)
     key = exception(b, "MISSING_PROVIDER_RECORD")["evidence"]["records"][0]["recordKey"]
@@ -373,11 +413,19 @@ def main():
 
     b = copy.deepcopy(intact)
     exception(b, "REFUND_MISMATCH")["type"] = "SOME_FUTURE_TYPE"
-    expect("unknown finding type is not passed", 3, "1 not re-derivable", rehash(b), *sources)
+    expect("rewritten type contradicts run inventory", 1, "exception list differs from the run's finding inventory",
+           rehash(b), *sources)
 
     b = copy.deepcopy(intact)
     b["content"]["run"]["rulesetVersion"] = "recon-rules/9.9.9"
-    expect("unknown ruleset is not passed", 3, "re-derivation skipped", rehash(b))
+    expect("inconsistent ruleset is refused", 1, "is not bound to this run and ruleset", rehash(b))
+
+    b = copy.deepcopy(intact)
+    b["content"]["run"]["rulesetVersion"] = "recon-rules/9.9.9"
+    for e in b["content"]["exceptions"]:
+        e["ruleVersion"] = "recon-rules/9.9.9"
+        e["evidence"]["ruleVersion"] = "recon-rules/9.9.9"
+    expect("consistent unknown ruleset remains incomplete", 3, "re-derivation skipped", rehash(b))
 
     with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
         f.write(open(sources[0], "rb").read().replace(b"15000", b"16000"))
@@ -386,7 +434,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 44:
+    if len(results) < 53:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))

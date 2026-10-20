@@ -30,6 +30,9 @@ active:
     a cited comparison pair; duplicate delivery and distinct financial-effect groups must be complete.
     A status-transition finding can be replayed from the full generic-CSV charge history.
     A two-record generic-CSV refund mismatch is confirmed only for a unique reference allocation.
+    A one-run bundle binds the listed exceptions to its recorded run count, type inventory, per-currency
+    exposure totals, and run/ruleset IDs;
+    a multi-run bundle cannot prove historical issue inventory and remains unconfirmed.
     Unsupported conditions remain unconfirmed. This is local-tested only, pending CI and review.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
