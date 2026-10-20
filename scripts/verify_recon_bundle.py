@@ -8,13 +8,15 @@
 2. Provenance (recon-case-bundle/2): every record an exception names is listed with the exact source row it
    was read from; that row must hash to its rowSha256, and a source file given here must contain it.
 3. Re-derivation (recon-case-bundle/2): each exception's amount is recomputed from those records and the
-   fee schedules in the bundle. For the three simple CSV profiles and supported Adyen v1 and Checkout.com v2 reports,
-   canonical fields are independently read from source columns and the complete run is replayed.
+   fee schedules in the bundle. For the three simple CSV profiles, canonical JSON events, and supported
+   Adyen v1 and Checkout.com v2 reports, canonical fields are independently read from the source
+   and the complete run is replayed.
    Unsupported absence checks are reported as incomplete, never passed.
 4. Single-run inventory: the listed exceptions agree with the run's recorded counts and currency totals.
    A multi-run case's historical issue inventory cannot be established from this format and stays incomplete.
-5. Full finding set: for generic CSV and supported Adyen v1 or Checkout.com v2 runs, independently enumerate every finding
-   from the complete source rows. A coordinated change to findings and run totals cannot hide a source finding.
+5. Full finding set: for generic CSV, canonical JSON events and supported Adyen v1 or Checkout.com v2 runs,
+   independently enumerate every finding from the complete source rows. A coordinated change to findings
+   and run totals cannot hide a source finding.
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
         was re-derived.
@@ -55,6 +57,10 @@ CURRENCY_HEADER_BY_PROFILE = {
 
 class Unknown(Exception):
     """The bundle does not hold what this finding's amount depends on."""
+
+
+class EventMismatch(Unknown):
+    """A JSON event's supplied bytes contradict its completed import manifest."""
 
 
 def d(s):
@@ -232,6 +238,27 @@ def source_rows(profile, text):
     return [tuple(field.strip() for field in row) for row in reader if row]
 
 
+def event_fields(text):
+    """Read one canonical feed delivery as scalars, preserving decimal spellings for the CSV field rules."""
+    def reject_constant(value):
+        raise ValueError("invalid JSON number %s" % value)
+
+    body = json.loads(text, parse_int=Decimal, parse_float=Decimal, parse_constant=reject_constant)
+    if not isinstance(body, dict):
+        raise ValueError("event body is not one JSON object")
+    values = {}
+    for key, value in body.items():
+        if value is None:
+            continue
+        if isinstance(value, (dict, list)):
+            raise ValueError("event field %s is nested" % key)
+        values[key.lower()] = str(value).lower() if isinstance(value, bool) else str(value)
+    required = ("event_id", "transaction_ref", "event_type", "status", "currency", "gross", "occurred_at")
+    if any(name not in values for name in required):
+        raise ValueError("event is missing a required provider field")
+    return values
+
+
 def row_at_number(profile, rows, number, raw):
     if not isinstance(number, int) or number < 1 or number > len(rows):
         return False
@@ -309,6 +336,8 @@ def source_record_values(profile, identity, values):
 
 
 def source_record(profile, identity, raw, header):
+    if profile == "provider-event-json":
+        return source_record_values("provider-transactions", identity, event_fields(raw))
     fields = next(csv.reader(io.StringIO(raw, newline=""), strict=True), None)
     if fields is None or header is None or len(fields) != len(header):
         raise Unknown("source row and header do not have the same columns")
@@ -331,7 +360,10 @@ def source_time(value):
 
 def run_records(c, given_files):
     """The entire input universe for supported profiles, checked against manifests and source files."""
-    sources = {s["importId"]: s for s in c["sources"] if s["status"] == "COMPLETED"}
+    completed = [s for s in c["sources"] if s["status"] == "COMPLETED"]
+    sources = {s["importId"]: s for s in completed}
+    if len(sources) != len(completed):
+        raise Unknown("the source list repeats an import identity")
     run_ids = c["run"]["summary"].get("importIds")
     if not isinstance(run_ids, list) or len(run_ids) != len(set(run_ids)) or set(run_ids) != set(sources):
         raise Unknown("the run's complete import membership is not established")
@@ -342,19 +374,39 @@ def run_records(c, given_files):
     for import_id in run_ids:
         source = sources[import_id]
         if source["profile"] not in ("internal-expected", "provider-transactions", "provider-settlement",
-                                      "checkout-financial-actions", "adyen-settlement-detail") or source["profileVersion"] != (
+                                      "checkout-financial-actions", "adyen-settlement-detail", "provider-event-json") or source["profileVersion"] != (
                                           2 if source["profile"] == "checkout-financial-actions" else 1):
             raise Unknown("complete source parsing is not implemented for %s/v%s" %
                           (source["profile"], source["profileVersion"]))
         expected_type = {"internal-expected": "INTERNAL", "provider-transactions": "PROVIDER_TRANSACTION",
                          "provider-settlement": "SETTLEMENT", "checkout-financial-actions": "SETTLEMENT",
-                         "adyen-settlement-detail": "SETTLEMENT"}[source["profile"]]
+                         "adyen-settlement-detail": "SETTLEMENT",
+                         "provider-event-json": "PROVIDER_TRANSACTION"}[source["profile"]]
         if source["sourceType"] != expected_type:
             raise Unknown("source type disagrees with its import profile")
         if source["fileSha256"] not in given_files:
             raise Unknown("source file %s was not supplied" % source["filename"])
         if source["duplicateCount"] or source["rejectedRowsOmitted"]:
             raise Unknown("the import has duplicates or unlisted rejected rows")
+        if source["profile"] == "provider-event-json":
+            body = given_files[source["fileSha256"]]
+            if source["recordCount"] != 1 or source["acceptedCount"] + source["rejectedCount"] != 1:
+                raise EventMismatch("JSON event manifest does not describe exactly one delivery")
+            rejected = source["rejectedRows"]
+            if len(rejected) != source["rejectedCount"] or any(r["rowNumber"] != 1 or
+                    r["rowSha256"] != row_hash(source["sourceType"], source["sourceIdentity"], body) for r in rejected):
+                raise EventMismatch("JSON event rejection does not match its supplied body")
+            try:
+                record = source_record("provider-event-json", source["sourceIdentity"], body, None)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                if source["acceptedCount"]:
+                    raise EventMismatch("accepted JSON event does not parse from its source body")
+            else:
+                if source["rejectedCount"]:
+                    raise EventMismatch("rejected JSON event parses as an accepted provider record")
+                record.update(importId=import_id, rowNumber=1)
+                records.append(record)
+            continue
         if source["profile"] == "checkout-financial-actions":
             try:
                 records.extend(derive_checkout(source, given_files[source["fileSha256"]]))
@@ -629,6 +681,12 @@ def absence_proven(ex, referenced, records, matched, case, refund_settling_provi
 def row_currency(profile, raw, header):
     """The record's currency as its source row states it. With the source file, from the profile's currency
     column located by name in that file's header. Without it, only whether the code appears in the row at all."""
+    if profile == "provider-event-json":
+        try:
+            currency = event_fields(raw)["currency"].upper()
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            raise Unknown("JSON event currency cannot be read: %s" % e) from e
+        return (currency, True) if header is not None else ({currency}, False)
     fields = [f.strip().upper() for f in next(csv.reader([raw]), [])]
     name = CURRENCY_HEADER_BY_PROFILE.get(profile)
     if name is None:
@@ -644,7 +702,7 @@ def check_provenance(c, given_files, universe=None):
     """Each listed record's row hashes to its rowSha256, cites a declared source, is in any file supplied, and
     carries the record's currency and amounts. Returns (failures, amounts not found, records whose currency
     could not be confirmed)."""
-    declared = {s["fileSha256"]: s for s in c["sources"]}
+    declared = {s["importId"]: s for s in c["sources"]}
     rows_by_file = {}
     failures = unbound = 0
     currency_unconfirmed = set()
@@ -655,15 +713,17 @@ def check_provenance(c, given_files, universe=None):
         if row_hash(r["sourceType"], r["sourceIdentity"], r["rawRow"]) != r["rowSha256"]:
             print("FAIL row %s does not hash to its rowSha256" % where)
             failures += 1
-        source = declared.get(r["fileSha256"])
-        if source is None:
-            print("FAIL row %s cites a file that is not one of the bundle's sources" % where)
+        source = declared.get(r["importId"])
+        if source is None or source["fileSha256"] != r["fileSha256"]:
+            print("FAIL row %s cites an import or file that is not one of the bundle's sources" % where)
             failures += 1
+            source = None
         elif r["fileSha256"] in given_files:
             try:
-                if r["fileSha256"] not in rows_by_file:
-                    rows_by_file[r["fileSha256"]] = source_rows(source.get("profile"), given_files[r["fileSha256"]])
-                if not row_at_number(source.get("profile"), rows_by_file[r["fileSha256"]], r["rowNumber"], r["rawRow"]):
+                key = (source["importId"], r["fileSha256"])
+                if key not in rows_by_file:
+                    rows_by_file[key] = source_rows(source.get("profile"), given_files[r["fileSha256"]])
+                if not row_at_number(source.get("profile"), rows_by_file[key], r["rowNumber"], r["rawRow"]):
                     print("FAIL row %s is not at its stated record number in the source file supplied" % where)
                     failures += 1
             except csv.Error as e:
@@ -674,7 +734,8 @@ def check_provenance(c, given_files, universe=None):
                 print("FAIL row %s does not belong to the cited source manifest" % where)
                 failures += 1
         if source is not None:
-            header = header_of(given_files[r["fileSha256"]]) if r["fileSha256"] in given_files else None
+            header = ([] if source["profile"] == "provider-event-json" else
+                      header_of(given_files[r["fileSha256"]])) if r["fileSha256"] in given_files else None
             try:
                 stated, exact = row_currency(source.get("profile"), r["rawRow"], header)
             except Unknown as e:
@@ -715,7 +776,8 @@ def check_provenance(c, given_files, universe=None):
                             if not source_value_agrees(field, r.get(field), expected):
                                 print("FAIL row %s: %s differs from its source row" % (where, field))
                                 failures += 1
-        if source is None or source["profile"] not in ("checkout-financial-actions", "adyen-settlement-detail"):
+        if source is None or source["profile"] not in ("checkout-financial-actions", "adyen-settlement-detail",
+                                                        "provider-event-json"):
             in_row = row_numbers(r["rawRow"])
             for field in ("grossAmount", "feeAmount", "netAmount"):
                 if r[field] is not None and abs(Decimal(r[field])) not in in_row:
@@ -1013,6 +1075,9 @@ def main(argv):
         ok = False
     if isinstance(universe[2], AdyenMismatch):
         print("FAIL full Adyen source replay: %s" % universe[2])
+        ok = False
+    if isinstance(universe[2], EventMismatch):
+        print("FAIL full JSON event source replay: %s" % universe[2])
         ok = False
     failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
     replay_failed, replay_incomplete = check_full_finding_set(c, universe)

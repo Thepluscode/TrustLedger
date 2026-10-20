@@ -74,7 +74,8 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
 | For simple CSV runs, a two-record `D-REFUND` mismatch has exactly one possible internal and provider refund allocation under the reference rules | the rows are unrelated or multiple allocations fit; ambiguity returns exit 3 |
 | For a case with one run, the exported exception count, types, and exposure totals by currency agree with the run inventory; each exception ID is unique and its run and ruleset references agree | a finding is removed, duplicated, retyped, or attributed to another run while its amount remains plausible |
-| For a single run using the three generic CSV profiles and supported Adyen Settlement Details v1 or Checkout.com Financial Actions v2, an independent Python pass enumerates every finding from all accepted source rows and compares type, rule, currency, amount, and exact source rows with the bundle | a finding is omitted together with its recorded count, type, and exposure totals; a new unrelated discrepancy exists in the source but not the bundle; a false clean run is declared |
+| For a single run using the three generic CSV profiles, canonical JSON provider events, and supported Adyen Settlement Details v1 or Checkout.com Financial Actions v2, an independent Python pass enumerates every finding from all accepted source rows and compares type, rule, currency, amount, and exact source rows with the bundle | a finding is omitted together with its recorded count, type, and exposure totals; a new unrelated discrepancy exists in the source but not the bundle; a false clean run is declared |
+| For `provider-event-json/1`, each one-body import is parsed using the provider transaction field contract; an accepted event must produce its canonical record and a rejected event must remain unparseable | an event value was changed, a valid event was hidden as rejected, or a malformed event was claimed as accepted |
 | For Adyen Settlement Details v1, every accepted raw report row, monetary component, journal identity, timestamp, FX rate and unreconciled reason agrees with `providerEvidence`; gross, fee and net are independently summed and rounded once in the charge currency | a composite fee or settlement line was built from different rows or amounts, or a report row was omitted |
 | For Checkout.com Financial Actions v2, every accepted raw report row, component, action grouping, payout and unreconciled reason agrees with `providerEvidence`; gross, fee and net are independently summed at source precision and rounded once | a reported settlement, refund or chargeback was built from different rows or amounts, or a report row was omitted |
 | With Checkout.com v2, the complete finding replay also checks settled refund allocation, refund settlement absence and full chargeback/reversal history | a refund event has no payout, a dispute debit was concealed, or a related finding was removed with its run counts and totals |
@@ -94,7 +95,7 @@ and absence of a matching line. `UNMATCHED_SETTLEMENT_ITEM` checks that no charg
 a possible duplicate settlement line returns exit 3 because line ordering is not replayed.
 For Checkout.com v2, `MISSING_REFUND_SETTLEMENT`, `D-SETTLED-REFUND` and chargeback findings are replayed
 from every supplied source row. Adyen v1 rows with duplicates or rejected rows, a truncated row inventory,
-or unsupported timestamp zones remain incomplete, as do unsupported JSON event profiles. Checkout.com reports with duplicate/rejected rows, a truncated row inventory,
+or unsupported timestamp zones remain incomplete. Canonical JSON event imports with a row marked `DUPLICATE` remain incomplete. Checkout.com reports with duplicate/rejected rows, a truncated row inventory,
 or timestamp zone evidence (account setting, zone column, UTC column or offset) remain incomplete. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
@@ -104,8 +105,8 @@ cannot prove the historical issue inventory. For a single run, the count and typ
 recorded run inventory and the per-currency exposure totals. For the three generic CSV profiles, the full
 source replay closes the coordinated-omission gap: it derives the expected finding set without using the
 bundle's exception list or run totals. It refuses ambiguous refund allocation and duplicate settlement-line
-ordering, returning exit 3. Supported Adyen Settlement Details v1 and Checkout.com Financial Actions v2
-have the same full finding replay; JSON event profiles remain incomplete.
+ordering, returning exit 3. Supported Adyen Settlement Details v1, Checkout.com Financial Actions v2,
+and canonical JSON provider events have the same full finding replay.
 
 Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-six cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
@@ -119,6 +120,11 @@ chargeback amount or a provider component, and a coordinated omission of the cha
 The Adyen batch 134 sample similarly replays 63 rows into 58 lines and 56 findings, including fees summed
 from several columns. Rehashed edits to a derived fee or provider component, and a coordinated omitted finding,
 are rejected.
+The canonical event feed integration case supplies three CSV files and seven JSON delivery bodies (six accepted,
+one rejected) to the verifier. It reproduces all seven findings and rejects rehashed changes to an accepted
+event amount or the malformed event's rejected status. A second case gives two feeds identical event bytes;
+the same file hash names two imports, so each cited record is bound by import ID and both findings remain
+independently replayable.
 
 ## What the bundle does not claim
 

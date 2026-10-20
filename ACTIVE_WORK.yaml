@@ -40,6 +40,8 @@ active:
     absence and dispute history, and reject a rehashed forged aggregate or coordinated omitted finding;
     for Adyen Settlement Details v1 without rejected or duplicate rows or unsupported timestamp zones,
     independently derive each line and composite fee from all report rows, then replay the complete finding set;
+    for canonical provider-event-json v1 deliveries, independently parse every accepted or rejected body
+    and replay the complete finding set alongside file imports;
     a multi-run bundle cannot prove historical issue inventory and remains unconfirmed.
     Unsupported conditions remain unconfirmed. This is local-tested only, pending CI and review.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
