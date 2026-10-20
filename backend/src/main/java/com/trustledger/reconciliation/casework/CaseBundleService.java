@@ -5,10 +5,13 @@ import com.trustledger.app.ReconciliationResolutionService;
 import com.trustledger.app.ReconciliationResolutionService.Activity;
 import com.trustledger.observability.CorrelationId;
 import com.trustledger.persistence.entity.EvidenceExportEntity;
+import com.trustledger.persistence.entity.ProviderFeeScheduleEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
+import com.trustledger.persistence.repo.ProviderFeeScheduleRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
 import com.trustledger.reconciliation.casework.CaseworkStore.CaseRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.CurrencyTotal;
+import com.trustledger.reconciliation.casework.CaseworkStore.EvidencedRecord;
 import com.trustledger.reconciliation.casework.CaseworkStore.ImportRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.MatchRow;
 import com.trustledger.reconciliation.casework.CaseworkStore.RunRow;
@@ -24,6 +27,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,7 +51,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class CaseBundleService {
 
-    public static final String BUNDLE_VERSION = "recon-case-bundle/1";
+    public static final String BUNDLE_VERSION = "recon-case-bundle/2";
     /**
      * Rows listed inline per section. Above this the bundle records how many were omitted and where the
      * full set lives (the import's row endpoint, the run's match endpoint); the hash still covers what is
@@ -78,17 +83,19 @@ public class CaseBundleService {
     private final ReconciliationResolutionService resolution;
     private final EvidenceService evidence;
     private final ReconMetrics metrics;
+    private final ProviderFeeScheduleRepository feeSchedules;
     private final ObjectMapper json;
 
     public CaseBundleService(CaseworkStore store, CaseService cases, ReconciliationIssueRepository issues,
                              ReconciliationResolutionService resolution, EvidenceService evidence,
-                             ReconMetrics metrics, ObjectMapper json) {
+                             ReconMetrics metrics, ProviderFeeScheduleRepository feeSchedules, ObjectMapper json) {
         this.store = store;
         this.cases = cases;
         this.issues = issues;
         this.resolution = resolution;
         this.evidence = evidence;
         this.metrics = metrics;
+        this.feeSchedules = feeSchedules;
         this.json = json;
     }
 
@@ -244,6 +251,7 @@ public class CaseBundleService {
         // ponytail: one history query per exception. Fine for a case's worth; batch by case_id if bundles get slow.
         List<ReconciliationIssueEntity> caseIssues = issues.findByTenantIdAndCaseIdOrderByTypeAscEntityIdAsc(tenantId, c.id());
         List<Map<String, Object>> exceptions = new ArrayList<>();
+        Set<String> inputKeys = new TreeSet<>();
         for (ReconciliationIssueEntity i : caseIssues) {
             Map<String, Object> em = new LinkedHashMap<>();
             em.put("exceptionId", i.getId().toString());
@@ -260,7 +268,11 @@ public class CaseBundleService {
             em.put("lifecycleState", i.getLifecycleState());
             em.put("ownerUserId", str(i.getOwnerUserId()));
             em.put("raisedAt", str(i.getCreatedAt()));
-            em.put("evidence", json.readValue(i.getEvidence(), Map.class));
+            Map<?, ?> ev = json.readValue(i.getEvidence(), Map.class);
+            em.put("evidence", ev);
+            if (ev.get("records") instanceof List<?> refs) {
+                for (Object r : refs) inputKeys.add((String) ((Map<?, ?>) r).get("recordKey"));
+            }
             Map<String, Object> decision = null;
             if (i.getReasonCode() != null) {
                 decision = new LinkedHashMap<>();
@@ -291,6 +303,7 @@ public class CaseBundleService {
             exceptions.add(em);
         }
         content.put("exceptions", exceptions);
+        content.put("findingInputs", findingInputs(tenantId, c.id(), inputKeys, imports));
 
         // What is still undecided NOW, as opposed to what the run found. Per currency, never combined.
         Map<String, java.math.BigDecimal> open = new java.util.TreeMap<>();
@@ -311,6 +324,68 @@ public class CaseBundleService {
         if (providerImports > 0) limitations.addAll(PROVIDER_LIMITATIONS);
         content.put("limitations", limitations);
         return content;
+    }
+
+    /**
+     * What every exception was computed from, so a reader can recompute it without TrustLedger: each record an
+     * exception names, with the values the rules read and the exact source row they were read from, and the fee
+     * schedules on record. {@code scripts/verify_recon_bundle.py} re-derives each exception's amount from these.
+     */
+    private Map<String, Object> findingInputs(UUID tenantId, UUID caseId, Set<String> keys, List<ImportRow> imports) {
+        Map<UUID, ImportRow> importById = new HashMap<>();
+        for (ImportRow i : imports) importById.put(i.id(), i);
+        List<Map<String, Object>> records = new ArrayList<>();
+        for (EvidencedRecord e : store.recordsByKeys(tenantId, caseId, keys)) {
+            CanonicalRecord r = e.stored().record();
+            ImportRow source = importById.get(e.stored().importId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("recordKey", r.recordKey());
+            m.put("importId", str(e.stored().importId()));
+            m.put("sourceType", source.sourceType());
+            m.put("sourceIdentity", source.sourceIdentity());
+            m.put("fileSha256", e.stored().evidenceFileSha256());
+            m.put("rowNumber", r.rowNumber());
+            m.put("rowSha256", e.importRowSha256());
+            m.put("rawRow", e.rawRow());
+            m.put("eventType", r.eventType().name());
+            m.put("provider", r.provider());
+            m.put("providerEventId", r.providerEventId());
+            m.put("stableRef", r.stableRef());
+            m.put("internalRef", r.internalRef());
+            m.put("occurredAt", str(r.occurredAt()));
+            m.put("receivedAt", str(r.receivedAt()));
+            m.put("currency", r.currency());
+            m.put("grossAmount", plain(r.grossAmount()));
+            m.put("feeAmount", plain(r.feeAmount()));
+            m.put("netAmount", plain(r.netAmount()));
+            m.put("paymentStatus", r.paymentStatus());
+            m.put("settlementBatch", r.settlementBatch());
+            records.add(m);
+        }
+        List<Map<String, Object>> schedules = new ArrayList<>();
+        List<ProviderFeeScheduleEntity> onRecord = new ArrayList<>(feeSchedules.findByTenantIdOrderByEffectiveFromDesc(tenantId));
+        onRecord.sort(Comparator.comparing(ProviderFeeScheduleEntity::getProvider).thenComparing(ProviderFeeScheduleEntity::getCurrency)
+            .thenComparing(ProviderFeeScheduleEntity::getEffectiveFrom));
+        for (ProviderFeeScheduleEntity s : onRecord) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("scheduleId", str(s.getId()));
+            m.put("provider", s.getProvider());
+            m.put("currency", s.getCurrency());
+            m.put("percentageBps", s.getPercentageBps());
+            m.put("flatFee", plain(s.getFlatFee()));
+            m.put("feeCap", plain(s.getFeeCap()));
+            m.put("tolerance", plain(s.getTolerance()));
+            m.put("effectiveFrom", str(s.getEffectiveFrom()));
+            schedules.add(m);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("records", records);
+        out.put("feeSchedules", schedules);
+        return out;
+    }
+
+    private static String plain(java.math.BigDecimal b) {
+        return b == null ? null : b.toPlainString();
     }
 
     /**

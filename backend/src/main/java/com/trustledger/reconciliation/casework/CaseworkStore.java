@@ -461,6 +461,22 @@ public class CaseworkStore {
             args.toArray());
     }
 
+    /** The named records with the source row each was read from, ordered by key. */
+    public List<EvidencedRecord> recordsByKeys(UUID tenantId, UUID caseId, java.util.Collection<String> keys) {
+        if (keys.isEmpty()) return List.of();
+        List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
+        args.addAll(keys);
+        return jdbc.query("""
+            SELECT r.*, ir.raw_row, ir.row_sha256 AS import_row_sha256
+              FROM recon_records r
+              JOIN recon_imports i ON i.id = r.import_id
+              JOIN recon_import_rows ir ON ir.id = r.import_row_id
+             WHERE r.tenant_id = ? AND r.case_id = ? AND i.status = 'COMPLETED' AND r.record_key IN (%s)
+             ORDER BY r.record_key""".formatted(marks(keys.size())),
+            (rs, n) -> new EvidencedRecord(mapRecord(rs, n), rs.getString("raw_row"), rs.getString("import_row_sha256").trim()),
+            args.toArray());
+    }
+
     public List<ImportRow> importsByIds(UUID tenantId, UUID caseId, java.util.Collection<UUID> ids) {
         List<Object> args = new java.util.ArrayList<>(List.of(tenantId, caseId));
         args.addAll(ids);

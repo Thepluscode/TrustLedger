@@ -153,6 +153,17 @@ class CaseBundleIntegrationTest {
         // Left on disk for scripts/verify_recon_bundle.py, the verifier that shares no code with this system.
         Files.createDirectories(Path.of("target/recon-bundle"));
         Files.writeString(Path.of("target/recon-bundle/acme-interim.json"), json.writeValueAsString(bundle));
+
+        // Every exception must be re-derivable by that verifier from this export and the files as uploaded. A rule
+        // change that alters an amount the verifier does not know about fails here, not in a customer's hands.
+        String fixtures = "src/test/resources/fixtures/acme-2026-08/";
+        Process p = new ProcessBuilder("python3", "../scripts/verify_recon_bundle.py", "target/recon-bundle/acme-interim.json",
+            fixtures + "internal-expected.csv", fixtures + "provider-a-transactions.csv",
+            fixtures + "provider-b-transactions.csv", fixtures + "provider-b-settlement.csv").redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, p.waitFor(), out);
+        assertTrue(out.contains("exceptions: 7 reproduced, 0 not re-derivable, 0 failed, of 7"), out);
+        assertTrue(out.contains("10 found in the source files supplied"), out);
     }
 
     @Test
