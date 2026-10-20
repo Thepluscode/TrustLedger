@@ -98,6 +98,11 @@ class ProviderReportImportIntegrationTest {
 
     private String verifyCheckoutBundle(String token, UUID caseId, String internal, String events, byte[] report,
                                         Consumer<JsonNode> edit, int expectedExit) throws Exception {
+        return verifyProviderBundle(token, caseId, internal, events, report, edit, expectedExit);
+    }
+
+    private String verifyProviderBundle(String token, UUID caseId, String internal, String events, byte[] report,
+                                        Consumer<JsonNode> edit, int expectedExit) throws Exception {
         HttpResponse<String> exported = http.post(CASES + caseId + "/bundle", token, null);
         assertEquals(201, exported.statusCode(), exported.body());
         HttpResponse<String> downloaded = http.get("/api/v1/evidence/exports/"
@@ -107,11 +112,11 @@ class ProviderReportImportIntegrationTest {
         if (edit != null) edit.accept(bundleJson);
         Path dir = Path.of("target/recon-bundle");
         Files.createDirectories(dir);
-        Path bundle = Files.createTempFile(dir, "checkout-bundle-", ".json");
+        Path bundle = Files.createTempFile(dir, "provider-bundle-", ".json");
         Files.writeString(bundle, json.writeValueAsString(bundleJson));
         List<String> command = new ArrayList<>(List.of("python3", "../scripts/verify_recon_bundle.py", bundle.toString()));
         for (byte[] bytes : List.of(internal.getBytes(StandardCharsets.UTF_8), events.getBytes(StandardCharsets.UTF_8), report)) {
-            Path file = Files.createTempFile(dir, "checkout-source-", ".csv");
+            Path file = Files.createTempFile(dir, "provider-source-", ".csv");
             Files.write(file, bytes);
             command.add(file.toString());
         }
@@ -238,14 +243,16 @@ class ProviderReportImportIntegrationTest {
     void aRunReadsAdyenLinesInTheChargeCurrency() throws Exception {
         AuthResponse op = http.register();
         UUID caseId = http.createCase(op.token(), "ADYEN-RUN-" + UUID.randomUUID());
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,adyen,X4J8X927MZNPIFY2,PAYMENT,EUR,5.00,2023-08-01T13:07:16Z\n"
+            + "I2,adyen,ZVA14XO8S0GYIJU2,PAYMENT,USD,5.00,2023-07-31T13:47:45Z\n";
+        String events = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,X4J8X927MZNPIFY2,,CHARGE,SUCCESS,EUR,5.00,,,2023-08-01T13:07:16Z,\n"
+            + "e2,ZVA14XO8S0GYIJU2,,CHARGE,SUCCESS,USD,5.00,,,2023-07-31T13:47:45Z,\n";
         CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "INTERNAL", "ledger", "internal-expected", "internal.csv",
-            ("internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
-                + "I1,adyen,X4J8X927MZNPIFY2,PAYMENT,EUR,5.00,2023-08-01T13:07:16Z\n"
-                + "I2,adyen,ZVA14XO8S0GYIJU2,PAYMENT,USD,5.00,2023-07-31T13:47:45Z\n").getBytes(StandardCharsets.UTF_8)));
+            internal.getBytes(StandardCharsets.UTF_8)));
         CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "PROVIDER_TRANSACTION", "adyen", "provider-transactions", "tx.csv",
-            ("event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
-                + "e1,X4J8X927MZNPIFY2,,CHARGE,SUCCESS,EUR,5.00,,,2023-08-01T13:07:16Z,\n"
-                + "e2,ZVA14XO8S0GYIJU2,,CHARGE,SUCCESS,USD,5.00,,,2023-07-31T13:47:45Z,\n").getBytes(StandardCharsets.UTF_8)));
+            events.getBytes(StandardCharsets.UTF_8)));
         assertEquals(201, uploadReport(op.token(), caseId, "adyen", "adyen-settlement-detail", null, ADYEN).statusCode());
 
         HttpResponse<String> r = http.post(CASES + caseId + "/runs", op.token(), null);
@@ -287,6 +294,51 @@ class ProviderReportImportIntegrationTest {
         assertEquals(64, zva.get("recordKey").asString().length());
         assertEquals("0.8969444665577660", zva.get("fxRate").asString(), "the provider's rate, digit for digit");
         assertTrue(bundle.get("content").get("limitations").toString().contains("No amount was converted"));
+
+        String proof = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), null, 0);
+        assertTrue(proof.contains("full source replay: 56 finding(s) independently enumerated"), proof);
+        assertTrue(proof.contains("56 reproduced, 0 not re-derivable, 0 failed"), proof);
+        String forged = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            for (JsonNode record : changed.get("content").get("findingInputs").get("records")) {
+                if ("EUR".equals(record.get("currency").asString()) && "0.0900".equals(record.get("feeAmount").asString())) {
+                    ((ObjectNode) record).put("feeAmount", "0.0800");
+                    break;
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(forged.contains("feeAmount differs from its complete provider report row"), forged);
+        String changedComponent = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            for (JsonNode source : changed.get("content").get("sources")) {
+                if ("adyen-settlement-detail".equals(source.get("profile").asString())) {
+                    ((ObjectNode) source.get("providerEvidence").get("rows").get(1).get("components").get(0))
+                        .put("rawValue", "999");
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(changedComponent.contains("Adyen components differ from source row"), changedComponent);
+        String omitted = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            JsonNode content = changed.get("content");
+            ArrayNode exceptions = (ArrayNode) content.get("exceptions");
+            for (int i = 0; i < exceptions.size(); i++) {
+                if ("USD".equals(exceptions.get(i).get("exposureCurrency").asString())) {
+                    exceptions.remove(i);
+                    break;
+                }
+            }
+            JsonNode run = content.get("run");
+            ((ObjectNode) run).put("exceptionCount", run.get("exceptionCount").asInt() - 1);
+            ((ObjectNode) run.get("summary").get("exceptionsByType")).put("UNMATCHED_SETTLEMENT_ITEM", 55);
+            for (JsonNode total : run.get("unresolvedAtRunByCurrency")) {
+                if ("USD".equals(total.get("currency").asString())) {
+                    BigDecimal remaining = new BigDecimal(total.get("unresolvedAmount").asString()).subtract(new BigDecimal("20.0000"));
+                    ((ObjectNode) total).put("unresolvedAmount", remaining.toPlainString());
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(omitted.contains("full source replay found 1 missing"), omitted);
     }
 
     /** Preregistered for recon-rules 1.2.0 in the design doc before the code was written. */
@@ -402,7 +454,7 @@ class ProviderReportImportIntegrationTest {
             }
             rehash(bundle);
         }, 1);
-        assertTrue(forged.contains("grossAmount differs from its complete Checkout action"), forged);
+        assertTrue(forged.contains("grossAmount differs from its complete provider report row"), forged);
 
         String changedComponent = verifyCheckoutBundle(op.token(), caseId, internal, events, report, bundle -> {
             for (JsonNode source : bundle.get("content").get("sources")) {

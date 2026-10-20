@@ -8,12 +8,12 @@
 2. Provenance (recon-case-bundle/2): every record an exception names is listed with the exact source row it
    was read from; that row must hash to its rowSha256, and a source file given here must contain it.
 3. Re-derivation (recon-case-bundle/2): each exception's amount is recomputed from those records and the
-   fee schedules in the bundle. For the three simple CSV profiles and supported Checkout.com v2 reports,
+   fee schedules in the bundle. For the three simple CSV profiles and supported Adyen v1 and Checkout.com v2 reports,
    canonical fields are independently read from source columns and the complete run is replayed.
    Unsupported absence checks are reported as incomplete, never passed.
 4. Single-run inventory: the listed exceptions agree with the run's recorded counts and currency totals.
    A multi-run case's historical issue inventory cannot be established from this format and stays incomplete.
-5. Full finding set: for generic CSV and supported Checkout.com v2 runs, independently enumerate every finding
+5. Full finding set: for generic CSV and supported Adyen v1 or Checkout.com v2 runs, independently enumerate every finding
    from the complete source rows. A coordinated change to findings and run totals cannot hide a source finding.
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
@@ -37,6 +37,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 from replay_simple_recon_findings import ReplayUnknown, bundled_findings, replay
 from replay_checkout_report import CheckoutMismatch, CheckoutUnknown, derive as derive_checkout
+from replay_adyen_report import AdyenMismatch, AdyenUnknown, derive as derive_adyen
 
 RULESET = "recon-rules/1.2.0"
 FOUR = Decimal("0.0001")
@@ -341,12 +342,13 @@ def run_records(c, given_files):
     for import_id in run_ids:
         source = sources[import_id]
         if source["profile"] not in ("internal-expected", "provider-transactions", "provider-settlement",
-                                      "checkout-financial-actions") or source["profileVersion"] != (
+                                      "checkout-financial-actions", "adyen-settlement-detail") or source["profileVersion"] != (
                                           2 if source["profile"] == "checkout-financial-actions" else 1):
             raise Unknown("complete source parsing is not implemented for %s/v%s" %
                           (source["profile"], source["profileVersion"]))
         expected_type = {"internal-expected": "INTERNAL", "provider-transactions": "PROVIDER_TRANSACTION",
-                         "provider-settlement": "SETTLEMENT", "checkout-financial-actions": "SETTLEMENT"}[source["profile"]]
+                         "provider-settlement": "SETTLEMENT", "checkout-financial-actions": "SETTLEMENT",
+                         "adyen-settlement-detail": "SETTLEMENT"}[source["profile"]]
         if source["sourceType"] != expected_type:
             raise Unknown("source type disagrees with its import profile")
         if source["fileSha256"] not in given_files:
@@ -358,6 +360,14 @@ def run_records(c, given_files):
                 records.extend(derive_checkout(source, given_files[source["fileSha256"]]))
             except CheckoutUnknown as e:
                 if isinstance(e, CheckoutMismatch):
+                    raise
+                raise Unknown(str(e)) from e
+            continue
+        if source["profile"] == "adyen-settlement-detail":
+            try:
+                records.extend(derive_adyen(source, given_files[source["fileSha256"]]))
+            except AdyenUnknown as e:
+                if isinstance(e, AdyenMismatch):
                     raise
                 raise Unknown(str(e)) from e
             continue
@@ -681,18 +691,18 @@ def check_provenance(c, given_files, universe=None):
                           % (where, r["currency"]))
                     currency_unconfirmed.add(r["recordKey"])
             if header is not None:
-                if source["profile"] == "checkout-financial-actions":
+                if source["profile"] in ("checkout-financial-actions", "adyen-settlement-detail"):
                     from_row = derived.get(r["recordKey"])
                     if from_row is None:
-                        print("---- row %s: Checkout action mapping not confirmed (%s)" % (where, universe_error))
+                        print("---- row %s: provider report mapping not confirmed (%s)" % (where, universe_error))
                         currency_unconfirmed.add(r["recordKey"])
                     elif r["rowNumber"] != from_row["rowNumber"] or r["importId"] != from_row["importId"]:
-                        print("FAIL row %s: Checkout record cites the wrong gross source row" % where)
+                        print("FAIL row %s: provider record cites the wrong gross source row" % where)
                         failures += 1
                     else:
                         for field, expected in from_row.items():
                             if field not in ("recordKey", "importId", "rowNumber") and not source_value_agrees(field, r.get(field), expected):
-                                print("FAIL row %s: %s differs from its complete Checkout action" % (where, field))
+                                print("FAIL row %s: %s differs from its complete provider report row" % (where, field))
                                 failures += 1
                 else:
                     try:
@@ -705,7 +715,7 @@ def check_provenance(c, given_files, universe=None):
                             if not source_value_agrees(field, r.get(field), expected):
                                 print("FAIL row %s: %s differs from its source row" % (where, field))
                                 failures += 1
-        if source is None or source["profile"] != "checkout-financial-actions":
+        if source is None or source["profile"] not in ("checkout-financial-actions", "adyen-settlement-detail"):
             in_row = row_numbers(r["rawRow"])
             for field in ("grossAmount", "feeAmount", "netAmount"):
                 if r[field] is not None and abs(Decimal(r[field])) not in in_row:
@@ -721,7 +731,7 @@ def source_universe(c, given_files):
     try:
         complete_records = run_records(c, given_files)
         return complete_records, payment_matches(complete_records), None
-    except (Unknown, CheckoutUnknown) as e:
+    except (Unknown, CheckoutUnknown, AdyenUnknown) as e:
         return None, None, e
     except csv.Error as e:
         return None, None, Unknown("source CSV cannot be parsed: %s" % e)
@@ -1000,6 +1010,9 @@ def main(argv):
     ok = failures == 0 and ok
     if isinstance(universe[2], CheckoutMismatch):
         print("FAIL full Checkout source replay: %s" % universe[2])
+        ok = False
+    if isinstance(universe[2], AdyenMismatch):
+        print("FAIL full Adyen source replay: %s" % universe[2])
         ok = False
     failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
     replay_failed, replay_incomplete = check_full_finding_set(c, universe)

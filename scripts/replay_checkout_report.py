@@ -4,12 +4,12 @@ The report's rows are the input. Bundle providerEvidence is checked against them
 to identify the opaque record key assigned to each independently derived action.
 """
 import csv
-import hashlib
 import io
 import re
 from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_EVEN
+from replay_report_source import monetary_cell, row_sha
 
 
 class CheckoutUnknown(Exception):
@@ -28,31 +28,11 @@ COMPONENTS = (("PROCESSING", "processing currency amount", "processing currency"
               ("TRANSACTION", "transaction currency amount", "transaction currency"),
               ("TAX", "tax currency amount", "entity country tax currency"))
 FOUR = Decimal("0.0001")
-DECIMAL = re.compile(r"[+-]?\d{1,15}(\.\d{1,8})?\Z")
-
-
-def canonical_csv(fields):
-    out = io.StringIO()
-    csv.writer(out, lineterminator="").writerow(fields)
-    return out.getvalue()
-
-
-def row_sha(source, fields):
-    raw = canonical_csv(fields)
-    joined = "".join(x + "\x1f" for x in (source["sourceType"], source["sourceIdentity"], raw))
-    return hashlib.sha256(joined.encode()).hexdigest()
-
-
 def amount(row, field, currency_field):
-    raw = row.get(field, "")
-    if not raw:
-        return None
-    if not DECIMAL.fullmatch(raw):
-        raise CheckoutUnknown("invalid provider amount in %s" % field)
-    currency = row.get(currency_field, "").upper()
-    if not re.fullmatch(r"[A-Z]{3}", currency):
-        raise CheckoutUnknown("amount without a usable currency in %s" % field)
-    return currency, Decimal(raw)
+    try:
+        return monetary_cell(row.get(field, ""), row.get(currency_field, ""), field)
+    except ValueError as e:
+        raise CheckoutUnknown(str(e)) from e
 
 
 def local_time(row, field, stated):

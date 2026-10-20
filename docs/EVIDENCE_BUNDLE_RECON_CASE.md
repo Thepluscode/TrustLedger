@@ -74,10 +74,11 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
 | For simple CSV runs, a two-record `D-REFUND` mismatch has exactly one possible internal and provider refund allocation under the reference rules | the rows are unrelated or multiple allocations fit; ambiguity returns exit 3 |
 | For a case with one run, the exported exception count, types, and exposure totals by currency agree with the run inventory; each exception ID is unique and its run and ruleset references agree | a finding is removed, duplicated, retyped, or attributed to another run while its amount remains plausible |
-| For a single run using the three generic CSV profiles and optionally Checkout.com Financial Actions v2, an independent Python pass enumerates every finding from all accepted source rows and compares type, rule, currency, amount, and exact source rows with the bundle | a finding is omitted together with its recorded count, type, and exposure totals; a new unrelated discrepancy exists in the source but not the bundle; a false clean run is declared |
+| For a single run using the three generic CSV profiles and supported Adyen Settlement Details v1 or Checkout.com Financial Actions v2, an independent Python pass enumerates every finding from all accepted source rows and compares type, rule, currency, amount, and exact source rows with the bundle | a finding is omitted together with its recorded count, type, and exposure totals; a new unrelated discrepancy exists in the source but not the bundle; a false clean run is declared |
+| For Adyen Settlement Details v1, every accepted raw report row, monetary component, journal identity, timestamp, FX rate and unreconciled reason agrees with `providerEvidence`; gross, fee and net are independently summed and rounded once in the charge currency | a composite fee or settlement line was built from different rows or amounts, or a report row was omitted |
 | For Checkout.com Financial Actions v2, every accepted raw report row, component, action grouping, payout and unreconciled reason agrees with `providerEvidence`; gross, fee and net are independently summed at source precision and rounded once | a reported settlement, refund or chargeback was built from different rows or amounts, or a report row was omitted |
 | With Checkout.com v2, the complete finding replay also checks settled refund allocation, refund settlement absence and full chargeback/reversal history | a refund event has no payout, a dispute debit was concealed, or a related finding was removed with its run counts and totals |
-| For profiles without a complete source replay, each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
+| For profiles without a complete source replay, each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts require a supported source replay |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception was
@@ -86,14 +87,14 @@ not supplied, a type or ruleset is unsupported, the full status history cannot b
 was not found verbatim in its row. A `/2` bundle without
 `findingInputs` fails; a `/1` bundle is checked for integrity only and returns exit 3.
 
-For simple CSV and supported Checkout.com v2 runs, a singleton `REFUND_MISMATCH` is also checked against the full input set when no
+For simple CSV and supported provider-report runs, a singleton `REFUND_MISMATCH` is also checked against the full input set when no
 plausible refund counterpart exists. A two-record `D-REFUND` mismatch is confirmed only when its internal and
 provider rows uniquely select each other; competing candidates return exit 3. `MISSING_SETTLEMENT` checks the representative successful charge, settlement coverage, due date,
 and absence of a matching line. `UNMATCHED_SETTLEMENT_ITEM` checks that no charge exists for the line;
 a possible duplicate settlement line returns exit 3 because line ordering is not replayed.
 For Checkout.com v2, `MISSING_REFUND_SETTLEMENT`, `D-SETTLED-REFUND` and chargeback findings are replayed
-from every supplied source row. A run using Adyen or JSON event profiles still returns exit 3 for findings
-that need full source replay. Checkout.com reports with duplicate/rejected rows, a truncated row inventory,
+from every supplied source row. Adyen v1 rows with duplicates or rejected rows, a truncated row inventory,
+or unsupported timestamp zones remain incomplete, as do unsupported JSON event profiles. Checkout.com reports with duplicate/rejected rows, a truncated row inventory,
 or timestamp zone evidence (account setting, zone column, UTC column or offset) remain incomplete. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
@@ -103,8 +104,8 @@ cannot prove the historical issue inventory. For a single run, the count and typ
 recorded run inventory and the per-currency exposure totals. For the three generic CSV profiles, the full
 source replay closes the coordinated-omission gap: it derives the expected finding set without using the
 bundle's exception list or run totals. It refuses ambiguous refund allocation and duplicate settlement-line
-ordering, returning exit 3. Checkout.com Financial Actions v2 has the same full replay; Adyen and JSON event
-profiles remain incomplete.
+ordering, returning exit 3. Supported Adyen Settlement Details v1 and Checkout.com Financial Actions v2
+have the same full finding replay; JSON event profiles remain incomplete.
 
 Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-six cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
@@ -115,6 +116,9 @@ to reproduce. Nine tests executed with no skips. `ProviderReportImportIntegratio
 Checkout.com v2 bundles and proves a settled refund, a missing refund payout, a refund amount mismatch and
 an unreturned chargeback from the 55-row published sample and a 54-row variant. Rehashed edits to a derived
 chargeback amount or a provider component, and a coordinated omission of the chargeback finding, are rejected.
+The Adyen batch 134 sample similarly replays 63 rows into 58 lines and 56 findings, including fees summed
+from several columns. Rehashed edits to a derived fee or provider component, and a coordinated omitted finding,
+are rejected.
 
 ## What the bundle does not claim
 
