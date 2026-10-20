@@ -10,3 +10,9 @@ fcdeeb0ace9423b1cda34ad6b9730b9e3691e493:backend/src/test/java/com/trustledger/r
 # "synthetic-showcase-run" padded to 64 characters. The old commit keeps failing the history scan.
 # Verified 2026-10-04.
 ff946a3f2265222619a891a42b20a0547787e232:frontend/app/showcase/story.ts:generic-api-key:141
+
+# Synthetic fixture, not a credential: scripts/fixtures/acme-interim-bundle.FIXTURE.json is a real export of the
+# SYNTHETIC ACME-2026-08 test case. Its "runKey" and every "recordKey" are SHA-256 hex digests (the run's and
+# records' identities), which gitleaks reads as generic API keys because of the "Key" token. The file is one
+# line, so one fingerprint covers all of them. Regenerating the fixture needs a new entry. Verified 2026-10-20.
+66ac50ba11af402907fd9c7aeefd50357a84fd5a:scripts/fixtures/acme-interim-bundle.FIXTURE.json:generic-api-key:1
