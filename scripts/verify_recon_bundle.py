@@ -28,12 +28,13 @@ import io
 import json
 import re
 import sys
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 
 RULESET = "recon-rules/1.2.0"
 FOUR = Decimal("0.0001")
+Replay = namedtuple("Replay", "internal charges used_internal used_charge deduped selected_pairs")
 # The header each import profile reads a record's currency from. TrustLedger reads columns by header name
 # (lower-cased), never by position, so the column is found in the supplied file's own header row.
 CURRENCY_HEADER_BY_PROFILE = {
@@ -407,7 +408,7 @@ def payment_matches(records):
             raise Unknown("charge history has tied event times")
         charges.append(choices[-1])
     internal = [r for r in records if r["eventType"] == "EXPECTED_PAYMENT"]
-    used_internal, used_charge = set(), set()
+    used_internal, used_charge, selected_pairs = set(), set(), set()
 
     def ident(r):
         return (r["importId"], r["rowNumber"])
@@ -431,6 +432,7 @@ def payment_matches(records):
         for i, charge in found:
             used_internal.add(ident(i))
             used_charge.add(ident(charge))
+            selected_pairs.add((ident(i), ident(charge)))
 
     pair(lambda r: (r["provider"], r["stableRef"]) if r["stableRef"] is not None else None,
          lambda i, charge: i["provider"] == charge["provider"] and i["stableRef"] == charge["stableRef"])
@@ -441,7 +443,47 @@ def payment_matches(records):
          and d(i["grossAmount"]) == d(charge["grossAmount"])
          and source_time(i["occurredAt"]) is not None and source_time(charge["occurredAt"]) is not None
          and abs(source_time(i["occurredAt"]) - source_time(charge["occurredAt"])) <= timedelta(hours=24))
-    return internal, charges, used_internal, used_charge, deduped
+    return Replay(internal, charges, used_internal, used_charge, deduped, selected_pairs)
+
+
+def payment_pair_confirmed(referenced, matched):
+    """A comparison is a finding only if R1, R2 or R4 selected these exact source rows as a pair."""
+    internal = one(referenced, "EXPECTED_PAYMENT")
+    charge = one(referenced, "CHARGE")
+    return ((internal["importId"], internal["rowNumber"]),
+            (charge["importId"], charge["rowNumber"])) in matched.selected_pairs
+
+
+def settlement_pair_confirmed(referenced, records, matched):
+    """A settlement comparison needs the unique line paired with this representative charge."""
+    line = one(referenced, "SETTLEMENT_LINE")
+    charge = one(referenced, "CHARGE")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    if identity(charge) not in {identity(r) for r in matched.charges}:
+        return False
+    lines = [r for r in records if r["eventType"] == "SETTLEMENT_LINE" and r["provider"] == charge["provider"]
+             and r["stableRef"] == charge["stableRef"]]
+    if len(lines) > 1:
+        raise Unknown("multiple settlement lines share this charge reference; line ordering is not replayed")
+    return len(lines) == 1 and identity(line) == identity(lines[0])
+
+
+def duplicate_group_confirmed(referenced, records):
+    """A duplicate finding must cite the complete delivery group, not a convenient subset."""
+    first = referenced[0]
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    group = [r for r in records if r["eventType"] in ("CHARGE", "REFUND", "REVERSAL")
+             and (r["provider"], r["providerEventId"]) == (first["provider"], first["providerEventId"])]
+    return len(group) > 1 and {identity(r) for r in group} == {identity(r) for r in referenced}
+
+
+def duplicate_effect_confirmed(referenced, matched):
+    """Only distinct successful events in one transaction history count as multiple financial effects."""
+    first = referenced[0]
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    successes = [r for r in matched.deduped if r["eventType"] == "CHARGE" and r["paymentStatus"] == "SUCCESS"
+                 and (r["provider"], r["stableRef"]) == (first["provider"], first["stableRef"])]
+    return len(successes) > 1 and {identity(r) for r in successes} == {identity(r) for r in referenced}
 
 
 def absence_proven(ex, referenced, records, matched, case):
@@ -451,7 +493,8 @@ def absence_proven(ex, referenced, records, matched, case):
     by_identity = {(r["importId"], r["rowNumber"]): r for r in records}
     if target not in by_identity:
         raise Unknown("the finding's row is not in the complete run inputs")
-    internal, charges, used_internal, used_charge, deduped = matched
+    internal, charges = matched.internal, matched.charges
+    used_internal, used_charge, deduped = matched.used_internal, matched.used_charge, matched.deduped
     if t == "MISSING_PROVIDER_RECORD":
         return target in {(r["importId"], r["rowNumber"]) for r in internal} and target not in used_internal
     if t == "MISSING_INTERNAL_RECORD":
@@ -632,6 +675,52 @@ def check_findings(c, currency_unconfirmed, given_files):
             how += "; counterpart absence confirmed across the run inputs"
         stated = (ex["exposureCurrency"], d(ex["exposureAmount"]))
         if amount is not None and (ccy, amount) == stated:
+            if ex["type"] == "REFUND_MISMATCH" and len(refs) == 2:
+                print("---- %s %s: not re-derivable (refund allocation is not replayed)" %
+                      (label, ex["exposureAmount"]))
+                not_rederivable += 1
+                continue
+            if ex["type"] in ("CHARGEBACK_DEBITED", "UNMATCHED_CHARGEBACK_REVERSAL"):
+                print("---- %s %s: not re-derivable (complete dispute history is not replayed)" %
+                      (label, ex["exposureAmount"]))
+                not_rederivable += 1
+                continue
+            pair_types = ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "PENDING_UNKNOWN", "PAYMENT_STATUS_MISMATCH")
+            settlement_types = ("NET_SETTLEMENT_MISMATCH", "LATE_SETTLEMENT")
+            if ex["type"] in pair_types + settlement_types + ("FEE_MISMATCH", "DUPLICATE_PROVIDER_EVENT",
+                                                             "DUPLICATE_FINANCIAL_EFFECT"):
+                try:
+                    if universe_error is not None:
+                        raise Unknown(str(universe_error))
+                    cited = [records[x["recordKey"]] for x in refs]
+                    if ex["type"] in pair_types:
+                        confirmed = payment_pair_confirmed(cited, matched)
+                    elif ex["type"] in settlement_types:
+                        confirmed = settlement_pair_confirmed(cited, complete_records, matched)
+                    elif ex["type"] == "DUPLICATE_PROVIDER_EVENT":
+                        confirmed = duplicate_group_confirmed(cited, complete_records)
+                    elif ex["type"] == "DUPLICATE_FINANCIAL_EFFECT":
+                        confirmed = duplicate_effect_confirmed(cited, matched)
+                    else:
+                        charge = one(cited, "CHARGE")
+                        confirmed = (charge["importId"], charge["rowNumber"]) in {
+                            (r["importId"], r["rowNumber"]) for r in matched.charges}
+                except Unknown as e:
+                    print("---- %s %s: not re-derivable (finding condition unproven: %s)" %
+                          (label, ex["exposureAmount"], e))
+                    not_rederivable += 1
+                    continue
+                if not confirmed:
+                    if ex["type"] == "DUPLICATE_PROVIDER_EVENT":
+                        print("FAIL %s does not cite every delivery in the full run" % label)
+                    elif ex["type"] == "DUPLICATE_FINANCIAL_EFFECT":
+                        print("FAIL %s does not cite every distinct successful charge in the full run" % label)
+                    else:
+                        relation = "payment pair" if ex["type"] in pair_types else "settlement pair" if ex["type"] in settlement_types else "representative charge"
+                        print("FAIL %s cites records that are not the %s selected by the full run" % (label, relation))
+                    failed += 1
+                    continue
+                how += "; finding condition confirmed across the run inputs"
             print("OK   %s %s %s reproduced: %s" % (label, ccy, ex["exposureAmount"], how))
             reproduced += 1
         else:

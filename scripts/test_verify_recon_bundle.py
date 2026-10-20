@@ -8,7 +8,9 @@ Each mutation below edits the bundle and then RECOMPUTES its contentHash, so the
 provenance or re-derivation check stands between the edit and a green verdict.
 """
 import copy
+import contextlib
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -75,8 +77,41 @@ def main():
     expect("exception amount inflated, rehashed", 1, "FAIL FEE_MISMATCH", rehash(b))
 
     b = copy.deepcopy(intact)
+    duplicate = exception(b, "DUPLICATE_PROVIDER_EVENT")
+    duplicate["type"] = "DUPLICATE_FINANCIAL_EFFECT"
+    expect("two deliveries are not two financial charges", 1,
+           "does not cite every distinct successful charge", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     exception(b, "AMOUNT_MISMATCH")["exposureCurrency"] = "NGN"
     expect("exception currency changed, rehashed", 1, "FAIL AMOUNT_MISMATCH", rehash(b))
+
+    b = copy.deepcopy(intact)
+    e = exception(b, "AMOUNT_MISMATCH")
+    e["evidence"]["records"][1] = copy.deepcopy(exception(b, "FEE_MISMATCH")["evidence"]["records"][0])
+    e["exposureAmount"] = "40.0000"  # P03 80 vs P04 120: true arithmetic, unrelated payments
+    expect("right arithmetic on unrelated records is not proof", 1,
+           "not the payment pair selected by the full run", rehash(b), *sources)
+
+    # Direct condition control: arithmetic on a plausible refund pair is insufficient until allocation is replayed.
+    b = copy.deepcopy(intact)
+    e = exception(b, "REFUND_MISMATCH")
+    e["evidence"]["records"] = [copy.deepcopy(exception(b, "MISSING_PROVIDER_RECORD")["evidence"]["records"][0]),
+                                 e["evidence"]["records"][0]]
+    e["exposureAmount"] = "5000.0000"
+    record(b, e["evidence"]["records"][0]["recordKey"])["eventType"] = "EXPECTED_REFUND"
+    b["content"]["exceptions"] = [e]
+    supplied = {}
+    for path in sources:
+        with open(path, "rb") as f:
+            data = f.read()
+        supplied[hashlib.sha256(data).hexdigest()] = data.decode("utf-8")
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        verdict = verifier.check_findings(b["content"], set(), supplied)
+    passed = verdict == (0, 1, 0) and "refund allocation is not replayed" in output.getvalue()
+    results.append(passed)
+    print("%s two-record refund arithmetic needs allocation replay" % ("PASS" if passed else "FAIL"))
 
     # The verifier must read currency from the source row, not trust matching edits to the finding and inputs.
     b = copy.deepcopy(intact)
@@ -194,6 +229,9 @@ def main():
     extra_row("new internal payment contradicts missing internal", 0,
               b"P12,provider-b,pb_tx_900,PAYMENT,GBP,45.00,2026-08-03T10:05:00Z,PAID\n",
               1, "claims a missing counterpart")
+    extra_row("third delivery cannot hide behind two cited rows", 1,
+              b"evt_a_008,pa_tx_008,P08,CHARGE,SUCCESS,NGN,20000.00,300.00,19700.00,2026-08-05T10:02:00Z,2026-08-05T10:10:00Z\n",
+              1, "does not cite every delivery")
     extra_row("plausible refund counterpart is left unconfirmed", 0,
               b"P09,provider-a,pa_tx_009,REFUND,NGN,10000.00,2026-08-06T14:30:00Z,PAID\n",
               3, "possible refund counterpart exists")
@@ -249,6 +287,12 @@ def main():
     expect("late settlement given an amount at risk, rehashed", 1, "FAIL LATE_SETTLEMENT", rehash(b))
 
     b = copy.deepcopy(intact)
+    e = exception(b, "LATE_SETTLEMENT")
+    e["evidence"]["records"][1] = copy.deepcopy(exception(b, "FEE_MISMATCH")["evidence"]["records"][0])
+    expect("late line paired with another charge is not proof", 1,
+           "not the settlement pair selected by the full run", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     del b["content"]["findingInputs"]
     expect("a /2 bundle without its inputs, rehashed", 1, "cannot be re-derived", rehash(b))
 
@@ -284,7 +328,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 34:
+    if len(results) < 39:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))
