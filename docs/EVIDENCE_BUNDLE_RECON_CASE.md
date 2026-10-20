@@ -66,6 +66,7 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 |---|---|
 | Each listed row hashes to its `rowSha256` (SHA-256 of source type, source identity and raw row, each followed by U+001F) | the row text was changed |
 | Each row's file is one of the bundle's sources, and is inside any source file given on the command line | a row and its hash were rewritten together (needs the file) |
+| Each record's currency equals the profile's currency column, found by name in the supplied file's header (TrustLedger reads columns by name, so their order may vary); without the file, the code must at least appear in the row | a record and its finding were rewritten together with a different currency (exit 1 with the file, 3 without) |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
@@ -80,7 +81,7 @@ every imported row, which the bundle does not list in full; and the reading of a
 statuses and references is the ruleset's, stated in the bundle, not re-derived.
 
 Negative controls: `python3 scripts/test_verify_recon_bundle.py` edits a real export (the SYNTHETIC
-ACME-2026-08 case, `scripts/fixtures/acme-interim-bundle.FIXTURE.json`) sixteen ways, recomputing the hash each
+ACME-2026-08 case, `scripts/fixtures/acme-interim-bundle.FIXTURE.json`) nineteen ways, recomputing the hash each
 time, and requires each edit to be caught. `CaseBundleIntegrationTest` runs the verifier against a fresh
 PostgreSQL export on every build and requires all seven ACME exceptions to reproduce.
 

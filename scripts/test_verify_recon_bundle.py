@@ -76,6 +76,41 @@ def main():
     exception(b, "AMOUNT_MISMATCH")["exposureCurrency"] = "NGN"
     expect("exception currency changed, rehashed", 1, "FAIL AMOUNT_MISMATCH", rehash(b))
 
+    # The verifier must read currency from the source row, not trust matching edits to the finding and inputs.
+    b = copy.deepcopy(intact)
+    e = exception(b, "AMOUNT_MISMATCH")
+    e["exposureCurrency"] = "USD"
+    for ref in e["evidence"]["records"]:
+        record(b, ref["recordKey"])["currency"] = "USD"
+    expect("record and exception currency changed together", 1, "its currency column says GBP", rehash(b), *sources)
+    expect("the same, without the source files: not confirmed", 3, "USD does not appear in the row", rehash(b))
+
+    # TrustLedger reads columns by name, so a valid file may order them differently; the check must follow the header.
+    with open(sources[0], encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    swap = lambda line: ",".join((lambda x: [x[4]] + x[:4] + x[5:])(line.split(",")))
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+        f.write("\n".join(swap(l) for l in lines) + "\n")
+    try:
+        b = copy.deepcopy(intact)
+        digest = hashlib.sha256(open(f.name, "rb").read()).hexdigest()
+        old = next(s for s in b["content"]["sources"] if s["profile"] == "internal-expected")["fileSha256"]
+        for s in b["content"]["sources"]:
+            if s["fileSha256"] == old:
+                s["fileSha256"] = digest
+        for r in b["content"]["findingInputs"]["records"]:
+            if r["fileSha256"] == old:
+                r["fileSha256"] = digest
+                r["rawRow"] = swap(r["rawRow"])
+                r["rowSha256"] = hashlib.sha256("".join(x + "\x1f" for x in (r["sourceType"], r["sourceIdentity"], r["rawRow"])).encode()).hexdigest()
+        keys = {r["recordKey"]: r["rowSha256"] for r in b["content"]["findingInputs"]["records"]}
+        for e in b["content"]["exceptions"]:
+            for ref in e["evidence"]["records"]:
+                ref["rowSha256"] = keys.get(ref["recordKey"], ref["rowSha256"])
+        expect("currency column first in a reordered file is still read", 0, "7 reproduced", rehash(b), f.name)
+    finally:
+        os.unlink(f.name)
+
     b = copy.deepcopy(intact)
     record(b, exception(b, "AMOUNT_MISMATCH")["evidence"]["records"][0]["recordKey"])["grossAmount"] = "81.0000"
     expect("record amount changed, rehashed", 1, "FAIL AMOUNT_MISMATCH", rehash(b))
@@ -135,7 +170,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 16:
+    if len(results) < 19:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))

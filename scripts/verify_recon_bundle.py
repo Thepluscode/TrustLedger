@@ -17,8 +17,9 @@ Exit 3: nothing failed, but at least one exception could not be re-derived from 
         amount does not appear as a value in its source row.
 
 Checked only in part: that a source row means what the record says it means. Each record amount must appear,
-as a number, among its row's fields; which column it came from, and statuses and references, are the
-ruleset's reading of the row, stated in the bundle and not re-derived here. Without the source files, a row
+as a number, among its row's fields. A record's currency must equal the profile's currency column, found by
+name in the supplied file's header; without the file it must at least appear in the row. Which column an
+amount came from, and statuses and references, are the ruleset's reading of the row, not re-derived here. Without the source files, a row
 is proven only to match its own hash, which a forger could recompute; with them, it is proven to be in the file.
 """
 import csv
@@ -30,6 +31,15 @@ from decimal import ROUND_HALF_EVEN, Decimal
 
 RULESET = "recon-rules/1.2.0"
 FOUR = Decimal("0.0001")
+# The header each import profile reads a record's currency from. TrustLedger reads columns by header name
+# (lower-cased), never by position, so the column is found in the supplied file's own header row.
+CURRENCY_HEADER_BY_PROFILE = {
+    "internal-expected": "currency",
+    "provider-transactions": "currency",
+    "provider-settlement": "currency",
+    "adyen-settlement-detail": "gross currency",
+    "checkout-financial-actions": "processing currency",
+}
 
 
 class Unknown(Exception):
@@ -196,22 +206,59 @@ def row_numbers(raw):
     return out
 
 
+def header_of(text):
+    """The supplied file's header names as TrustLedger reads them: BOM dropped, trimmed, lower-cased."""
+    return [h.strip().lower() for h in next(csv.reader([text.lstrip("\ufeff").splitlines()[0]]), [])] if text else []
+
+
+def row_currency(profile, raw, header):
+    """The record's currency as its source row states it. With the source file, from the profile's currency
+    column located by name in that file's header. Without it, only whether the code appears in the row at all."""
+    fields = [f.strip().upper() for f in next(csv.reader([raw]), [])]
+    name = CURRENCY_HEADER_BY_PROFILE.get(profile)
+    if header is not None and name is not None:
+        if name not in header or header.index(name) >= len(fields):
+            raise Unknown("the supplied %s file has no %r column" % (profile, name))
+        return fields[header.index(name)], True
+    return set(fields), False
+
+
 def check_provenance(c, given_files):
     """Each listed record's row hashes to its rowSha256, cites a declared source, is in any file supplied, and
-    carries the record's amounts. Returns (failures, amounts not found in their rows)."""
-    declared = {s["fileSha256"] for s in c["sources"]}
+    carries the record's currency and amounts. Returns (failures, amounts not found, records whose currency
+    could not be confirmed)."""
+    declared = {s["fileSha256"]: s for s in c["sources"]}
     failures = unbound = 0
+    currency_unconfirmed = set()
     for r in c["findingInputs"]["records"]:
         where = "%s:%d" % (r["sourceIdentity"], r["rowNumber"])
         if row_hash(r["sourceType"], r["sourceIdentity"], r["rawRow"]) != r["rowSha256"]:
             print("FAIL row %s does not hash to its rowSha256" % where)
             failures += 1
-        if r["fileSha256"] not in declared:
+        source = declared.get(r["fileSha256"])
+        if source is None:
             print("FAIL row %s cites a file that is not one of the bundle's sources" % where)
             failures += 1
         elif r["fileSha256"] in given_files and r["rawRow"] not in given_files[r["fileSha256"]]:
             print("FAIL row %s is not in the source file supplied" % where)
             failures += 1
+        if source is not None:
+            header = header_of(given_files[r["fileSha256"]]) if r["fileSha256"] in given_files else None
+            try:
+                stated, exact = row_currency(source.get("profile"), r["rawRow"], header)
+            except Unknown as e:
+                print("---- row %s: currency %s not confirmed (%s)" % (where, r["currency"], e))
+                currency_unconfirmed.add(r["recordKey"])
+            else:
+                if exact and stated != r["currency"]:
+                    print("FAIL row %s declares currency %s; its %s column says %s"
+                          % (where, r["currency"], CURRENCY_HEADER_BY_PROFILE[source.get("profile")], stated))
+                    failures += 1
+                    currency_unconfirmed.add(r["recordKey"])
+                elif not exact and r["currency"] not in stated:
+                    print("---- row %s: currency %s does not appear in the row; supply the source file to check it"
+                          % (where, r["currency"]))
+                    currency_unconfirmed.add(r["recordKey"])
         in_row = row_numbers(r["rawRow"])
         for field in ("grossAmount", "feeAmount", "netAmount"):
             if r[field] is not None and abs(Decimal(r[field])) not in in_row:
@@ -220,10 +267,10 @@ def check_provenance(c, given_files):
     records = c["findingInputs"]["records"]
     print("     provenance: %d record(s) checked against their rows; %d found in the source files supplied"
           % (len(records), sum(1 for r in records if r["fileSha256"] in given_files)))
-    return failures, unbound
+    return failures, unbound, currency_unconfirmed
 
 
-def check_findings(c):
+def check_findings(c, currency_unconfirmed):
     """Re-derive each exception. Returns (failed, not_rederivable, reproduced)."""
     if c["run"]["rulesetVersion"] != RULESET:
         print("     re-derivation skipped: this verifier implements %s, the run used %s" % (RULESET, c["run"]["rulesetVersion"]))
@@ -237,6 +284,12 @@ def check_findings(c):
         if missing:
             print("FAIL %s names %s, not listed in the bundle with that row" % (label, ", ".join(missing)))
             failed += 1
+            continue
+        uncertain = [x["recordKey"] for x in refs if x["recordKey"] in currency_unconfirmed]
+        if uncertain:
+            print("---- %s %s: not re-derivable (currency not confirmed from source row for %s)"
+                  % (label, ex["exposureAmount"], ", ".join(uncertain)))
+            not_rederivable += 1
             continue
         try:
             ccy, amount, how = rederive(ex, [records[x["recordKey"]] for x in refs], c["case"], c["findingInputs"]["feeSchedules"])
@@ -295,9 +348,9 @@ def main(argv):
             return 0 if ok else 1
         print("FAIL %s carries no finding inputs: exceptions cannot be re-derived" % bundle.get("bundleVersion"))
         return 1
-    failures, unbound = check_provenance(c, given)
+    failures, unbound, currency_unconfirmed = check_provenance(c, given)
     ok = failures == 0 and ok
-    failed, not_rederivable, reproduced = check_findings(c)
+    failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed)
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
     if not ok or failed:
