@@ -49,7 +49,9 @@ active:
     the verifier replays each run from its exact source files and proves which first finding raised each
     case issue, including recurring findings and newly exposed fees. Pre-V60 runs without snapshots
     remain unconfirmed rather than claiming a historical inventory.
-    Unsupported conditions remain unconfirmed. This is local-tested only, pending CI and review.
+    Unsupported conditions remain unconfirmed. CI and Security passed all eight checks on draft PR #179
+    (backend: 694 tests, 135 classes, none skipped or failed). Review, production observation and customer
+    validation remain open.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:
