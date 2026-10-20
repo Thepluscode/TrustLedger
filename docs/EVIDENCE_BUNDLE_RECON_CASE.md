@@ -72,6 +72,7 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | A payment mismatch cites the exact pair selected by R1/R2/R4; a fee mismatch cites a representative charge; a settlement comparison cites its unique paired line and charge | two unrelated rows happen to produce the claimed arithmetic or timing |
 | A duplicate-delivery finding cites every delivery of its provider event; a duplicate-financial-effect finding cites every distinct successful charge after delivery deduplication | an extra delivery was omitted, or two deliveries were mistaken for two charges |
 | For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
+| For simple CSV runs, a two-record `D-REFUND` mismatch has exactly one possible internal and provider refund allocation under the reference rules | the rows are unrelated or multiple allocations fit; ambiguity returns exit 3 |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
@@ -82,19 +83,19 @@ was not found verbatim in its row. A `/2` bundle without
 `findingInputs` fails; a `/1` bundle is checked for integrity only and returns exit 3.
 
 For simple CSV runs, a singleton `REFUND_MISMATCH` is also checked against the full input set when no
-plausible refund counterpart exists. A plausible counterpart whose allocation would require replay returns
-exit 3. `MISSING_SETTLEMENT` checks the representative successful charge, settlement coverage, due date,
+plausible refund counterpart exists. A two-record `D-REFUND` mismatch is confirmed only when its internal and
+provider rows uniquely select each other; competing candidates return exit 3. `MISSING_SETTLEMENT` checks the representative successful charge, settlement coverage, due date,
 and absence of a matching line. `UNMATCHED_SETTLEMENT_ITEM` checks that no charge exists for the line;
 a possible duplicate settlement line returns exit 3 because line ordering is not replayed.
-`MISSING_REFUND_SETTLEMENT`, a two-record refund comparison, and chargeback findings remain unconfirmed:
-their allocation or complete dispute history is not replayed. A run using Adyen, Checkout.com, or JSON event profiles
+`MISSING_REFUND_SETTLEMENT`, `D-SETTLED-REFUND` comparisons, and chargeback findings remain unconfirmed:
+their settlement allocation or complete dispute history is not replayed. A run using Adyen, Checkout.com, or JSON event profiles
 also returns exit 3 for absence findings. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks forty-two cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks forty-four cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
-PostgreSQL exports and requires all seven ACME exceptions and a terminal-status transition to reproduce.
+PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, and a unique refund mismatch to reproduce.
 
 ## What the bundle does not claim
 

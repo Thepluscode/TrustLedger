@@ -93,7 +93,7 @@ def main():
     expect("right arithmetic on unrelated records is not proof", 1,
            "not the payment pair selected by the full run", rehash(b), *sources)
 
-    # Direct condition control: arithmetic on a plausible refund pair is insufficient until allocation is replayed.
+    # Direct condition control: a forged refund type cannot borrow valid arithmetic from unrelated rows.
     b = copy.deepcopy(intact)
     e = exception(b, "REFUND_MISMATCH")
     e["evidence"]["records"] = [copy.deepcopy(exception(b, "MISSING_PROVIDER_RECORD")["evidence"]["records"][0]),
@@ -109,9 +109,32 @@ def main():
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         verdict = verifier.check_findings(b["content"], set(), supplied)
-    passed = verdict == (0, 1, 0) and "refund allocation is not replayed" in output.getvalue()
+    passed = verdict == (1, 0, 0) and "does not cite the unique refund pair" in output.getvalue()
     results.append(passed)
-    print("%s two-record refund arithmetic needs allocation replay" % ("PASS" if passed else "FAIL"))
+    print("%s forged two-record refund fails allocation replay" % ("PASS" if passed else "FAIL"))
+
+    internal_refund = verifier.source_record_values("internal-expected", "ledger", dict(
+        internal_ref="R1", provider="prov", provider_ref="tx1", event_type="REFUND", currency="GBP",
+        amount="8.00", expected_at="2026-08-04T10:00:00Z"))
+    internal_refund.update(importId="ledger-run", rowNumber=1)
+    provider_refund = verifier.source_record_values("provider-transactions", "prov", dict(
+        event_id="r1", transaction_ref="tx1", merchant_ref="R1", event_type="REFUND", status="SUCCESS",
+        currency="GBP", gross="7.00", occurred_at="2026-08-04T10:01:00Z"))
+    provider_refund.update(importId="provider-run", rowNumber=1)
+    replay = verifier.payment_matches([internal_refund, provider_refund])
+    passed = verifier.refund_pair_confirmed([internal_refund, provider_refund], [internal_refund, provider_refund], replay)
+    results.append(passed)
+    print("%s unique refund pair is confirmed" % ("PASS" if passed else "FAIL"))
+
+    rival = dict(internal_refund, importId="rival-run", rowNumber=2, internalRef="R2")
+    try:
+        verifier.refund_pair_confirmed([internal_refund, provider_refund], [internal_refund, rival, provider_refund],
+                                       verifier.payment_matches([internal_refund, rival, provider_refund]))
+        passed = False
+    except verifier.Unknown:
+        passed = True
+    results.append(passed)
+    print("%s ambiguous refund allocation remains unconfirmed" % ("PASS" if passed else "FAIL"))
 
     def charge(event_id, status, amount, minute, row):
         values = dict(event_id=event_id, transaction_ref="tx-status", event_type="CHARGE", status=status,
@@ -363,7 +386,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 42:
+    if len(results) < 44:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))

@@ -9,7 +9,7 @@
    was read from; that row must hash to its rowSha256, and a source file given here must contain it.
 3. Re-derivation (recon-case-bundle/2): each exception's amount is recomputed from those records and the
    fee schedules in the bundle. For the three simple CSV profiles, canonical fields are independently read
-   from named source columns and the complete run is replayed for missing payment and refund counterparts.
+   from named source columns and the complete run is replayed for missing counterparts and unique refund pairs.
    Unsupported absence checks are reported as incomplete, never passed.
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
@@ -515,6 +515,29 @@ def status_transition(ex, referenced, matched):
         before["paymentStatus"], after["paymentStatus"])
 
 
+def refund_pair_confirmed(referenced, records, matched):
+    """Confirm a D-REFUND pair only when both sides have exactly one possible allocation."""
+    internal = one(referenced, "EXPECTED_REFUND")
+    provider = one(referenced, "REFUND", "REVERSAL")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    money_back = [r for r in matched.deduped if r["eventType"] in ("REFUND", "REVERSAL")]
+    if identity(internal) not in {identity(r) for r in records if r["eventType"] == "EXPECTED_REFUND"} \
+            or identity(provider) not in {identity(r) for r in money_back}:
+        return False
+
+    def related(i, p):
+        return i["provider"] == p["provider"] and (
+            (i["stableRef"] is not None and i["stableRef"] == p["stableRef"])
+            or (p["internalRef"] is not None and p["internalRef"] == i["internalRef"]))
+
+    internal_candidates = [r for r in records if r["eventType"] == "EXPECTED_REFUND" and related(r, provider)]
+    provider_candidates = [r for r in money_back if related(internal, r)]
+    if len(internal_candidates) > 1 or len(provider_candidates) > 1:
+        raise Unknown("multiple refund allocations fit these references")
+    return len(internal_candidates) == len(provider_candidates) == 1 and identity(internal_candidates[0]) == identity(internal) \
+        and identity(provider_candidates[0]) == identity(provider)
+
+
 def absence_proven(ex, referenced, records, matched, case):
     """True only when the complete source-backed input set establishes the claimed missing counterpart."""
     t = ex["type"]
@@ -711,10 +734,20 @@ def check_findings(c, currency_unconfirmed, given_files):
         stated = (ex["exposureCurrency"], d(ex["exposureAmount"]))
         if amount is not None and (ccy, amount) == stated:
             if ex["type"] == "REFUND_MISMATCH" and len(refs) == 2:
-                print("---- %s %s: not re-derivable (refund allocation is not replayed)" %
-                      (label, ex["exposureAmount"]))
-                not_rederivable += 1
-                continue
+                try:
+                    if ex["ruleId"] != "D-REFUND" or universe_error is not None:
+                        raise Unknown("refund allocation is not replayed for this source profile")
+                    confirmed = refund_pair_confirmed([records[x["recordKey"]] for x in refs], complete_records, matched)
+                except Unknown as e:
+                    print("---- %s %s: not re-derivable (refund allocation unproven: %s)" %
+                          (label, ex["exposureAmount"], e))
+                    not_rederivable += 1
+                    continue
+                if not confirmed:
+                    print("FAIL %s does not cite the unique refund pair in the full run" % label)
+                    failed += 1
+                    continue
+                how += "; unique refund pair confirmed across the run inputs"
             if ex["type"] in ("CHARGEBACK_DEBITED", "UNMATCHED_CHARGEBACK_REVERSAL"):
                 print("---- %s %s: not re-derivable (complete dispute history is not replayed)" %
                       (label, ex["exposureAmount"]))
