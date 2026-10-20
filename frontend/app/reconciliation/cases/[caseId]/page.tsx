@@ -344,7 +344,7 @@ export default function ReconCasePage() {
                   <div className="entry"><span className="muted">Status</span><span><StatusPill value={bundle.bundleStatus} /></span></div>
                   <div className="entry"><span className="muted">Content hash</span><span className="mono" style={{ wordBreak: "break-all" }}>{bundle.contentHash}</span></div>
                   <div className="entry"><span className="muted">File</span><span>{bytes(bundle.byteSize)} · {bundle.signed ? "signed" : "unsigned (no signing key configured)"}</span></div>
-                  <div className="entry"><span className="muted">Verify offline</span><span className="mono">python3 scripts/verify_recon_bundle.py bundle.json</span></div>
+                  <div className="entry"><span className="muted">Verify offline</span><span className="mono">python3 scripts/verify_recon_bundle.py bundle.json [all source files]</span></div>
                   <div className="entry"><span /><button className="secondary" onClick={download}>Download JSON</button></div>
                 </div>
               )}

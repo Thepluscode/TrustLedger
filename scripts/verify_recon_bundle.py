@@ -11,10 +11,11 @@
    fee schedules in the bundle, by rules written here from the ruleset's specification, not imported from
    TrustLedger. A finding whose amount cannot be recomputed from the bundle is reported as such, never passed.
 
-Exit 0: everything checked is consistent and every exception was re-derived.
+Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
+        was re-derived.
 Exit 1: an integrity, provenance or re-derivation check failed.
-Exit 3: nothing failed, but at least one exception could not be re-derived from the bundle, or a record's
-        amount does not appear as a value in its source row.
+Exit 3: nothing failed, but source files were not all supplied, the bundle is integrity-only /1,
+        an exception could not be re-derived, or a record's amount could not be confirmed in its row.
 
 Checked only in part: that a source row means what the record says it means. Each record amount must appear,
 as a number, among its row's fields. A record's currency must equal the profile's currency column, found by
@@ -24,6 +25,7 @@ is proven only to match its own hash, which a forger could recompute; with them,
 """
 import csv
 import hashlib
+import io
 import json
 import sys
 from datetime import datetime, timedelta
@@ -211,12 +213,32 @@ def header_of(text):
     return [h.strip().lower() for h in next(csv.reader([text.lstrip("\ufeff").splitlines()[0]]), [])] if text else []
 
 
+def source_rows(profile, text):
+    """Rows by CSV record number (not physical line), as the importer numbers them. Empty lines are skipped."""
+    if profile == "provider-event-json":
+        return [text]
+    reader = csv.reader(io.StringIO(text.lstrip("\ufeff"), newline=""), strict=True)
+    next(reader, None)  # header
+    return [tuple(field.strip() for field in row) for row in reader if row]
+
+
+def row_at_number(profile, rows, number, raw):
+    if not isinstance(number, int) or number < 1 or number > len(rows):
+        return False
+    if profile == "provider-event-json":
+        return number == 1 and rows[0] == raw
+    parsed = next(csv.reader(io.StringIO(raw, newline=""), strict=True), None)
+    return parsed is not None and tuple(field.strip() for field in parsed) == rows[number - 1]
+
+
 def row_currency(profile, raw, header):
     """The record's currency as its source row states it. With the source file, from the profile's currency
     column located by name in that file's header. Without it, only whether the code appears in the row at all."""
     fields = [f.strip().upper() for f in next(csv.reader([raw]), [])]
     name = CURRENCY_HEADER_BY_PROFILE.get(profile)
-    if header is not None and name is not None:
+    if name is None:
+        raise Unknown("unsupported source profile %r" % profile)
+    if header is not None:
         if name not in header or header.index(name) >= len(fields):
             raise Unknown("the supplied %s file has no %r column" % (profile, name))
         return fields[header.index(name)], True
@@ -228,6 +250,7 @@ def check_provenance(c, given_files):
     carries the record's currency and amounts. Returns (failures, amounts not found, records whose currency
     could not be confirmed)."""
     declared = {s["fileSha256"]: s for s in c["sources"]}
+    rows_by_file = {}
     failures = unbound = 0
     currency_unconfirmed = set()
     for r in c["findingInputs"]["records"]:
@@ -239,9 +262,16 @@ def check_provenance(c, given_files):
         if source is None:
             print("FAIL row %s cites a file that is not one of the bundle's sources" % where)
             failures += 1
-        elif r["fileSha256"] in given_files and r["rawRow"] not in given_files[r["fileSha256"]]:
-            print("FAIL row %s is not in the source file supplied" % where)
-            failures += 1
+        elif r["fileSha256"] in given_files:
+            try:
+                if r["fileSha256"] not in rows_by_file:
+                    rows_by_file[r["fileSha256"]] = source_rows(source.get("profile"), given_files[r["fileSha256"]])
+                if not row_at_number(source.get("profile"), rows_by_file[r["fileSha256"]], r["rowNumber"], r["rawRow"]):
+                    print("FAIL row %s is not at its stated record number in the source file supplied" % where)
+                    failures += 1
+            except csv.Error as e:
+                print("FAIL row %s cannot be read at its stated record number: %s" % (where, e))
+                failures += 1
         if source is not None:
             header = header_of(given_files[r["fileSha256"]]) if r["fileSha256"] in given_files else None
             try:
@@ -280,9 +310,11 @@ def check_findings(c, currency_unconfirmed):
     for ex in c["exceptions"]:
         label = "%s %s" % (ex["type"], ex["exceptionId"][:8])
         refs = ex["evidence"]["records"]
-        missing = [x["recordKey"] for x in refs if records.get(x["recordKey"], {}).get("rowSha256") != x["rowSha256"]]
+        link_fields = ("importId", "sourceType", "rowNumber", "fileSha256", "rowSha256")
+        missing = [x["recordKey"] for x in refs if any(
+            records.get(x["recordKey"], {}).get(field) != x.get(field) for field in link_fields)]
         if missing:
-            print("FAIL %s names %s, not listed in the bundle with that row" % (label, ", ".join(missing)))
+            print("FAIL %s names %s, not listed in the bundle with that source row" % (label, ", ".join(missing)))
             failed += 1
             continue
         uncertain = [x["recordKey"] for x in refs if x["recordKey"] in currency_unconfirmed]
@@ -342,11 +374,15 @@ def main(argv):
     print("     status=%s ruleset=%s sources=%d matches=%d exceptions=%d" % (
         bundle.get("bundleStatus"), c["run"]["rulesetVersion"], len(c["sources"]), len(c["matches"]), len(c["exceptions"])))
 
+    version = bundle.get("bundleVersion")
+    if version == "recon-case-bundle/1":
+        print("     recon-case-bundle/1 is integrity only: exceptions were not re-derived")
+        return 3 if ok else 1
+    if version != "recon-case-bundle/2":
+        print("     bundle version %r is not supported for re-derivation" % version)
+        return 3 if ok else 1
     if "findingInputs" not in c:
-        if bundle.get("bundleVersion") == "recon-case-bundle/1":
-            print("     recon-case-bundle/1 carries no finding inputs: exceptions were not re-derived")
-            return 0 if ok else 1
-        print("FAIL %s carries no finding inputs: exceptions cannot be re-derived" % bundle.get("bundleVersion"))
+        print("FAIL recon-case-bundle/2 carries no finding inputs: exceptions cannot be re-derived")
         return 1
     failures, unbound, currency_unconfirmed = check_provenance(c, given)
     ok = failures == 0 and ok
@@ -355,7 +391,11 @@ def main(argv):
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
     if not ok or failed:
         return 1
-    return 3 if not_rederivable or unbound else 0
+    missing_sources = set(declared) - set(given)
+    if missing_sources:
+        print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
+              % (len(missing_sources), len(declared)))
+    return 3 if not_rederivable or unbound or missing_sources else 0
 
 
 if __name__ == "__main__":

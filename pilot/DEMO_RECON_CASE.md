@@ -35,7 +35,7 @@ Open **Money → Recon cases → ACME-2026-08**.
 | 8 | Assign → Move to investigating → add a comment | Every step is appended to a history that cannot be edited, even by us. |
 | 9 | Pick *Provider corrected*; show the button is blocked | Some decisions need evidence. Attach the credit note, select it, explain, confirm. |
 | 10 | Back to the case → **Export bundle** | INTERIM because six exceptions are still open. It becomes FINAL when the case is closed. |
-| 11 | Download, then run the verifier | `python3 scripts/verify_recon_bundle.py bundle.json backend/src/test/resources/fixtures/acme-2026-08/*.csv` — a 50-line script with none of our code. It reproduces the hash and confirms the files. Edit one number in the JSON and it fails. |
+| 11 | Download, then run the verifier | `python3 scripts/verify_recon_bundle.py bundle.json backend/src/test/resources/fixtures/acme-2026-08/*.csv` — an independent script with none of TrustLedger's application code. It checks the source files and recomputes each finding; without all source files it reports incomplete proof (exit 3). Edit one number in the JSON and it fails. |
 | 12 | Open the `limitations` block in the JSON | It says what this is not: not an audit opinion, not a certification, not verified against the provider. |
 
 ## If asked

@@ -21,7 +21,7 @@ Export needs `EVIDENCE_EXPORT` and `RECON_VIEW`. A case with no current run is r
 
 ```
 kind            RECONCILIATION_CASE_EVIDENCE
-bundleVersion   recon-case-bundle/1
+bundleVersion   recon-case-bundle/2
 bundleStatus    INTERIM while the case is open, FINAL once it is closed
 contentHash     sha256 of `content`
 content
@@ -65,24 +65,25 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | Check | Fails when |
 |---|---|
 | Each listed row hashes to its `rowSha256` (SHA-256 of source type, source identity and raw row, each followed by U+001F) | the row text was changed |
-| Each row's file is one of the bundle's sources, and is inside any source file given on the command line | a row and its hash were rewritten together (needs the file) |
+| Each row's file is one of the bundle's sources, and the row is at its cited CSV record number (or is the single JSON event) in the supplied source file | a row, its hash or its cited row number was rewritten (needs the file) |
 | Each record's currency equals the profile's currency column, found by name in the supplied file's header (TrustLedger reads columns by name, so their order may vary); without the file, the code must at least appear in the row | a record and its finding were rewritten together with a different currency (exit 1 with the file, 3 without) |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
-Exit 0: everything reproduced. Exit 1: something failed. Exit 3: nothing failed, but something could not be
-confirmed (a type or ruleset the verifier does not implement, `UNEXPECTED_STATUS_TRANSITION`, whose amount
-depends on a transaction's full event history, or an amount not found verbatim in its row). A `/2` bundle
-without `findingInputs` fails; a `/1` bundle is checked for integrity only, as before.
+Exit 0: every declared source file was supplied, its listed rows were checked, and every exception was
+reproduced. Exit 1: something failed. Exit 3: nothing failed, but proof is incomplete: a source file was
+not supplied, a type or ruleset is unsupported, `UNEXPECTED_STATUS_TRANSITION` depends on history the
+bundle does not list, or an amount was not found verbatim in its row. A `/2` bundle without
+`findingInputs` fails; a `/1` bundle is checked for integrity only and returns exit 3.
 
 What re-derivation does **not** establish: for "missing" findings (`MISSING_PROVIDER_RECORD`,
 `MISSING_SETTLEMENT`, …) the amount is recomputed but the absence of a counterpart is the run's finding over
 every imported row, which the bundle does not list in full; and the reading of a row's columns into
 statuses and references is the ruleset's, stated in the bundle, not re-derived.
 
-Negative controls: `python3 scripts/test_verify_recon_bundle.py` edits a real export (the SYNTHETIC
-ACME-2026-08 case, `scripts/fixtures/acme-interim-bundle.FIXTURE.json`) nineteen ways, recomputing the hash each
-time, and requires each edit to be caught. `CaseBundleIntegrationTest` runs the verifier against a fresh
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks twenty-six cases, including edits to a real
+export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
+the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against a fresh
 PostgreSQL export on every build and requires all seven ACME exceptions to reproduce.
 
 ## What the bundle does not claim

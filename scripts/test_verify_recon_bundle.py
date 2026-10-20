@@ -60,9 +60,10 @@ def main():
         if not passed:
             print(out)
 
-    # Positive twin: the intact export reproduces all seven exceptions, with and without its source files.
-    expect("intact bundle, all 7 reproduced", 0, "exceptions: 7 reproduced, 0 not re-derivable, 0 failed, of 7", intact)
+    # Arithmetic can be reproduced from the bundle alone, but source provenance cannot.
+    expect("intact bundle without sources is incomplete", 3, "source files: 4 of 4 not supplied", intact)
     expect("intact bundle with its 4 source files", 0, "10 found in the source files supplied", intact, *sources)
+    expect("intact bundle with one source missing is incomplete", 3, "source files: 1 of 4 not supplied", intact, *sources[:-1])
 
     b = copy.deepcopy(intact)
     b["content"]["run"]["exceptionCount"] = 0
@@ -107,7 +108,9 @@ def main():
         for e in b["content"]["exceptions"]:
             for ref in e["evidence"]["records"]:
                 ref["rowSha256"] = keys.get(ref["recordKey"], ref["rowSha256"])
-        expect("currency column first in a reordered file is still read", 0, "7 reproduced", rehash(b), f.name)
+                if ref["fileSha256"] == old:
+                    ref["fileSha256"] = digest
+        expect("currency column first in a reordered file is still read", 0, "7 reproduced", rehash(b), f.name, *sources[1:])
     finally:
         os.unlink(f.name)
 
@@ -129,7 +132,18 @@ def main():
         for ref in e["evidence"]["records"]:
             if ref["recordKey"] == r["recordKey"]:
                 ref["rowSha256"] = r["rowSha256"]
-    expect("row and its hash rewritten, caught by the source file", 1, "not in the source file supplied", rehash(b), *sources)
+    expect("row and its hash rewritten, caught by the source file", 1, "not at its stated record number", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    e = exception(b, "MISSING_PROVIDER_RECORD")
+    key = e["evidence"]["records"][0]["recordKey"]
+    record(b, key)["rowNumber"] += 1
+    e["evidence"]["records"][0]["rowNumber"] += 1
+    expect("row number changed in record and finding, rehashed", 1, "not at its stated record number", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    exception(b, "MISSING_PROVIDER_RECORD")["evidence"]["records"][0]["rowNumber"] += 1
+    expect("finding points to a different row, rehashed", 1, "not listed in the bundle with that source row", rehash(b), *sources)
 
     # Amount and exception changed together re-derive consistently; the row no longer carries the amount.
     b = copy.deepcopy(intact)
@@ -156,6 +170,23 @@ def main():
     expect("a /2 bundle without its inputs, rehashed", 1, "cannot be re-derived", rehash(b))
 
     b = copy.deepcopy(intact)
+    b["bundleVersion"] = "recon-case-bundle/1"
+    del b["content"]["findingInputs"]
+    expect("a /1 bundle is integrity only", 3, "integrity only", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["bundleVersion"] = "recon-case-bundle/1"
+    expect("a /1 label cannot promote /2 inputs", 3, "integrity only", b, *sources)
+
+    b = copy.deepcopy(intact)
+    b["bundleVersion"] = "recon-case-bundle/9"
+    expect("an unknown bundle version is not passed", 3, "not supported for re-derivation", b, *sources)
+
+    b = copy.deepcopy(intact)
+    next(s for s in b["content"]["sources"] if s["profile"] == "internal-expected")["profile"] = "future-profile"
+    expect("an unknown source profile is not passed", 3, "unsupported source profile", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     exception(b, "REFUND_MISMATCH")["type"] = "SOME_FUTURE_TYPE"
     expect("unknown finding type is not passed", 3, "1 not re-derivable", rehash(b))
 
@@ -170,7 +201,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 19:
+    if len(results) < 26:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))

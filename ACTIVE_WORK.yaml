@@ -12,7 +12,7 @@ active:
   priority: P0                 # founder instruction, 2026-10-20: "GO" on the re-derivation verifier
   status: IN_PROGRESS
   claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/rederive-verifier
+  branch: codex/source-bound-proof
   source: "ACTIVE_WORK.yaml history 2026-10-20 (FOUNDER_OVERRIDE: GO on the recommendation to make bundle conclusions reproducible)"
   corroborated_by:
     - scripts/verify_recon_bundle.py
@@ -23,7 +23,8 @@ active:
     each record an exception names, with the values the rules read and the exact source row, and the fee
     schedules on record. scripts/verify_recon_bundle.py, which shares no code with TrustLedger, proves each
     row against its hash and the source file, and recomputes every exception's amount; a finding it cannot
-    recompute is reported as such, never passed. No UI, no migration, no money movement.
+    recompute is reported as such, never passed. The follow-up after PR 177 requires every declared source
+    file and binds each cited row to its record number before returning success. No migration or money movement.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:
