@@ -13,6 +13,8 @@
    Unsupported absence checks are reported as incomplete, never passed.
 4. Single-run inventory: the listed exceptions agree with the run's recorded counts and currency totals.
    A multi-run case's historical issue inventory cannot be established from this format and stays incomplete.
+5. Full finding set: for generic CSV runs, independently enumerate every finding from the complete source
+   rows. A coordinated change to listed findings and run totals cannot hide a finding the rows still produce.
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
         was re-derived.
@@ -33,6 +35,7 @@ import sys
 from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
+from replay_simple_recon_findings import ReplayUnknown, bundled_findings, replay
 
 RULESET = "recon-rules/1.2.0"
 FOUR = Decimal("0.0001")
@@ -673,19 +676,21 @@ def check_provenance(c, given_files):
     return failures, unbound, currency_unconfirmed
 
 
-def check_findings(c, currency_unconfirmed, given_files):
+def source_universe(c, given_files):
+    try:
+        complete_records = run_records(c, given_files)
+        return complete_records, payment_matches(complete_records), None
+    except Unknown as e:
+        return None, None, e
+
+
+def check_findings(c, currency_unconfirmed, given_files, universe=None):
     """Re-derive each exception. Returns (failed, not_rederivable, reproduced)."""
     if c["run"]["rulesetVersion"] != RULESET:
         print("     re-derivation skipped: this verifier implements %s, the run used %s" % (RULESET, c["run"]["rulesetVersion"]))
         return 0, len(c["exceptions"]), 0
     records = {r["recordKey"]: r for r in c["findingInputs"]["records"]}
-    try:
-        complete_records = run_records(c, given_files)
-        matched = payment_matches(complete_records)
-        universe_error = None
-    except Unknown as e:
-        complete_records = matched = None
-        universe_error = e
+    complete_records, matched, universe_error = source_universe(c, given_files) if universe is None else universe
     failed = not_rederivable = reproduced = 0
     for ex in c["exceptions"]:
         label = "%s %s" % (ex["type"], ex["exceptionId"][:8])
@@ -800,6 +805,35 @@ def check_findings(c, currency_unconfirmed, given_files):
     return failed, not_rederivable, reproduced
 
 
+def check_full_finding_set(c, universe):
+    if c["run"]["rulesetVersion"] != RULESET:
+        return 0, 1
+    if c["run"].get("earlierRunKeys") != []:
+        return 0, 1
+    complete_records, matched, universe_error = universe
+    if universe_error is not None:
+        print("---- full finding replay: %s" % universe_error)
+        return 0, 1
+    try:
+        expected = replay(complete_records, matched, c["case"], c["findingInputs"]["feeSchedules"])
+        listed = bundled_findings(c["exceptions"])
+    except ReplayUnknown as e:
+        print("---- full finding replay: %s" % e)
+        return 0, 1
+    if expected != listed:
+        missing = expected - listed
+        extra = listed - expected
+        print("FAIL full source replay found %d missing and %d unsupported listed finding(s)" %
+              (sum(missing.values()), sum(extra.values())))
+        for signature in list(missing)[:3]:
+            print("     missing: %s %s %s %s from %s" % signature)
+        for signature in list(extra)[:3]:
+            print("     unsupported: %s %s %s %s from %s" % signature)
+        return 1, 0
+    print("     full source replay: %d finding(s) independently enumerated" % sum(expected.values()))
+    return 0, 0
+
+
 def check_finding_inventory(c):
     """Bind a single run's exported issue list to its recorded finding counts."""
     run, exceptions = c["run"], c["exceptions"]
@@ -891,18 +925,20 @@ def main(argv):
         print("FAIL recon-case-bundle/2 carries no finding inputs: exceptions cannot be re-derived")
         return 1
     inventory_failed, inventory_incomplete = check_finding_inventory(c)
+    universe = source_universe(c, given)
     failures, unbound, currency_unconfirmed = check_provenance(c, given)
     ok = failures == 0 and ok
-    failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given)
+    failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
+    replay_failed, replay_incomplete = check_full_finding_set(c, universe)
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
-    if not ok or failed or inventory_failed:
+    if not ok or failed or inventory_failed or replay_failed:
         return 1
     missing_sources = set(declared) - set(given)
     if missing_sources:
         print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
               % (len(missing_sources), len(declared)))
-    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete else 0
+    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete else 0
 
 
 if __name__ == "__main__":

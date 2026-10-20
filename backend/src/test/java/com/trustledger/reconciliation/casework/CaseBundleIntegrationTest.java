@@ -7,7 +7,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -95,17 +97,18 @@ class CaseBundleIntegrationTest {
         return "sha256:" + Hashes.sha256(json.writeValueAsString(content).getBytes(StandardCharsets.UTF_8));
     }
 
-    private String verifyTwoSourceBundle(JsonNode bundle, String internal, String provider) throws Exception {
+    private String verifySourceBundle(JsonNode bundle, String... sources) throws Exception {
         Path dir = Path.of("target/recon-bundle");
         Files.createDirectories(dir);
         Path bundleFile = Files.createTempFile(dir, "proof-bundle-", ".json");
-        Path internalFile = Files.createTempFile(dir, "proof-internal-", ".csv");
-        Path providerFile = Files.createTempFile(dir, "proof-provider-", ".csv");
         Files.writeString(bundleFile, json.writeValueAsString(bundle));
-        Files.writeString(internalFile, internal);
-        Files.writeString(providerFile, provider);
-        Process p = new ProcessBuilder("python3", "../scripts/verify_recon_bundle.py", bundleFile.toString(),
-            internalFile.toString(), providerFile.toString()).redirectErrorStream(true).start();
+        List<String> command = new ArrayList<>(List.of("python3", "../scripts/verify_recon_bundle.py", bundleFile.toString()));
+        for (String source : sources) {
+            Path file = Files.createTempFile(dir, "proof-source-", ".csv");
+            Files.writeString(file, source);
+            command.add(file.toString());
+        }
+        Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, p.waitFor(), out);
         return out;
@@ -201,7 +204,7 @@ class CaseBundleIntegrationTest {
         assertEquals("UNEXPECTED_STATUS_TRANSITION", bundle.get("content").get("exceptions").get(0).get("type").asString());
         assertEquals("12.0000", bundle.get("content").get("exceptions").get(0).get("exposureAmount").asString());
 
-        String out = verifyTwoSourceBundle(bundle, internal, provider);
+        String out = verifySourceBundle(bundle, internal, provider);
         assertTrue(out.contains("exceptions: 1 reproduced, 0 not re-derivable, 0 failed, of 1"), out);
         assertTrue(out.contains("FAILED then SUCCESS; gross of the representative charge"), out);
     }
@@ -226,9 +229,85 @@ class CaseBundleIntegrationTest {
         assertEquals("REFUND_MISMATCH", bundle.get("content").get("exceptions").get(0).get("type").asString());
         assertEquals("1.0000", bundle.get("content").get("exceptions").get(0).get("exposureAmount").asString());
 
-        String out = verifyTwoSourceBundle(bundle, internal, provider);
+        String out = verifySourceBundle(bundle, internal, provider);
         assertTrue(out.contains("exceptions: 1 reproduced, 0 not re-derivable, 0 failed, of 1"), out);
         assertTrue(out.contains("unique refund pair confirmed across the run inputs"), out);
+    }
+
+    @Test
+    void aCleanRunHasAnIndependentlyEmptyFindingSet() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "CLEAN-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,12.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,12.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "clean-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "clean-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(0, bundle.get("content").get("exceptions").size());
+        assertTrue(verifySourceBundle(bundle, internal, provider).contains("full source replay: 0 finding(s) independently enumerated"));
+    }
+
+    @Test
+    void paymentAmountCurrencyAndStatusFindingsReplayTogether() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "PAIR-RULES-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,100.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P2,prov,tx2,PAYMENT,GBP,30.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P3,prov,tx3,PAYMENT,GBP,40.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P4,prov,tx4,PAYMENT,GBP,50.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,110.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx2,P2,CHARGE,PENDING,GBP,30.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e3,tx3,P3,CHARGE,FAILED,GBP,40.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e4,tx4,P4,CHARGE,SUCCESS,USD,50.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "pair-rules-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "pair-rules-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(4, bundle.get("content").get("exceptions").size());
+        String out = verifySourceBundle(bundle, internal, provider);
+        assertTrue(out.contains("full source replay: 4 finding(s) independently enumerated"), out);
+        assertTrue(out.contains("exceptions: 4 reproduced, 0 not re-derivable, 0 failed, of 4"), out);
+    }
+
+    @Test
+    void settlementNetAbsenceAndUnmatchedLineReplayTogether() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "SETTLEMENT-RULES-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,100.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P2,prov,tx2,PAYMENT,GBP,50.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P3,prov,tx3,PAYMENT,GBP,30.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,100.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx2,P2,CHARGE,SUCCESS,GBP,50.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e3,tx3,P3,CHARGE,SUCCESS,GBP,30.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        String settlement = "batch_id,transaction_ref,currency,gross,fee,net,settled_at\n"
+            + "batch-1,tx1,GBP,100.00,5.00,90.00,2026-08-04T10:00:00Z\n"
+            + "batch-1,tx3,GBP,30.00,0.00,30.00,2026-08-04T10:00:00Z\n"
+            + "batch-1,tx999,GBP,20.00,2.00,18.00,2026-08-04T10:00:00Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "settlement-rules-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "settlement-rules-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "SETTLEMENT", "prov", "provider-settlement",
+            "settlement-rules-lines.csv", settlement.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(3, bundle.get("content").get("exceptions").size());
+        String out = verifySourceBundle(bundle, internal, provider, settlement);
+        assertTrue(out.contains("full source replay: 3 finding(s) independently enumerated"), out);
+        assertTrue(out.contains("NET_SETTLEMENT_MISMATCH"), out);
+        assertTrue(out.contains("MISSING_SETTLEMENT"), out);
+        assertTrue(out.contains("UNMATCHED_SETTLEMENT_ITEM"), out);
     }
 
     @Test

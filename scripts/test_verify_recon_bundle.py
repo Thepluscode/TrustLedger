@@ -90,6 +90,23 @@ def main():
            "exposure totals differ from the run's unresolved totals", rehash(b), *sources)
 
     b = copy.deepcopy(intact)
+    removed = next(e for e in b["content"]["exceptions"] if e["type"] == "FEE_MISMATCH")
+    b["content"]["exceptions"].remove(removed)
+    b["content"]["run"]["exceptionCount"] -= 1
+    b["content"]["run"]["summary"]["exceptionsByType"].pop("FEE_MISMATCH")
+    next(t for t in b["content"]["run"]["unresolvedAtRunByCurrency"] if t["currency"] == "GBP")["unresolvedAmount"] = "50.0000"
+    expect("coordinated omission fails independent source replay", 1,
+           "full source replay found 1 missing", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
+    b["content"]["exceptions"] = []
+    b["content"]["run"]["exceptionCount"] = 0
+    b["content"]["run"]["summary"]["exceptionsByType"] = {}
+    b["content"]["run"]["unresolvedAtRunByCurrency"] = []
+    expect("coordinated false clean run fails independent source replay", 1,
+           "full source replay found 7 missing", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     b["content"]["exceptions"][0]["raisedByRunId"] = "another-run"
     expect("exception claims another run", 1, "is not bound to this run and ruleset", rehash(b), *sources)
 
@@ -332,7 +349,10 @@ def main():
               1, "does not cite every delivery")
     extra_row("plausible refund counterpart is left unconfirmed", 0,
               b"P09,provider-a,pa_tx_009,REFUND,NGN,10000.00,2026-08-06T14:30:00Z,PAID\n",
-              3, "possible refund counterpart exists")
+              1, "full source replay found")
+    extra_row("unlisted independent discrepancy fails source replay", 0,
+              b"P13,provider-a,pa_tx_013,PAYMENT,NGN,1.00,2026-08-06T14:30:00Z,PAID\n",
+              1, "full source replay found 1 missing")
 
     b = copy.deepcopy(intact)
     e = exception(b, "LATE_SETTLEMENT")
@@ -434,7 +454,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 53:
+    if len(results) < 56:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))

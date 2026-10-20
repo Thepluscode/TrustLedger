@@ -74,6 +74,7 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
 | For simple CSV runs, a two-record `D-REFUND` mismatch has exactly one possible internal and provider refund allocation under the reference rules | the rows are unrelated or multiple allocations fit; ambiguity returns exit 3 |
 | For a case with one run, the exported exception count, types, and exposure totals by currency agree with the run inventory; each exception ID is unique and its run and ruleset references agree | a finding is removed, duplicated, retyped, or attributed to another run while its amount remains plausible |
+| For a single run using only the three generic CSV profiles, an independent Python pass enumerates every finding from all accepted source rows and compares type, rule, currency, amount, and exact source rows with the bundle | a finding is omitted together with its recorded count, type, and exposure totals; a new unrelated discrepancy exists in the source but not the bundle; a false clean run is declared |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
@@ -96,13 +97,17 @@ show consistency with the bundle, not that a bank or provider independently vouc
 A case with earlier runs returns exit 3 for finding-inventory completeness. The exporter lists case issues,
 including issues raised by earlier runs, but exports only the latest run's finding counts; the current format
 cannot prove the historical issue inventory. For a single run, the count and type checks bind the list to the
-recorded run inventory and the per-currency exposure totals. A coordinated rewrite of both the list and the run inventory still requires a full
-independent finding replay to detect, so this check alone is not a completeness proof.
+recorded run inventory and the per-currency exposure totals. For the three generic CSV profiles, the full
+source replay closes the coordinated-omission gap: it derives the expected finding set without using the
+bundle's exception list or run totals. It refuses ambiguous refund allocation and duplicate settlement-line
+ordering, returning exit 3. Provider-specific profiles do not yet have a full source replay and return exit 3.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-three cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-six cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
-PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, and a unique refund mismatch to reproduce.
+PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, a unique refund mismatch,
+a truly clean case, four payment comparison/status findings, and three settlement net/absence/orphan findings
+to reproduce. Nine tests executed with no skips.
 
 ## What the bundle does not claim
 
