@@ -67,6 +67,8 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | Each listed row hashes to its `rowSha256` (SHA-256 of source type, source identity and raw row, each followed by U+001F) | the row text was changed |
 | Each row's file is one of the bundle's sources, and the row is at its cited CSV record number (or is the single JSON event) in the supplied source file | a row, its hash or its cited row number was rewritten (needs the file) |
 | Each record's currency equals the profile's currency column, found by name in the supplied file's header (TrustLedger reads columns by name, so their order may vary); without the file, the code must at least appear in the row | a record and its finding were rewritten together with a different currency (exit 1 with the file, 3 without) |
+| For `internal-expected`, `provider-transactions`, and `provider-settlement` v1, each cited record's references, status, times, gross, fee and net agree with the named columns in its supplied CSV row | a canonical value was replaced by a different field from the same row |
+| For those three profiles, the run's import IDs and file hashes agree with the source manifests; every CSV record is accounted for, including listed rejections; payment and simple settlement matching are replayed over the full source files | a missing payment or settlement finding has a counterpart in the supplied run |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
@@ -76,12 +78,16 @@ not supplied, a type or ruleset is unsupported, `UNEXPECTED_STATUS_TRANSITION` d
 bundle does not list, or an amount was not found verbatim in its row. A `/2` bundle without
 `findingInputs` fails; a `/1` bundle is checked for integrity only and returns exit 3.
 
-What re-derivation does **not** establish: for "missing" findings (`MISSING_PROVIDER_RECORD`,
-`MISSING_SETTLEMENT`, …) the amount is recomputed but the absence of a counterpart is the run's finding over
-every imported row, which the bundle does not list in full; and the reading of a row's columns into
-statuses and references is the ruleset's, stated in the bundle, not re-derived.
+For simple CSV runs, a singleton `REFUND_MISMATCH` is also checked against the full input set when no
+plausible refund counterpart exists. A plausible counterpart whose allocation would require replay returns
+exit 3. `MISSING_SETTLEMENT` checks the representative successful charge, settlement coverage, due date,
+and absence of a matching line. `UNMATCHED_SETTLEMENT_ITEM` checks that no charge exists for the line;
+a possible duplicate settlement line returns exit 3 because line ordering is not replayed.
+`MISSING_REFUND_SETTLEMENT` remains unconfirmed. A run using Adyen, Checkout.com, or JSON event profiles
+also returns exit 3 for absence findings. The source files are the verifier's trust boundary: their hashes
+show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks twenty-six cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks thirty-four cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against a fresh
 PostgreSQL export on every build and requires all seven ACME exceptions to reproduce.

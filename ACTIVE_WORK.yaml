@@ -25,6 +25,9 @@ active:
     row against its hash and the source file, and recomputes every exception's amount; a finding it cannot
     recompute is reported as such, never passed. The follow-up after PR 177 requires every declared source
     file and binds each cited row to its record number before returning success. No migration or money movement.
+    For the three generic CSV profiles, the verifier also reads canonical fields from named columns and
+    replays full-run payment and simple settlement matching before confirming a missing counterpart; unsupported absence
+    rules remain unconfirmed. This is local-tested only, pending CI and review.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:

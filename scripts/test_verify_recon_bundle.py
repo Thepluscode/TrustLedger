@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import verify_recon_bundle as verifier
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERIFIER = os.path.join(HERE, "verify_recon_bundle.py")
@@ -99,6 +100,8 @@ def main():
         for s in b["content"]["sources"]:
             if s["fileSha256"] == old:
                 s["fileSha256"] = digest
+        b["content"]["run"]["summary"]["importFileHashes"] = [
+            digest if x == old else x for x in b["content"]["run"]["summary"]["importFileHashes"]]
         for r in b["content"]["findingInputs"]["records"]:
             if r["fileSha256"] == old:
                 r["fileSha256"] = digest
@@ -153,6 +156,86 @@ def main():
     expect("record and exception changed together, not confirmed", 3, "is not a value in the row", rehash(b))
 
     b = copy.deepcopy(intact)
+    key = exception(b, "MISSING_PROVIDER_RECORD")["evidence"]["records"][0]["recordKey"]
+    record(b, key)["stableRef"] = "pa_tx_010"
+    expect("missing counterpart reference forged, rehashed", 1, "stableRef differs from its source row", rehash(b), *sources)
+
+    # Add real counterparts to the complete input set, updating the inventory consistently.
+    # A finding must not remain confirmed merely because its own cited row and arithmetic did not change.
+    def extra_row(name, source_index, line, code, needle):
+        with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+            f.write(open(sources[source_index], "rb").read())
+            f.write(line)
+        try:
+            b = copy.deepcopy(intact)
+            source = next(s for s in b["content"]["sources"] if s["filename"] == os.path.basename(sources[source_index]))
+            old, digest = source["fileSha256"], hashlib.sha256(open(f.name, "rb").read()).hexdigest()
+            source["fileSha256"] = digest
+            source["recordCount"] += 1
+            source["acceptedCount"] += 1
+            b["content"]["run"]["recordsProcessed"] += 1
+            b["content"]["run"]["summary"]["importFileHashes"] = [
+                digest if x == old else x for x in b["content"]["run"]["summary"]["importFileHashes"]]
+            for r in b["content"]["findingInputs"]["records"]:
+                if r["fileSha256"] == old:
+                    r["fileSha256"] = digest
+            for e in b["content"]["exceptions"]:
+                for ref in e["evidence"]["records"]:
+                    if ref["fileSha256"] == old:
+                        ref["fileSha256"] = digest
+            supplied = [f.name if index == source_index else path for index, path in enumerate(sources)]
+            expect(name, code, needle, rehash(b), *supplied)
+        finally:
+            os.unlink(f.name)
+
+    extra_row("new charge contradicts missing provider", 1,
+              b"evt_a_011,pa_tx_011,P11,CHARGE,SUCCESS,NGN,15000.00,0.00,15000.00,2026-08-05T09:05:01Z,2026-08-05T09:05:02Z\n",
+              1, "claims a missing counterpart")
+    extra_row("new internal payment contradicts missing internal", 0,
+              b"P12,provider-b,pb_tx_900,PAYMENT,GBP,45.00,2026-08-03T10:05:00Z,PAID\n",
+              1, "claims a missing counterpart")
+    extra_row("plausible refund counterpart is left unconfirmed", 0,
+              b"P09,provider-a,pa_tx_009,REFUND,NGN,10000.00,2026-08-06T14:30:00Z,PAID\n",
+              3, "possible refund counterpart exists")
+
+    b = copy.deepcopy(intact)
+    e = exception(b, "LATE_SETTLEMENT")
+    charge = next(ref for ref in e["evidence"]["records"] if ref["sourceType"] == "PROVIDER_TRANSACTION")
+    e["type"] = "MISSING_SETTLEMENT"
+    e["evidence"]["records"] = [charge]
+    e["exposureAmount"] = record(b, charge["recordKey"])["netAmount"]
+    expect("a settled charge cannot claim missing settlement", 1,
+           "claims a missing counterpart", rehash(b), *sources)
+
+    c = intact["content"]
+    supplied = {}
+    for path in sources:
+        with open(path, "rb") as f:
+            data = f.read()
+        supplied[hashlib.sha256(data).hexdigest()] = data.decode("utf-8")
+    complete = verifier.run_records(c, supplied)
+    matched = verifier.payment_matches(complete)
+    charge_row = record(intact, charge["recordKey"])
+    without_line = [r for r in complete if not (r["eventType"] == "SETTLEMENT_LINE"
+                    and r["provider"] == charge_row["provider"] and r["stableRef"] == charge_row["stableRef"])]
+    confirmed = verifier.absence_proven({"type": "MISSING_SETTLEMENT"}, [charge_row], without_line, matched, c["case"])
+    results.append(confirmed)
+    print("%s missing settlement after removing its line" % ("PASS" if confirmed else "FAIL"))
+    line = next(r for r in complete if r["eventType"] == "SETTLEMENT_LINE")
+    orphan = dict(line, stableRef="pb_tx_orphan")
+    with_orphan = [orphan if r is line else r for r in complete]
+    confirmed = verifier.absence_proven({"type": "UNMATCHED_SETTLEMENT_ITEM"}, [orphan], with_orphan, matched, c["case"])
+    results.append(confirmed)
+    print("%s orphan settlement line has no charge" % ("PASS" if confirmed else "FAIL"))
+
+    b = copy.deepcopy(intact)
+    e = exception(b, "FEE_MISMATCH")
+    key = e["evidence"]["records"][0]["recordKey"]
+    record(b, key)["feeAmount"] = "117.6000"  # a real value in that row, but it is the net, not the fee
+    e["exposureAmount"] = "115.8000"
+    expect("fee replaced by another value in its row", 1, "feeAmount differs from its source row", rehash(b), *sources)
+
+    b = copy.deepcopy(intact)
     b["content"]["findingInputs"]["feeSchedules"][0]["percentageBps"] = 200
     expect("fee schedule changed, rehashed", 1, "FAIL FEE_MISMATCH", rehash(b))
 
@@ -188,7 +271,7 @@ def main():
 
     b = copy.deepcopy(intact)
     exception(b, "REFUND_MISMATCH")["type"] = "SOME_FUTURE_TYPE"
-    expect("unknown finding type is not passed", 3, "1 not re-derivable", rehash(b))
+    expect("unknown finding type is not passed", 3, "1 not re-derivable", rehash(b), *sources)
 
     b = copy.deepcopy(intact)
     b["content"]["run"]["rulesetVersion"] = "recon-rules/9.9.9"
@@ -201,7 +284,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 26:
+    if len(results) < 34:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))
