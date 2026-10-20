@@ -57,6 +57,8 @@ public class CaseworkStore {
 
     public record RunTotal(String currency, BigDecimal unresolvedAmount) {}
 
+    public record RunProofRow(String json, String sha256) {}
+
     public record MatchRow(UUID id, UUID leftRecordId, UUID rightRecordId, String ruleId, String ruleVersion,
                            int stage, String detail) {}
 
@@ -375,6 +377,16 @@ public class CaseworkStore {
             r.id(), tenantId, r.caseId(), r.runKey(), r.rulesetVersion(), r.recordsProcessed(), r.internalPayments(),
             r.internalMatched(), r.rejectedInputs(), r.exceptionCount(), r.summary(), r.startedBy(), r.correlationId(),
             ts(r.startedAt()), ts(r.completedAt()));
+    }
+
+    public void insertRunProof(UUID tenantId, UUID runId, String proofJson) {
+        jdbc.update("INSERT INTO recon_run_proofs (run_id, tenant_id, proof_json, sha256) VALUES (?, ?, ?, ?)",
+            runId, tenantId, proofJson, Hashes.sha256(proofJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    public Optional<RunProofRow> findRunProof(UUID tenantId, UUID runId) {
+        return one(jdbc.query("SELECT proof_json, sha256 FROM recon_run_proofs WHERE tenant_id = ? AND run_id = ?",
+            (rs, n) -> new RunProofRow(rs.getString(1), rs.getString(2).trim()), tenantId, runId));
     }
 
     public void insertRunTotals(UUID runId, List<RunTotal> totals) {

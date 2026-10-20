@@ -5,7 +5,6 @@ import com.trustledger.app.ReconciliationResolutionService;
 import com.trustledger.app.ReconciliationResolutionService.Activity;
 import com.trustledger.observability.CorrelationId;
 import com.trustledger.persistence.entity.EvidenceExportEntity;
-import com.trustledger.persistence.entity.ProviderFeeScheduleEntity;
 import com.trustledger.persistence.entity.ReconciliationIssueEntity;
 import com.trustledger.persistence.repo.ProviderFeeScheduleRepository;
 import com.trustledger.persistence.repo.ReconciliationIssueRepository;
@@ -202,6 +201,31 @@ public class CaseBundleService {
         content.put("sources", sources);
 
         RunRow run = runs.get(0); // newest first
+        List<Map<String, Object>> runProofs = new ArrayList<>();
+        List<String> runsWithoutProof = new ArrayList<>();
+        Map<String, Object> latestProof = null;
+        for (RunRow past : runs.stream().sorted(Comparator.comparing(RunRow::runKey)).toList()) {
+            var storedProof = store.findRunProof(tenantId, past.id());
+            if (storedProof.isEmpty()) {
+                runsWithoutProof.add(past.id().toString());
+                continue;
+            }
+            var row = storedProof.get();
+            String actualHash = Hashes.sha256(row.json().getBytes(StandardCharsets.UTF_8));
+            if (!actualHash.equals(row.sha256())) throw new ConflictException("run proof checksum changed: " + past.id());
+            Map<String, Object> proof = json.readValue(row.json(), Map.class);
+            if (!"recon-run-proof/1".equals(proof.get("version")) || !past.id().toString().equals(proof.get("runId"))
+                || !c.id().toString().equals(proof.get("caseId"))) {
+                throw new ConflictException("run proof identity changed: " + past.id());
+            }
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("sha256", "sha256:" + actualHash);
+            entry.put("proof", proof);
+            runProofs.add(entry);
+            if (past.id().equals(run.id())) latestProof = proof;
+        }
+        content.put("runProofs", runProofs);
+        content.put("runsWithoutProof", runsWithoutProof);
         Map<String, Object> rm = new LinkedHashMap<>();
         rm.put("runId", run.id().toString());
         rm.put("runKey", run.runKey());
@@ -303,7 +327,11 @@ public class CaseBundleService {
             exceptions.add(em);
         }
         content.put("exceptions", exceptions);
-        content.put("findingInputs", findingInputs(tenantId, c.id(), inputKeys, imports));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> schedulesAtRun = latestProof == null
+            ? RunProof.feeSchedules(feeSchedules.findByTenantIdOrderByEffectiveFromDesc(tenantId))
+            : (List<Map<String, Object>>) latestProof.get("feeSchedules");
+        content.put("findingInputs", findingInputs(tenantId, c.id(), inputKeys, imports, schedulesAtRun));
 
         // What is still undecided NOW, as opposed to what the run found. Per currency, never combined.
         Map<String, java.math.BigDecimal> open = new java.util.TreeMap<>();
@@ -331,7 +359,8 @@ public class CaseBundleService {
      * exception names, with the values the rules read and the exact source row they were read from, and the fee
      * schedules on record. {@code scripts/verify_recon_bundle.py} re-derives each exception's amount from these.
      */
-    private Map<String, Object> findingInputs(UUID tenantId, UUID caseId, Set<String> keys, List<ImportRow> imports) {
+    private Map<String, Object> findingInputs(UUID tenantId, UUID caseId, Set<String> keys, List<ImportRow> imports,
+                                              List<Map<String, Object>> schedules) {
         Map<UUID, ImportRow> importById = new HashMap<>();
         for (ImportRow i : imports) importById.put(i.id(), i);
         List<Map<String, Object>> records = new ArrayList<>();
@@ -361,22 +390,6 @@ public class CaseBundleService {
             m.put("paymentStatus", r.paymentStatus());
             m.put("settlementBatch", r.settlementBatch());
             records.add(m);
-        }
-        List<Map<String, Object>> schedules = new ArrayList<>();
-        List<ProviderFeeScheduleEntity> onRecord = new ArrayList<>(feeSchedules.findByTenantIdOrderByEffectiveFromDesc(tenantId));
-        onRecord.sort(Comparator.comparing(ProviderFeeScheduleEntity::getProvider).thenComparing(ProviderFeeScheduleEntity::getCurrency)
-            .thenComparing(ProviderFeeScheduleEntity::getEffectiveFrom));
-        for (ProviderFeeScheduleEntity s : onRecord) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("scheduleId", str(s.getId()));
-            m.put("provider", s.getProvider());
-            m.put("currency", s.getCurrency());
-            m.put("percentageBps", s.getPercentageBps());
-            m.put("flatFee", plain(s.getFlatFee()));
-            m.put("feeCap", plain(s.getFeeCap()));
-            m.put("tolerance", plain(s.getTolerance()));
-            m.put("effectiveFrom", str(s.getEffectiveFrom()));
-            schedules.add(m);
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("records", records);

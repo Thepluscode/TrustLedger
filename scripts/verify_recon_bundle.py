@@ -83,6 +83,208 @@ def row_hash(source_type, source_identity, raw):
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+def computed_run_key(c):
+    """Recompute the Java run identity from exported inputs, without reading TrustLedger state."""
+    tenant_ids = set()
+    for source in c["sources"]:
+        match = re.match(r"^evidence/([0-9a-f-]{36})/", source["evidenceStorageKey"] or "")
+        if match is None:
+            raise Unknown("source storage path does not identify its tenant")
+        tenant_ids.add(match.group(1))
+    if len(tenant_ids) != 1:
+        raise Unknown("source manifests do not identify one tenant")
+    source_by_id = {source["importId"]: source for source in c["sources"]}
+    imports = c["run"]["summary"].get("importIds")
+    if not isinstance(imports, list) or len(imports) != len(set(imports)) or any(i not in source_by_id for i in imports):
+        raise Unknown("run import membership is missing or ambiguous")
+    case, run = c["case"], c["run"]
+    parts = [next(iter(tenant_ids)), case["caseId"], run["rulesetVersion"],
+             str(case["settlementSlaDays"]), case["periodEnd"]]
+    parts.extend(sorted("%s:%s:%s" % (source_by_id[i]["sourceType"], source_by_id[i]["sourceIdentity"],
+                                      source_by_id[i]["fileSha256"]) for i in imports))
+    parts.extend(sorted("%s:%s:%s:%s:%s:%s:%s" %
+                        (s["provider"], s["currency"], s["effectiveFrom"], s["percentageBps"],
+                         s["flatFee"], s["feeCap"] or "", s["tolerance"])
+                        for s in c["findingInputs"]["feeSchedules"]))
+    return hashlib.sha256(("\x1f".join(parts) + "\x1f").encode("utf-8")).hexdigest()
+
+
+def check_run_key(c):
+    actual = computed_run_key(c)
+    if actual != c["run"]["runKey"]:
+        print("FAIL run key differs from the exported sources, rules, case settings or fee schedules")
+        return 1
+    print("OK   run key binds source membership, rules and fee terms")
+    return 0
+
+
+def check_run_proofs(c):
+    """Check preserved run inputs and findings before trusting them as historical evidence."""
+    if "runProofs" not in c:
+        return 0, 0  # bundles exported before run snapshots existed
+    proofs = c["runProofs"]
+    missing = c.get("runsWithoutProof")
+    if not isinstance(proofs, list) or not isinstance(missing, list):
+        print("FAIL run proof inventory is malformed")
+        return 1, 0
+    seen = set()
+    for entry in proofs:
+        proof = entry["proof"]
+        run_id = proof["runId"]
+        if run_id in seen or proof.get("version") != "recon-run-proof/1" or proof.get("caseId") != c["case"]["caseId"]:
+            print("FAIL run proof identity is duplicated or inconsistent")
+            return 1, 0
+        seen.add(run_id)
+        compact = json.dumps(proof, separators=(",", ":"), ensure_ascii=False)
+        digest = "sha256:" + hashlib.sha256(compact.encode("utf-8")).hexdigest()
+        if digest != entry["sha256"]:
+            print("FAIL stored run proof checksum differs from its content")
+            return 1, 0
+    if len(missing) != len(set(missing)) or seen.intersection(missing):
+        print("FAIL run proof inventory repeats a run")
+        return 1, 0
+    latest = next((entry["proof"] for entry in proofs if entry["proof"]["runId"] == c["run"]["runId"]), None)
+    if latest is not None:
+        if latest["runKey"] != c["run"]["runKey"] or latest["rulesetVersion"] != c["run"]["rulesetVersion"] \
+                or latest["recordsProcessed"] != c["run"]["recordsProcessed"] \
+                or latest["exceptionCount"] != c["run"]["exceptionCount"] \
+                or latest["periodEnd"] != c["case"]["periodEnd"] \
+                or latest["settlementSlaDays"] != c["case"]["settlementSlaDays"] \
+                or latest["feeSchedules"] != c["findingInputs"]["feeSchedules"]:
+            print("FAIL latest run proof inputs differ from the bundle's finding inputs")
+            return 1, 0
+        members = {s["importId"]: s for s in latest["sources"]}
+        sources = {s["importId"]: s for s in c["sources"]}
+        if len(members) != len(latest["sources"]) or set(members) != set(c["run"]["summary"]["importIds"]):
+            print("FAIL latest run proof source membership differs from the run")
+            return 1, 0
+        fields = ("sourceType", "sourceIdentity", "fileSha256", "byteSize", "evidenceStorageKey", "profile", "profileVersion")
+        if any(import_id not in sources or any(snapshot[field] != sources[import_id][field] for field in fields)
+               for import_id, snapshot in members.items()):
+            print("FAIL latest run proof source differs from its export manifest")
+            return 1, 0
+        if not c["run"]["earlierRunKeys"]:
+            snapshot_findings = Counter((f["type"], f["ruleId"], f["exposureCurrency"], d(f["exposureAmount"]),
+                                         tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                                        for f in latest["findings"])
+            if snapshot_findings != bundled_findings(c["exceptions"]):
+                print("FAIL immutable run findings differ from the exported case issues")
+                return 1, 0
+            statements = Counter((f["type"], f["ruleId"], f["severity"], f["expected"], f["actual"],
+                                  tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                                 for f in latest["findings"])
+            issue_statements = Counter((e["type"], e["ruleId"], e["severity"], e["expected"], e["actual"],
+                                        tuple(sorted((r["importId"], r["rowNumber"]) for r in e["evidence"]["records"])))
+                                       for e in c["exceptions"])
+            if statements != issue_statements:
+                print("FAIL run proof conclusion statements differ from the case issues")
+                return 1, 0
+        print("OK   latest run proof preserves %d source(s), %d finding(s) and its fee terms" %
+              (len(members), len(latest["findings"])))
+    if missing or latest is None:
+        print("---- run proof: %d run(s) lack immutable inputs" % len(missing))
+        return 0, 1
+    return 0, 0
+
+
+def check_run_history(c, given_files):
+    """Replay every preserved run, then prove each case issue came from its first finding."""
+    earlier = c["run"].get("earlierRunKeys")
+    if not earlier:
+        return 0, 0
+    entries = c.get("runProofs", [])
+    if c.get("runsWithoutProof") or len(entries) != len(earlier) + 1:
+        print("---- run history: immutable proof is unavailable for one or more runs")
+        return 0, 1
+    proofs = [entry["proof"] for entry in entries]
+    if sorted(p["runKey"] for p in proofs if p["runId"] != c["run"]["runId"]) != sorted(earlier) \
+            or sum(p["runId"] == c["run"]["runId"] and p["runKey"] == c["run"]["runKey"] for p in proofs) != 1:
+        print("FAIL run proof membership differs from the case's run inventory")
+        return 1, 0
+    sources = {s["importId"]: s for s in c["sources"]}
+    if len(sources) != len(c["sources"]):
+        print("FAIL case source manifests repeat an import identity")
+        return 1, 0
+    first = {}
+    ordered = sorted(proofs, key=lambda p: (ts(p["completedAt"]), p["runId"]))
+    if any(ts(a["completedAt"]) == ts(b["completedAt"]) for a, b in zip(ordered, ordered[1:])):
+        print("---- run history: two runs share a completion instant; first occurrence is ambiguous")
+        return 0, 1
+    if ordered[-1]["runId"] != c["run"]["runId"]:
+        print("FAIL the exported latest run is not the last preserved run")
+        return 1, 0
+    for proof in ordered:
+        members = {s["importId"]: s for s in proof["sources"]}
+        if len(members) != len(proof["sources"]) or any(i not in sources for i in members):
+            print("FAIL preserved run sources are missing from the case")
+            return 1, 0
+        fields = ("sourceType", "sourceIdentity", "fileSha256", "byteSize", "evidenceStorageKey", "profile", "profileVersion")
+        if any(any(snapshot[field] != sources[import_id][field] for field in fields)
+               for import_id, snapshot in members.items()):
+            print("FAIL preserved run source differs from its immutable manifest")
+            return 1, 0
+        view = {"sources": [sources[i] for i in sorted(members)],
+                "case": {"caseId": proof["caseId"], "periodEnd": proof["periodEnd"],
+                         "settlementSlaDays": proof["settlementSlaDays"]},
+                "run": {"runKey": proof["runKey"], "rulesetVersion": proof["rulesetVersion"],
+                        "recordsProcessed": proof["recordsProcessed"],
+                        "summary": {"importIds": sorted(members),
+                                    "importFileHashes": sorted(s["fileSha256"] for s in members.values())}},
+                "findingInputs": {"feeSchedules": proof["feeSchedules"]}}
+        try:
+            if computed_run_key(view) != proof["runKey"]:
+                print("FAIL preserved run key disagrees with its source and fee inputs")
+                return 1, 0
+            records = run_records(view, given_files)
+            matched = payment_matches(records)
+            if proof["rulesetVersion"] != RULESET:
+                raise Unknown("ruleset %s is unsupported" % proof["rulesetVersion"])
+            refund_providers = {s["sourceIdentity"].lower() for s in view["sources"]
+                                if s["profile"] == "checkout-financial-actions" and s["profileVersion"] >= 2}
+            derived = replay(records, matched, view["case"], proof["feeSchedules"], refund_providers)
+        except (Unknown, CheckoutUnknown, AdyenUnknown, ReplayUnknown, csv.Error) as error:
+            print("---- run history %s: %s" % (proof["runId"], error))
+            return 0, 1
+        listed = Counter((f["type"], f["ruleId"], f["exposureCurrency"], d(f["exposureAmount"]),
+                          tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                         for f in proof["findings"])
+        if derived != listed or len(proof["findings"]) != proof["exceptionCount"]:
+            print("FAIL preserved run %s omits or changes a source finding" % proof["runId"])
+            return 1, 0
+        for finding in proof["findings"]:
+            key = (finding["type"], tuple(sorted(r["recordKey"] for r in finding["sourceRows"])))
+            if key not in first:
+                first[key] = (proof, finding)
+        print("OK   historical run %s: %d finding(s) independently replayed" %
+              (proof["runId"], len(proof["findings"])))
+    issues = {}
+    for issue in c["exceptions"]:
+        key = (issue["type"], tuple(sorted(r["recordKey"] for r in issue["evidence"]["records"])))
+        if key in issues:
+            print("FAIL case lists one finding identity more than once")
+            return 1, 0
+        issues[key] = issue
+    if set(issues) != set(first):
+        print("FAIL case issues differ from the first findings across its runs")
+        return 1, 0
+    for key, (proof, finding) in first.items():
+        issue = issues[key]
+        if issue["raisedByRunId"] != proof["runId"] or issue["evidence"]["runId"] != proof["runId"] \
+                or issue["ruleId"] != finding["ruleId"] or issue["ruleVersion"] != proof["rulesetVersion"] \
+                or issue["severity"] != finding["severity"] \
+                or issue["expected"] != finding["expected"] or issue["actual"] != finding["actual"] \
+                or issue["exposureCurrency"] != finding["exposureCurrency"] \
+                or d(issue["exposureAmount"]) != d(finding["exposureAmount"]) \
+                or sorted((r["importId"], r["rowNumber"], r["fileSha256"], r["rowSha256"])
+                          for r in issue["evidence"]["records"]) != sorted(
+                    (r["importId"], r["rowNumber"], r["fileSha256"], r["rowSha256"])
+                    for r in finding["sourceRows"]):
+            print("FAIL case issue differs from the first run that found it")
+            return 1, 0
+    print("     run history: %d run(s), %d unique issue(s), every finding source-replayed" % (len(ordered), len(issues)))
+    return 0, 0
+
+
 def by_type(recs, *types):
     return [r for r in recs if r["eventType"] in types]
 
@@ -1098,7 +1300,20 @@ def main(argv):
     if "findingInputs" not in c:
         print("FAIL recon-case-bundle/2 carries no finding inputs: exceptions cannot be re-derived")
         return 1
-    inventory_failed, inventory_incomplete = check_finding_inventory(c)
+    try:
+        run_key_failed = check_run_key(c)
+    except Unknown as e:
+        print("---- run key: %s" % e)
+        run_key_failed = 0
+        run_key_incomplete = 1
+    else:
+        run_key_incomplete = 0
+    proof_failed, proof_incomplete = check_run_proofs(c)
+    multi_run = bool(c["run"].get("earlierRunKeys"))
+    if multi_run:
+        inventory_failed, inventory_incomplete = check_run_history(c, given)
+    else:
+        inventory_failed, inventory_incomplete = check_finding_inventory(c)
     universe = source_universe(c, given)
     failures, unbound, currency_unconfirmed = check_provenance(c, given, universe)
     ok = failures == 0 and ok
@@ -1111,17 +1326,22 @@ def main(argv):
     if isinstance(universe[2], EventMismatch):
         print("FAIL full JSON event source replay: %s" % universe[2])
         ok = False
-    failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
-    replay_failed, replay_incomplete = check_full_finding_set(c, universe)
+    if multi_run:
+        failed, not_rederivable, reproduced = 0, len(c["exceptions"]) if inventory_incomplete else 0, \
+            len(c["exceptions"]) if not inventory_incomplete and not inventory_failed else 0
+        replay_failed, replay_incomplete = 0, inventory_incomplete
+    else:
+        failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
+        replay_failed, replay_incomplete = check_full_finding_set(c, universe)
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
-    if not ok or failed or inventory_failed or replay_failed:
+    if not ok or failed or inventory_failed or replay_failed or run_key_failed or proof_failed:
         return 1
     missing_sources = set(declared) - set(given)
     if missing_sources:
         print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
               % (len(missing_sources), len(declared)))
-    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete else 0
+    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete or run_key_incomplete or proof_incomplete else 0
 
 
 if __name__ == "__main__":

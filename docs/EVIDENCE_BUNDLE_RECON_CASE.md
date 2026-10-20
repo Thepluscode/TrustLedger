@@ -4,7 +4,7 @@ The resolution bundle for one reconciliation case. It extends the existing evide
 (`EvidenceService.persist`): the same checksum, the same optional Ed25519 signature over the stored bytes, the
 same download and verify endpoints. Only the content is new.
 
-Status: **IMPLEMENTED, tested on PostgreSQL** (`CaseBundleIntegrationTest` 10/10). Not production-observed.
+Status: **IMPLEMENTED, tested on PostgreSQL** (`CaseBundleIntegrationTest` 12/12). Not production-observed.
 
 ## Produce, download, verify
 
@@ -42,6 +42,9 @@ content
                            actor, correlation id, timestamp, and every rejected row with its reason
   run                      run key, ruleset version, counts, summary (exceptions by type, matches by rule,
                            settlement coverage), unresolved value per currency when the run completed
+  runProofs[]              since V60: one write-once, checksummed snapshot per run of its source membership,
+                           case settings, fee terms and complete findings, including findings seen in earlier runs
+  runsWithoutProof[]       legacy runs for which exact historical inputs were not preserved
   matches[]                left and right record keys, rule id, rule version, stage, what was compared
                            (at most 20,000 inline; `matchesTruncated` says whether more exist; each source
                            likewise carries `rejectedRowsOmitted`)
@@ -52,8 +55,8 @@ content
     records[]              each record an exception names: source type and identity, file SHA-256, row number,
                            rowSha256, the raw row text, and the values the rules read (event type, provider,
                            references, times, currency, gross, fee, net, statuses)
-    feeSchedules[]         every fee schedule on record for the tenant: provider, currency, basis points, flat
-                           fee, cap, tolerance, effective from
+    feeSchedules[]         the latest run's preserved fee terms (legacy runs use terms on record at export):
+                           provider, currency, basis points, flat fee, cap, tolerance, effective from
   unresolvedNowByCurrency  what is still undecided at export time
   limitations[]            what this bundle is not
 export          exportedAt, exportedBy, correlationId   (outside the hash)
@@ -110,21 +113,26 @@ or unsupported timestamp zones remain incomplete. Canonical JSON event imports w
 or timestamp zone evidence (account setting, zone column, UTC column or offset) remain incomplete. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
-A case with earlier runs returns exit 3 for finding-inventory completeness. The exporter lists case issues,
-including issues raised by earlier runs, but exports only the latest run's finding counts; the current format
-cannot prove the historical issue inventory. For a single run, the count and type checks bind the list to the
+A case with earlier runs returns exit 0 only when every run has a V60 immutable proof and its source profile
+can be fully replayed. The verifier reconstructs every run from that run's source membership and fee terms,
+compares its complete finding set, and binds each case issue to the first run that found its type and source
+records. A recurring finding stays one issue even if a later run computes a different amount; new findings
+must have their own issues. Any pre-V60 run without a snapshot remains incomplete (exit 3). For a single run,
+the count and type checks bind the list to the
 recorded run inventory and the per-currency exposure totals. For the three generic CSV profiles, the full
 source replay closes the coordinated-omission gap: it derives the expected finding set without using the
 bundle's exception list or run totals. It refuses ambiguous refund allocation and duplicate settlement-line
 ordering, returning exit 3. Supported Adyen Settlement Details v1, Checkout.com Financial Actions v2,
 and canonical JSON provider events have the same full finding replay.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks sixty-two cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks sixty-seven cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
 PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, a unique refund mismatch,
 a truly clean case, four payment comparison/status findings, and three settlement net/absence/orphan findings
-to reproduce. Nine tests executed with no skips. `ProviderReportImportIntegrationTest` additionally exports
+to reproduce. A fresh V60 two-run PostgreSQL case also proves 7 first-run findings, 12 second-run findings,
+five newly raised issues and seven recurring ones; removal of an issue or a run finding fails even after
+recomputing hashes. `ProviderReportImportIntegrationTest` additionally exports
 Checkout.com v2 bundles and proves a settled refund, a missing refund payout, a refund amount mismatch and
 an unreturned chargeback from the 55-row published sample and a 54-row variant. Rehashed edits to a derived
 chargeback amount or a provider component, and a coordinated omission of the chargeback finding, are rejected.
@@ -136,6 +144,15 @@ one rejected) to the verifier. It reproduces all seven findings and rejects reha
 event amount or the malformed event's rejected status. A second case gives two feeds identical event bytes;
 the same file hash names two imports, so each cited record is bound by import ID and both findings remain
 independently replayable.
+
+## Verifier code boundary
+
+`verify_recon_bundle.py` is 1,334 lines after historical-run support. It owns the offline CLI,
+source provenance checks and verdict composition; money finding replay lives in
+`replay_simple_recon_findings.py`, `replay_adyen_report.py` and `replay_checkout_report.py`.
+On the next material verifier change, extract CSV/JSON source parsing and run membership into a
+`verify_recon_sources.py` module, keeping this file as the CLI and verdict coordinator. Preserve the
+positive and tampering controls before changing that boundary.
 
 ## What the bundle does not claim
 

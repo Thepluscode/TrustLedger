@@ -105,6 +105,56 @@ def main():
             print(out)
 
     b = copy.deepcopy(intact)
+    c = b["content"]
+    proof = {
+        "version": "recon-run-proof/1",
+        "runId": c["run"]["runId"],
+        "runKey": c["run"]["runKey"],
+        "rulesetVersion": c["run"]["rulesetVersion"],
+        "recordsProcessed": c["run"]["recordsProcessed"],
+        "exceptionCount": c["run"]["exceptionCount"],
+        "completedAt": c["run"]["completedAt"],
+        "caseId": c["case"]["caseId"],
+        "periodEnd": c["case"]["periodEnd"],
+        "settlementSlaDays": c["case"]["settlementSlaDays"],
+        "sources": [{field: source[field] for field in ("importId", "sourceType", "sourceIdentity", "fileSha256",
+                                                  "byteSize", "evidenceStorageKey", "profile", "profileVersion")}
+                    for source in c["sources"] if source["status"] == "COMPLETED"],
+        "feeSchedules": copy.deepcopy(c["findingInputs"]["feeSchedules"]),
+        "findings": [{"type": ex["type"], "ruleId": ex["ruleId"], "severity": ex["severity"],
+                      "expected": ex["expected"], "actual": ex["actual"],
+                      "exposureCurrency": ex["exposureCurrency"],
+                      "exposureAmount": ex["exposureAmount"], "sourceRows": copy.deepcopy(ex["evidence"]["records"])}
+                     for ex in c["exceptions"]],
+    }
+
+    def proof_hash(item):
+        return "sha256:" + hashlib.sha256(json.dumps(item, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+    c["runProofs"] = [{"sha256": proof_hash(proof), "proof": proof}]
+    c["runsWithoutProof"] = []
+    expect("run proof preserves the source and finding inventory", 0, "latest run proof preserves", rehash(b), *sources)
+    broken = copy.deepcopy(b)
+    broken["content"]["runProofs"][0]["proof"]["feeSchedules"][0]["percentageBps"] = 999
+    expect("run proof bytes cannot change without its checksum", 1, "run proof checksum differs", rehash(broken), *sources)
+    broken = copy.deepcopy(b)
+    broken["content"]["runProofs"][0]["proof"]["findings"].pop()
+    broken["content"]["runProofs"][0]["sha256"] = proof_hash(broken["content"]["runProofs"][0]["proof"])
+    expect("rehashed run proof cannot omit a finding", 1, "run findings differ", rehash(broken), *sources)
+    broken = copy.deepcopy(b)
+    broken["content"]["exceptions"][0]["expected"] = "FORGED_EXPECTATION"
+    expect("rehashed issue cannot rewrite the recorded conclusion", 1, "conclusion statements differ",
+           rehash(broken), *sources)
+
+    changed = copy.deepcopy(intact)
+    changed["content"]["findingInputs"]["feeSchedules"].append({
+        "scheduleId": "unused-schedule", "provider": "unrelated-provider", "currency": "GBP",
+        "percentageBps": 0, "flatFee": "0.0000", "feeCap": None,
+        "tolerance": "0.0000", "effectiveFrom": "2026-01-01T00:00:00Z"})
+    expect("unused fee schedule still changes the executed run identity", 1, "run key differs",
+           rehash(changed), *sources)
+
+    b = copy.deepcopy(intact)
     b["content"]["exceptions"].pop()
     expect("omitted finding fails run inventory", 1, "exception list differs from the run's finding inventory",
            rehash(b), *sources)
@@ -148,7 +198,7 @@ def main():
 
     b = copy.deepcopy(intact)
     b["content"]["run"]["earlierRunKeys"] = ["previous-run-key"]
-    expect("historical issue inventory is incomplete", 3, "case issues can originate in earlier runs",
+    expect("historical issue inventory without snapshots is incomplete", 3, "immutable proof is unavailable",
            rehash(b), *sources)
 
     b = copy.deepcopy(intact)
@@ -295,6 +345,7 @@ def main():
                 ref["rowSha256"] = keys.get(ref["recordKey"], ref["rowSha256"])
                 if ref["fileSha256"] == old:
                     ref["fileSha256"] = digest
+        b["content"]["run"]["runKey"] = verifier.computed_run_key(b["content"])
         expect("currency column first in a reordered file is still read", 0, "7 reproduced", rehash(b), f.name, *sources[1:])
     finally:
         os.unlink(f.name)
@@ -481,6 +532,7 @@ def main():
     for e in b["content"]["exceptions"]:
         e["ruleVersion"] = "recon-rules/9.9.9"
         e["evidence"]["ruleVersion"] = "recon-rules/9.9.9"
+    b["content"]["run"]["runKey"] = verifier.computed_run_key(b["content"])
     expect("consistent unknown ruleset remains incomplete", 3, "re-derivation skipped", rehash(b))
 
     with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:

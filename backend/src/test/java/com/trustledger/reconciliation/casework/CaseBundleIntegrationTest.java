@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -30,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
 
 /**
  * The resolution bundle for ACME-2026-08. Expected counts come from design spec section 20. The hash is
@@ -58,6 +60,7 @@ class CaseBundleIntegrationTest {
 
     @Value("${local.server.port}") int port;
     @Autowired ObjectMapper json;
+    @Autowired JdbcTemplate jdbc;
     CaseworkHttp http;
 
     @BeforeEach
@@ -101,6 +104,10 @@ class CaseBundleIntegrationTest {
     }
 
     private String verifySourceBundle(JsonNode bundle, String... sources) throws Exception {
+        return verifySourceBundleExpect(bundle, 0, sources);
+    }
+
+    private String verifySourceBundleExpect(JsonNode bundle, int expectedExit, String... sources) throws Exception {
         Path dir = Path.of("target/recon-bundle");
         Files.createDirectories(dir);
         Path bundleFile = Files.createTempFile(dir, "proof-bundle-", ".json");
@@ -113,7 +120,7 @@ class CaseBundleIntegrationTest {
         }
         Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        assertEquals(0, p.waitFor(), out);
+        assertEquals(expectedExit, p.waitFor(), out);
         return out;
     }
 
@@ -152,6 +159,82 @@ class CaseBundleIntegrationTest {
         }
         AuthResponse stranger = http.register();
         assertEquals(403, http.get(path, stranger.token()).statusCode());
+    }
+
+    @Test
+    void laterFeeCorrectionCannotRewriteTheInputsOrFindingsOfAnEarlierRun() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        Map<String, Object> correction = new LinkedHashMap<>();
+        correction.put("provider", "provider-b");
+        correction.put("currency", "GBP");
+        correction.put("percentageBps", 500);
+        correction.put("flatFee", "0.00");
+        correction.put("tolerance", "0.01");
+        correction.put("effectiveFrom", "2026-01-01T00:00:00Z");
+        CaseworkHttp.expect2xx(http.post("/api/v1/tenant/fee-schedules", owner.token(), json.writeValueAsString(correction)));
+
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        JsonNode proof = bundle.get("content").get("runProofs").get(0).get("proof");
+        assertEquals(1, bundle.get("content").get("runProofs").size());
+        assertEquals(150, proof.get("feeSchedules").get(0).get("percentageBps").asInt());
+        assertEquals(150, bundle.get("content").get("findingInputs").get("feeSchedules").get(0).get("percentageBps").asInt());
+        assertEquals(7, proof.get("findings").size());
+        assertEquals(500, jdbc.queryForObject("SELECT percentage_bps FROM provider_fee_schedules WHERE tenant_id = ?",
+            Integer.class, owner.tenantId()));
+        assertThrows(org.springframework.dao.DataAccessException.class,
+            () -> jdbc.update("UPDATE recon_run_proofs SET proof_json = '{}' WHERE run_id = ?",
+                UUID.fromString(proof.get("runId").asString())));
+
+        verifySourceBundle(bundle,
+            new String(CaseworkHttp.fixture("internal-expected.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-a-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-settlement.csv"), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void everyRunReplaysAndRecurringFindingsRemainOneCaseIssue() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        Map<String, Object> correction = new LinkedHashMap<>();
+        correction.put("provider", "provider-b");
+        correction.put("currency", "GBP");
+        correction.put("percentageBps", 500);
+        correction.put("flatFee", "0.00");
+        correction.put("tolerance", "0.01");
+        correction.put("effectiveFrom", "2026-01-01T00:00:00Z");
+        CaseworkHttp.expect2xx(http.post("/api/v1/tenant/fee-schedules", owner.token(), json.writeValueAsString(correction)));
+        HttpResponse<String> second = http.post(CASES + caseId + "/runs", owner.token(), null);
+        assertEquals(201, second.statusCode(), second.body());
+        assertEquals(12, http.tree(second).get("run").get("exceptionCount").asInt());
+
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        JsonNode content = bundle.get("content");
+        assertEquals(2, content.get("runProofs").size());
+        assertEquals(0, content.get("runsWithoutProof").size());
+        assertEquals(12, content.get("exceptions").size(), "seven recurring findings and five newly exposed fees");
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM recon_run_proofs WHERE tenant_id = ?", Integer.class,
+            owner.tenantId()));
+        String[] sourceFiles = {
+            new String(CaseworkHttp.fixture("internal-expected.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-a-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-settlement.csv"), StandardCharsets.UTF_8)};
+        String result = verifySourceBundle(bundle, sourceFiles);
+        assertTrue(result.contains("2 run(s), 12 unique issue(s)"), result);
+
+        ObjectNode omittedIssue = (ObjectNode) bundle.deepCopy();
+        ((ArrayNode) omittedIssue.get("content").get("exceptions")).remove(0);
+        omittedIssue.put("contentHash", hashOf(omittedIssue.get("content")));
+        assertTrue(verifySourceBundleExpect(omittedIssue, 1, sourceFiles).contains("case issues differ"));
+
+        ObjectNode omittedFinding = (ObjectNode) bundle.deepCopy();
+        ObjectNode wrapper = (ObjectNode) omittedFinding.get("content").get("runProofs").get(0);
+        ((ArrayNode) wrapper.get("proof").get("findings")).remove(0);
+        wrapper.put("sha256", hashOf(wrapper.get("proof")));
+        omittedFinding.put("contentHash", hashOf(omittedFinding.get("content")));
+        assertTrue(verifySourceBundleExpect(omittedFinding, 1, sourceFiles).contains("omits or changes"));
     }
 
     @Test

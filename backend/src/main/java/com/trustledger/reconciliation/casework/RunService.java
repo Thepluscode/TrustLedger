@@ -144,6 +144,8 @@ public class RunService {
             result.internalPayments(), result.internalMatched(), rejectedInputs, result.findings().size(),
             json.writeValueAsString(summary), actorId, CorrelationId.current(), startedAt, Instant.now());
         store.insertRun(tenantId, run);
+        store.insertRunProof(tenantId, runId,
+            json.writeValueAsString(RunProof.snapshot(run, c, imports, schedules, result.findings(), byKey)));
         store.insertRunTotals(runId, unresolved.entrySet().stream().map(e -> new RunTotal(e.getKey(), e.getValue())).toList());
 
         List<MatchRow> matches = new ArrayList<>(result.matches().size());
