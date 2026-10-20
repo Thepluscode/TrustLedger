@@ -3,7 +3,19 @@
 Lifecycle: `PLANNED → IN PROGRESS → DEPLOYED → VERIFIED`.
 **VERIFIED** requires evidence (test output / observed behavior), never "it compiles".
 
-Last updated: 2026-10-05
+Last updated: 2026-10-20
+
+## Re-derivable case bundle: the customer recomputes every finding (2026-10-20, branch `feat/rederive-verifier`)
+
+Founder-authorised 2026-10-20 ("GO"). Until now `scripts/verify_recon_bundle.py` proved only that a bundle was unaltered (SHA-256 of its content); it could not recompute one finding. `recon-case-bundle/2` adds `findingInputs` (every record an exception names, with its exact source row, and the fee schedules on record), and the verifier, still sharing no code with TrustLedger, re-derives each exception from them. No UI, no migration, no money movement. **Not CI-verified until the branch pipeline is green. Not production-observed; no customer file.**
+
+| Outcome | Status | Evidence |
+|---------|--------|----------|
+| All 7 ACME exceptions recomputed from a real PostgreSQL export plus its 4 source files | **VERIFIED (local, PostgreSQL)** | `CaseBundleIntegrationTest` 4/4: runs the verifier on the fresh export and requires `7 reproduced, 0 not re-derivable, 0 failed` and all 10 rows found in the files. E.g. `FEE_MISMATCH GBP 0.6000 reproduced: |fee 2.4000 - expected 1.8000 under schedule …| > tolerance 0.0100`. |
+| Official Adyen + Checkout.com sample case | **VERIFIED (local, PostgreSQL)** | `ProviderReportImportIntegrationTest` 8/8; its bundle: `56 reproduced, 0 not re-derivable, 0 failed, of 56`, exit **3** because 24 Adyen fees (0.07/0.09) are sums of several columns, not a value in the row, and are reported "not confirmed" rather than passed. |
+| Every check observed failing | **VERIFIED (negative controls)** | `scripts/test_verify_recon_bundle.py` 16/16, each edit with the hash recomputed: exception amount or currency, record amount, row text, row + its hash (caught by the file), fee schedule, removed record, late settlement given an amount, `/2` without inputs → exit 1; record and exception changed together → exit 3 (amount not in row); unknown type or ruleset → exit 3. Java mutant (section not emitted) killed: `CaseBundleIntegrationTest` red with "carries no finding inputs". Added to CI (`infra-and-repo`). |
+| Casework + evidence suites unchanged | **VERIFIED (local)** | `mvn -o test` over `reconciliation.casework.**` and `*Evidence*`: 177 tests, 21 classes, 0 failures, 0 skipped, BUILD SUCCESS. |
+| Not established | **UNKNOWN** | `UNEXPECTED_STATUS_TRANSITION` is reported not re-derivable (its amount depends on the transaction's full history). "Missing" findings: the amount is recomputed, the absence is the run's claim over rows the bundle does not list. The mapping of a row's columns to statuses and references is the ruleset's, not re-derived. Full `mvn verify` not run locally; CI is the full verdict. Time to produce or verify a bundle not measured. |
 
 ## Feed-scoped replay and run membership by import id (2026-10-04, PR 164)
 

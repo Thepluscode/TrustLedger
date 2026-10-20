@@ -8,31 +8,30 @@ project: TrustLedger — the Payment Reliability OS
 canonical_path: ~/projects/fintech/TrustLedger_v2
 
 active:
-  task: timeline_backed_showcase
-  priority: P1                 # founder instruction, 2026-10-04: "immediately after #1", a tiny bounded task
+  task: rederivable_case_bundle
+  priority: P0                 # founder instruction, 2026-10-20: "GO" on the re-derivation verifier
   status: IN_PROGRESS
-  claim_level: implemented     # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/timeline-showcase
-  source: "ACTIVE_WORK.yaml history 2026-10-04 (CURRENT_TASK_COMPLETED: PR 162 merged; founder directive: option 3 immediately after option 1)"
+  claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
+  branch: feat/rederive-verifier
+  source: "ACTIVE_WORK.yaml history 2026-10-20 (FOUNDER_OVERRIDE: GO on the recommendation to make bundle conclusions reproducible)"
   corroborated_by:
-    - frontend/app/showcase/story.ts
-    - frontend/app/components/PaymentTimeline.tsx
-    - "PR 163 head 0e9fbdd (8/8 CI green: tsc, Vitest 15/15, build, public-exposure guard, live browser)"
+    - scripts/verify_recon_bundle.py
+    - scripts/test_verify_recon_bundle.py
+    - backend/src/main/java/com/trustledger/reconciliation/casework/CaseBundleService.java
   scope: >
-    The executive showcase and the demo scripts demonstrate TrustLedger through the real Payment
-    Truth Timeline instead of narrative cards: the public /showcase renders the GBP 50,000 story with
-    the same timeline component the console uses, on hard-coded synthetic evidence in the exact API
-    shape, still with no API, session or storage dependency; the demo scripts walk the real timeline
-    page on the seeded ACME case. No backend change, no money movement.
+    A reconciliation case bundle (recon-case-bundle/2) carries what every exception was computed from:
+    each record an exception names, with the values the rules read and the exact source row, and the fee
+    schedules on record. scripts/verify_recon_bundle.py, which shares no code with TrustLedger, proves each
+    row against its hash and the source file, and recomputes every exception's amount; a finding it cannot
+    recompute is reported as such, never passed. No UI, no migration, no money movement.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:
-    task: imported_source_evidence_immutability
-    claim_level: tested        # CI-verified on main; not production-observed
-    pull_requests: [162]
-    merge_commits: [e510cc6]
-    migration: V58
-    before_that: payment_truth_timeline (PR 160, 3e72160; review docs/reviews/2026-10-04-codex-adversarial-pr160.md)
+    task: timeline_backed_showcase
+    claim_level: tested        # CI-verified on main; presentation layer, synthetic, not buyer-rehearsed
+    pull_requests: [163]
+    merge_commits: [cdb8646]
+    before_that: imported_source_evidence_immutability (PR 162, e510cc6)
 
 # Standing conditions, true regardless of the active task. Not work items.
 invariants_in_force:
@@ -159,3 +158,14 @@ history:
       if they return.
     evidence: "AGENT_CONTEXT.md → The governor; scripts/check_continuity.py → check_governor"
     approved_by: FOUNDER (governance-correction directive, 2026-09-22; reapplied to current main 2026-10-05, superseding PR 154)
+  - date: 2026-10-20
+    change: task completed (recorded late), then task switch
+    previous_task: "timeline_backed_showcase (merged, PR 163 -> cdb8646 on 2026-10-04; this file still said IN_PROGRESS)"
+    new_task: rederivable_case_bundle
+    reason: >
+      The founder pasted a strategy memo whose central idea is that every financial conclusion should be
+      reproducible by the customer. The repository's verifier proved only that a bundle was unaltered
+      (a SHA-256 of its content); it could not recompute a single finding. The founder said GO on making it.
+    evidence: "scripts/verify_recon_bundle.py at 96d07c4 (49 lines, hash check only); PR 163 merged 2026-10-04"
+    authorising_condition: FOUNDER_OVERRIDE
+    approved_by: FOUNDER ("GO", in session, 2026-10-20)
