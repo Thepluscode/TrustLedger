@@ -34,6 +34,10 @@ active:
     exposure totals, and run/ruleset IDs;
     for the generic CSV profiles an independent pass enumerates the complete finding set from all source rows,
     catching omitted findings even when the bundle's counts and totals are changed with them;
+    for Checkout.com Financial Actions v2 without rejected or duplicate rows or unexported timestamp-zone
+    settings, independently derive all
+    settlement, settled refund and chargeback records from the complete report, replay refund settlement
+    absence and dispute history, and reject a rehashed forged aggregate or coordinated omitted finding;
     a multi-run bundle cannot prove historical issue inventory and remains unconfirmed.
     Unsupported conditions remain unconfirmed. This is local-tested only, pending CI and review.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)

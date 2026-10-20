@@ -1,4 +1,4 @@
-"""Independently enumerate recon-rules/1.2.0 findings for the three generic CSV profiles.
+"""Independently enumerate recon-rules/1.2.0 findings for supported source-backed profiles.
 
 Inputs are canonical rows independently parsed from every supplied source file. A finding is identified by
 its type, rule, currency, amount, and exact source rows; bundle IDs and run summaries are not inputs.
@@ -61,8 +61,8 @@ def related_refund(internal, provider):
         or provider["internalRef"] is not None and provider["internalRef"] == internal["internalRef"])
 
 
-def replay(records, matched, case, schedules):
-    """Return the complete finding multiset for a source-backed, generic-CSV run."""
+def replay(records, matched, case, schedules, refund_settling_providers=()):
+    """Return the complete finding multiset for a source-backed run."""
     by_id = {identity(r): r for r in records}
     if len(by_id) != len(records):
         raise ReplayUnknown("source row identities are not unique")
@@ -130,6 +130,36 @@ def replay(records, matched, case, schedules):
                     add(finding("FEE_MISMATCH", "D-FEE-SCHEDULE", charge["currency"], delta, charge))
 
     refunds = [r for r in matched.deduped if r["eventType"] in ("REFUND", "REVERSAL")]
+    settled_refunds = [r for r in records if r["eventType"] == "SETTLED_REFUND"]
+    used_provider_refunds = set()
+    unmatched_settled = []
+    for settled in settled_refunds:
+        candidates = [r for r in refunds if r["eventType"] == "REFUND" and r["provider"] == settled["provider"]
+                      and r["stableRef"] == settled["stableRef"]]
+        if len(candidates) > 1:
+            raise ReplayUnknown("multiple provider refund events fit one settled refund")
+        if not candidates:
+            unmatched_settled.append(settled)
+            continue
+        provider = candidates[0]
+        if identity(provider) in used_provider_refunds:
+            raise ReplayUnknown("one provider refund event fits multiple settled refunds")
+        used_provider_refunds.add(identity(provider))
+        if settled["currency"] != provider["currency"]:
+            add(finding("REFUND_MISMATCH", "D-SETTLED-REFUND", settled["currency"],
+                        settled["grossAmount"], provider, settled))
+        elif money(settled["grossAmount"]) != money(provider["grossAmount"]):
+            add(finding("REFUND_MISMATCH", "D-SETTLED-REFUND", settled["currency"],
+                        abs(money(settled["grossAmount"]) - money(provider["grossAmount"])), provider, settled))
+    for provider in refunds:
+        if provider["eventType"] == "REFUND" and provider["paymentStatus"] == "SUCCESS" \
+                and identity(provider) not in used_provider_refunds \
+                and provider["provider"] in refund_settling_providers \
+                and instant(provider["occurredAt"]) is not None \
+                and instant(provider["occurredAt"]) + timedelta(days=case["settlementSlaDays"]) <= instant(case["periodEnd"]):
+            add(finding("MISSING_REFUND_SETTLEMENT", "D-REFUND-SETTLEMENT", provider["currency"],
+                        provider["grossAmount"], provider))
+    refunds.extend(unmatched_settled)
     internal_refunds = [r for r in records if r["eventType"] == "EXPECTED_REFUND"]
     used_refunds = set()
     for provider in refunds:
@@ -174,12 +204,14 @@ def replay(records, matched, case, schedules):
         if money(line["grossAmount"]) != money(charge["grossAmount"]):
             add(finding("AMOUNT_MISMATCH", "D-AMOUNT", line["currency"],
                         abs(money(line["grossAmount"]) - money(charge["grossAmount"])), line, charge))
-        arithmetic = money(line["grossAmount"]) - money(line["feeAmount"])
-        net = money(line["netAmount"])
-        against = arithmetic if arithmetic != net else money(charge["netAmount"])
-        if against is not None and against != net:
-            add(finding("NET_SETTLEMENT_MISMATCH", "D-NET", line["currency"], abs(against - net), line, charge))
-        if instant(line["occurredAt"]) - instant(charge["occurredAt"]) > due:
+        if line["feeAmount"] is not None and line["netAmount"] is not None:
+            arithmetic = money(line["grossAmount"]) - money(line["feeAmount"])
+            net = money(line["netAmount"])
+            against = arithmetic if arithmetic != net else money(charge["netAmount"])
+            if against is not None and against != net:
+                add(finding("NET_SETTLEMENT_MISMATCH", "D-NET", line["currency"], abs(against - net), line, charge))
+        if instant(line["occurredAt"]) is not None and instant(charge["occurredAt"]) is not None \
+                and instant(line["occurredAt"]) - instant(charge["occurredAt"]) > due:
             add(finding("LATE_SETTLEMENT", "D-SETTLEMENT-SLA", line["currency"], Decimal(0), line, charge))
     for charge in matched.charges:
         if charge["provider"] in covered and charge["paymentStatus"] == "SUCCESS" \
@@ -187,4 +219,15 @@ def replay(records, matched, case, schedules):
                 and (charge["provider"], charge["stableRef"]) not in by_ref:
             add(finding("MISSING_SETTLEMENT", "R5-UNMATCHED", charge["currency"],
                         charge["netAmount"] if charge["netAmount"] is not None else charge["grossAmount"], charge))
+    disputes = [r for r in records if r["eventType"] in ("SETTLED_CHARGEBACK", "SETTLED_CHARGEBACK_REVERSAL")]
+    by_dispute = defaultdict(list)
+    for row in disputes:
+        by_dispute[(row["provider"], row["stableRef"], row["currency"])].append(row)
+    for group in by_dispute.values():
+        debited = sum((money(r["grossAmount"]) for r in group if r["eventType"] == "SETTLED_CHARGEBACK"), Decimal(0))
+        returned = sum((money(r["grossAmount"]) for r in group if r["eventType"] == "SETTLED_CHARGEBACK_REVERSAL"), Decimal(0))
+        net = debited - returned
+        if net:
+            add(finding("CHARGEBACK_DEBITED" if net > 0 else "UNMATCHED_CHARGEBACK_REVERSAL", "D-CHARGEBACK",
+                        group[0]["currency"], abs(net), *group))
     return Counter(findings)
