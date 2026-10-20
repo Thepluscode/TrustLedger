@@ -22,7 +22,8 @@ active:
     A reconciliation case bundle (recon-case-bundle/2) carries what every exception was computed from:
     each record an exception names, with the values the rules read and the exact source row, and the fee
     schedules on record. scripts/verify_recon_bundle.py, which shares no code with TrustLedger, proves each
-    row against its hash and the source file, and recomputes every exception's amount; a finding it cannot
+    row against its hash and the source file, and recomputes every exception's amount, expected and actual
+    statements, and severity; a finding it cannot
     recompute is reported as such, never passed. The follow-up after PR 177 requires every declared source
     file and binds each cited row to its record number before returning success. No money movement.
     For the three generic CSV profiles, the verifier also reads canonical fields from named columns and

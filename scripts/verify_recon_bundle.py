@@ -8,13 +8,13 @@
    document order. Any source files given are hashed and matched against the bundle's source manifests.
 2. Provenance (recon-case-bundle/2): every record an exception names is listed with the exact source row it
    was read from; that row must hash to its rowSha256, and a source file given here must contain it.
-3. Re-derivation (recon-case-bundle/2): each exception's amount is recomputed from those records and the
-   fee schedules in the bundle. For the three simple CSV profiles, canonical JSON events, and supported
-   Adyen v1 and Checkout.com v2 reports, canonical fields are independently read from the source
-   and the complete run is replayed.
+3. Re-derivation (recon-case-bundle/2): each exception's amount, expected and actual statements, and
+   severity are recomputed from source records and the fee terms used by its run. For the three simple
+   CSV profiles, canonical JSON events, and supported Adyen v1 and Checkout.com v2 reports, canonical
+   fields are independently read from the source and the complete run is replayed.
    Unsupported absence checks are reported as incomplete, never passed.
-4. Single-run inventory: the listed exceptions agree with the run's recorded counts and currency totals.
-   A multi-run case's historical issue inventory cannot be established from this format and stays incomplete.
+4. Run inventory: the listed exceptions agree with run counts and currency totals. Newer multi-run cases
+   replay each immutable run proof; older runs without one stay incomplete.
 5. Full finding set: for generic CSV, canonical JSON events and supported Adyen v1 or Checkout.com v2 runs,
    independently enumerate every finding from the complete source rows. A coordinated change to findings
    and run totals cannot hide a source finding.
@@ -40,6 +40,7 @@ from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 from replay_simple_recon_findings import ReplayUnknown, bundled_findings, replay
+from replay_recon_statements import StatementUnknown, statement
 from replay_checkout_report import CheckoutMismatch, CheckoutUnknown, derive as derive_checkout
 from replay_adyen_report import AdyenMismatch, AdyenUnknown, derive as derive_adyen
 
@@ -187,6 +188,35 @@ def check_run_proofs(c):
     return 0, 0
 
 
+def check_source_statements(findings, records, schedules, case):
+    """Check each conclusion's words against source rows, not against another bundle field."""
+    source = {(r["importId"], r["rowNumber"]): r for r in records}
+    if len(source) != len(records):
+        print("---- source-derived statements: source row identity is ambiguous")
+        return 0, 1
+    for finding in findings:
+        refs = finding.get("sourceRows")
+        if refs is None:
+            refs = finding["evidence"]["records"]
+        try:
+            cited = [source[(ref["importId"], ref["rowNumber"])] for ref in refs]
+        except (KeyError, TypeError):
+            print("FAIL source-derived statement cites a row absent from the replay")
+            return 1, 0
+        try:
+            derived = statement(finding, cited, schedules, case)
+        except (StatementUnknown, ReplayUnknown, KeyError, TypeError, ValueError) as error:
+            print("---- source-derived statement %s: %s" % (finding["type"], error))
+            return 0, 1
+        recorded = (finding["severity"], finding["expected"], finding["actual"])
+        if recorded != derived:
+            print("FAIL source-derived statement differs for %s: expected %r, found %r" %
+                  (finding["type"], derived, recorded))
+            return 1, 0
+    print("OK   %d conclusion statement(s) and severities independently reconstructed" % len(findings))
+    return 0, 0
+
+
 def check_run_history(c, given_files):
     """Replay every preserved run, then prove each case issue came from its first finding."""
     earlier = c["run"].get("earlierRunKeys")
@@ -251,6 +281,10 @@ def check_run_history(c, given_files):
         if derived != listed or len(proof["findings"]) != proof["exceptionCount"]:
             print("FAIL preserved run %s omits or changes a source finding" % proof["runId"])
             return 1, 0
+        statement_failed, statement_incomplete = check_source_statements(
+            proof["findings"], records, proof["feeSchedules"], view["case"])
+        if statement_failed or statement_incomplete:
+            return statement_failed, statement_incomplete
         for finding in proof["findings"]:
             key = (finding["type"], tuple(sorted(r["recordKey"] for r in finding["sourceRows"])))
             if key not in first:
@@ -1330,18 +1364,21 @@ def main(argv):
         failed, not_rederivable, reproduced = 0, len(c["exceptions"]) if inventory_incomplete else 0, \
             len(c["exceptions"]) if not inventory_incomplete and not inventory_failed else 0
         replay_failed, replay_incomplete = 0, inventory_incomplete
+        statement_failed, statement_incomplete = 0, inventory_incomplete
     else:
         failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
         replay_failed, replay_incomplete = check_full_finding_set(c, universe)
+        statement_failed, statement_incomplete = (0, 1) if universe[2] is not None else check_source_statements(
+            c["exceptions"], universe[0], c["findingInputs"]["feeSchedules"], c["case"])
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
-    if not ok or failed or inventory_failed or replay_failed or run_key_failed or proof_failed:
+    if not ok or failed or inventory_failed or replay_failed or statement_failed or run_key_failed or proof_failed:
         return 1
     missing_sources = set(declared) - set(given)
     if missing_sources:
         print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
               % (len(missing_sources), len(declared)))
-    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete or run_key_incomplete or proof_incomplete else 0
+    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete or statement_incomplete or run_key_incomplete or proof_incomplete else 0
 
 
 if __name__ == "__main__":

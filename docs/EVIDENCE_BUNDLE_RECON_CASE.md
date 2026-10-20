@@ -95,6 +95,7 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | With Checkout.com v2, the complete finding replay also checks settled refund allocation, refund settlement absence and full chargeback/reversal history | a refund event has no payout, a dispute debit was concealed, or a related finding was removed with its run counts and totals |
 | For profiles without a complete source replay, each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts require a supported source replay |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
+| For source-replayable runs, `expected`, `actual`, and severity are independently reconstructed from source rows and the fee terms of that run | a rehashed edit to the issue and its run proof agrees internally but states a false fee expectation or outcome |
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception was
 reproduced. Exit 1: something failed. Exit 3: nothing failed, but proof is incomplete: a source file was
@@ -125,7 +126,7 @@ bundle's exception list or run totals. It refuses ambiguous refund allocation an
 ordering, returning exit 3. Supported Adyen Settlement Details v1, Checkout.com Financial Actions v2,
 and canonical JSON provider events have the same full finding replay.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks sixty-seven cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks sixty-eight cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
 PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, a unique refund mismatch,
@@ -147,9 +148,10 @@ independently replayable.
 
 ## Verifier code boundary
 
-`verify_recon_bundle.py` is 1,334 lines after historical-run support. It owns the offline CLI,
-source provenance checks and verdict composition; money finding replay lives in
-`replay_simple_recon_findings.py`, `replay_adyen_report.py` and `replay_checkout_report.py`.
+`verify_recon_bundle.py` exceeds 1,200 lines because it still owns the offline CLI,
+source provenance checks and verdict composition. Money finding replay lives in
+`replay_simple_recon_findings.py`, `replay_adyen_report.py` and `replay_checkout_report.py`;
+statement reconstruction has its own `replay_recon_statements.py` boundary.
 On the next material verifier change, extract CSV/JSON source parsing and run membership into a
 `verify_recon_sources.py` module, keeping this file as the CLI and verdict coordinator. Preserve the
 positive and tampering controls before changing that boundary.
@@ -159,7 +161,9 @@ positive and tampering controls before changing that boundary.
 The `limitations` block ships inside every bundle. In short: it records what was computed from files the
 customer supplied; it does not verify those files against the provider or the bank; matching is
 deterministic and rule-based, with no AI; a provider with no settlement file was not checked for
-settlement; currencies are never combined; and it is operational evidence, **not an audit opinion, a
+settlement; currencies are never combined; the independent verifier reconstructs financial statements
+but does not independently regenerate the incident's explanatory prose or authenticate its operator actions;
+and it is operational evidence, **not an audit opinion, a
 certification, or a statement of regulatory compliance**.
 
 ## Closing a case

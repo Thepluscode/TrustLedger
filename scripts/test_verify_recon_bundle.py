@@ -145,6 +145,15 @@ def main():
     broken["content"]["exceptions"][0]["expected"] = "FORGED_EXPECTATION"
     expect("rehashed issue cannot rewrite the recorded conclusion", 1, "conclusion statements differ",
            rehash(broken), *sources)
+    broken = copy.deepcopy(b)
+    issue = exception(broken, "FEE_MISMATCH")
+    issue["expected"] = "fee 0.0000 GBP (tolerance 0.0100)"
+    finding = next(f for f in broken["content"]["runProofs"][0]["proof"]["findings"]
+                   if f["type"] == "FEE_MISMATCH")
+    finding["expected"] = issue["expected"]
+    broken["content"]["runProofs"][0]["sha256"] = proof_hash(broken["content"]["runProofs"][0]["proof"])
+    expect("coordinated edit to the financial statement fails source replay", 1, "source-derived statement differs",
+           rehash(broken), *sources)
 
     changed = copy.deepcopy(intact)
     changed["content"]["findingInputs"]["feeSchedules"].append({
