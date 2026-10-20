@@ -266,11 +266,14 @@ export const api = {
   closeReconCase: (caseId: string) => request<ReconCase>(`/api/v1/reconciliation/cases/${caseId}/close`, { method: "POST" }),
   exportReconBundle: (caseId: string) => request<ReconBundle>(`/api/v1/reconciliation/cases/${caseId}/bundle`, { method: "POST" }),
   /** The download needs the bearer token, so it cannot be a plain link. */
-  downloadEvidenceExport: async (exportId: string): Promise<Blob> => {
-    const res = await fetch(`${BASE}/api/v1/evidence/exports/${exportId}/download`, {
+  downloadEvidenceExport: async (exportId: string, withSources = false): Promise<Blob> => {
+    const res = await fetch(`${BASE}/api/v1/evidence/exports/${exportId}/${withSources ? "package" : "download"}`, {
       headers: { Authorization: `Bearer ${getToken() ?? ""}` },
     });
-    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? `Download failed (${res.status})`);
+    }
     return res.blob();
   },
   assignReconciliationIssue: (id: string, userId: string | null, expectedVersion?: number) =>

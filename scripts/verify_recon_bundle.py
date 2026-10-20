@@ -1,36 +1,52 @@
 #!/usr/bin/env python3
 """Verify a TrustLedger reconciliation case bundle without TrustLedger.
 
+    verify_recon_bundle.py proof-package.zip
     verify_recon_bundle.py bundle.json [source-file ...]
 
 1. Integrity: contentHash is the SHA-256 of the bundle's `content`, serialised compactly with keys in
    document order. Any source files given are hashed and matched against the bundle's source manifests.
 2. Provenance (recon-case-bundle/2): every record an exception names is listed with the exact source row it
    was read from; that row must hash to its rowSha256, and a source file given here must contain it.
-3. Re-derivation (recon-case-bundle/2): each exception's amount is recomputed from those records and the
-   fee schedules in the bundle, by rules written here from the ruleset's specification, not imported from
-   TrustLedger. A finding whose amount cannot be recomputed from the bundle is reported as such, never passed.
+3. Re-derivation (recon-case-bundle/2): each exception's amount, expected and actual statements, and
+   severity are recomputed from source records and the fee terms used by its run. For the three simple
+   CSV profiles, canonical JSON events, and supported Adyen v1 and Checkout.com v2 reports, canonical
+   fields are independently read from the source and the complete run is replayed.
+   Unsupported absence checks are reported as incomplete, never passed.
+4. Run inventory: the listed exceptions agree with run counts and currency totals. Newer multi-run cases
+   replay each immutable run proof; older runs without one stay incomplete.
+5. Full finding set: for generic CSV, canonical JSON events and supported Adyen v1 or Checkout.com v2 runs,
+   independently enumerate every finding from the complete source rows. A coordinated change to findings
+   and run totals cannot hide a source finding.
 
-Exit 0: everything checked is consistent and every exception was re-derived.
+Exit 0: every declared source file was supplied, its listed rows were checked, and every exception
+        was re-derived.
 Exit 1: an integrity, provenance or re-derivation check failed.
-Exit 3: nothing failed, but at least one exception could not be re-derived from the bundle, or a record's
-        amount does not appear as a value in its source row.
+Exit 3: nothing failed, but source files were not all supplied, the bundle is integrity-only /1,
+        an exception could not be re-derived, or a record's amount could not be confirmed in its row.
 
-Checked only in part: that a source row means what the record says it means. Each record amount must appear,
-as a number, among its row's fields. A record's currency must equal the profile's currency column, found by
-name in the supplied file's header; without the file it must at least appear in the row. Which column an
-amount came from, and statuses and references, are the ruleset's reading of the row, not re-derived here. Without the source files, a row
-is proven only to match its own hash, which a forger could recompute; with them, it is proven to be in the file.
+For other profiles, canonical mapping is only partially checked: a record amount must occur among its row's
+numeric fields, and currency must agree with the named currency column when the source file is supplied.
+Without source files, row hashes are self-consistency checks, not independent provenance.
 """
 import csv
 import hashlib
+import io
 import json
+import re
 import sys
-from datetime import datetime, timedelta
+import zipfile
+from collections import Counter, defaultdict, namedtuple
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
+from replay_simple_recon_findings import ReplayUnknown, bundled_findings, replay
+from replay_recon_statements import StatementUnknown, statement
+from replay_checkout_report import CheckoutMismatch, CheckoutUnknown, derive as derive_checkout
+from replay_adyen_report import AdyenMismatch, AdyenUnknown, derive as derive_adyen
 
 RULESET = "recon-rules/1.2.0"
 FOUR = Decimal("0.0001")
+Replay = namedtuple("Replay", "internal charges used_internal used_charge deduped selected_pairs")
 # The header each import profile reads a record's currency from. TrustLedger reads columns by header name
 # (lower-cased), never by position, so the column is found in the supplied file's own header row.
 CURRENCY_HEADER_BY_PROFILE = {
@@ -44,6 +60,10 @@ CURRENCY_HEADER_BY_PROFILE = {
 
 class Unknown(Exception):
     """The bundle does not hold what this finding's amount depends on."""
+
+
+class EventMismatch(Unknown):
+    """A JSON event's supplied bytes contradict its completed import manifest."""
 
 
 def d(s):
@@ -62,6 +82,241 @@ def row_hash(source_type, source_identity, raw):
     # Each field followed by U+001F; a null field is written as one space.
     joined = "".join((" " if f is None else f) + "\x1f" for f in (source_type, source_identity, raw))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def computed_run_key(c):
+    """Recompute the Java run identity from exported inputs, without reading TrustLedger state."""
+    tenant_ids = set()
+    for source in c["sources"]:
+        match = re.match(r"^evidence/([0-9a-f-]{36})/", source["evidenceStorageKey"] or "")
+        if match is None:
+            raise Unknown("source storage path does not identify its tenant")
+        tenant_ids.add(match.group(1))
+    if len(tenant_ids) != 1:
+        raise Unknown("source manifests do not identify one tenant")
+    source_by_id = {source["importId"]: source for source in c["sources"]}
+    imports = c["run"]["summary"].get("importIds")
+    if not isinstance(imports, list) or len(imports) != len(set(imports)) or any(i not in source_by_id for i in imports):
+        raise Unknown("run import membership is missing or ambiguous")
+    case, run = c["case"], c["run"]
+    parts = [next(iter(tenant_ids)), case["caseId"], run["rulesetVersion"],
+             str(case["settlementSlaDays"]), case["periodEnd"]]
+    parts.extend(sorted("%s:%s:%s" % (source_by_id[i]["sourceType"], source_by_id[i]["sourceIdentity"],
+                                      source_by_id[i]["fileSha256"]) for i in imports))
+    parts.extend(sorted("%s:%s:%s:%s:%s:%s:%s" %
+                        (s["provider"], s["currency"], s["effectiveFrom"], s["percentageBps"],
+                         s["flatFee"], s["feeCap"] or "", s["tolerance"])
+                        for s in c["findingInputs"]["feeSchedules"]))
+    return hashlib.sha256(("\x1f".join(parts) + "\x1f").encode("utf-8")).hexdigest()
+
+
+def check_run_key(c):
+    actual = computed_run_key(c)
+    if actual != c["run"]["runKey"]:
+        print("FAIL run key differs from the exported sources, rules, case settings or fee schedules")
+        return 1
+    print("OK   run key binds source membership, rules and fee terms")
+    return 0
+
+
+def check_run_proofs(c):
+    """Check preserved run inputs and findings before trusting them as historical evidence."""
+    if "runProofs" not in c:
+        return 0, 0  # bundles exported before run snapshots existed
+    proofs = c["runProofs"]
+    missing = c.get("runsWithoutProof")
+    if not isinstance(proofs, list) or not isinstance(missing, list):
+        print("FAIL run proof inventory is malformed")
+        return 1, 0
+    seen = set()
+    for entry in proofs:
+        proof = entry["proof"]
+        run_id = proof["runId"]
+        if run_id in seen or proof.get("version") != "recon-run-proof/1" or proof.get("caseId") != c["case"]["caseId"]:
+            print("FAIL run proof identity is duplicated or inconsistent")
+            return 1, 0
+        seen.add(run_id)
+        compact = json.dumps(proof, separators=(",", ":"), ensure_ascii=False)
+        digest = "sha256:" + hashlib.sha256(compact.encode("utf-8")).hexdigest()
+        if digest != entry["sha256"]:
+            print("FAIL stored run proof checksum differs from its content")
+            return 1, 0
+    if len(missing) != len(set(missing)) or seen.intersection(missing):
+        print("FAIL run proof inventory repeats a run")
+        return 1, 0
+    latest = next((entry["proof"] for entry in proofs if entry["proof"]["runId"] == c["run"]["runId"]), None)
+    if latest is not None:
+        if latest["runKey"] != c["run"]["runKey"] or latest["rulesetVersion"] != c["run"]["rulesetVersion"] \
+                or latest["recordsProcessed"] != c["run"]["recordsProcessed"] \
+                or latest["exceptionCount"] != c["run"]["exceptionCount"] \
+                or latest["periodEnd"] != c["case"]["periodEnd"] \
+                or latest["settlementSlaDays"] != c["case"]["settlementSlaDays"] \
+                or latest["feeSchedules"] != c["findingInputs"]["feeSchedules"]:
+            print("FAIL latest run proof inputs differ from the bundle's finding inputs")
+            return 1, 0
+        members = {s["importId"]: s for s in latest["sources"]}
+        sources = {s["importId"]: s for s in c["sources"]}
+        if len(members) != len(latest["sources"]) or set(members) != set(c["run"]["summary"]["importIds"]):
+            print("FAIL latest run proof source membership differs from the run")
+            return 1, 0
+        fields = ("sourceType", "sourceIdentity", "fileSha256", "byteSize", "evidenceStorageKey", "profile", "profileVersion")
+        if any(import_id not in sources or any(snapshot[field] != sources[import_id][field] for field in fields)
+               for import_id, snapshot in members.items()):
+            print("FAIL latest run proof source differs from its export manifest")
+            return 1, 0
+        if not c["run"]["earlierRunKeys"]:
+            snapshot_findings = Counter((f["type"], f["ruleId"], f["exposureCurrency"], d(f["exposureAmount"]),
+                                         tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                                        for f in latest["findings"])
+            if snapshot_findings != bundled_findings(c["exceptions"]):
+                print("FAIL immutable run findings differ from the exported case issues")
+                return 1, 0
+            statements = Counter((f["type"], f["ruleId"], f["severity"], f["expected"], f["actual"],
+                                  tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                                 for f in latest["findings"])
+            issue_statements = Counter((e["type"], e["ruleId"], e["severity"], e["expected"], e["actual"],
+                                        tuple(sorted((r["importId"], r["rowNumber"]) for r in e["evidence"]["records"])))
+                                       for e in c["exceptions"])
+            if statements != issue_statements:
+                print("FAIL run proof conclusion statements differ from the case issues")
+                return 1, 0
+        print("OK   latest run proof preserves %d source(s), %d finding(s) and its fee terms" %
+              (len(members), len(latest["findings"])))
+    if missing or latest is None:
+        print("---- run proof: %d run(s) lack immutable inputs" % len(missing))
+        return 0, 1
+    return 0, 0
+
+
+def check_source_statements(findings, records, schedules, case):
+    """Check each conclusion's words against source rows, not against another bundle field."""
+    source = {(r["importId"], r["rowNumber"]): r for r in records}
+    if len(source) != len(records):
+        print("---- source-derived statements: source row identity is ambiguous")
+        return 0, 1
+    for finding in findings:
+        refs = finding.get("sourceRows")
+        if refs is None:
+            refs = finding["evidence"]["records"]
+        try:
+            cited = [source[(ref["importId"], ref["rowNumber"])] for ref in refs]
+        except (KeyError, TypeError):
+            print("FAIL source-derived statement cites a row absent from the replay")
+            return 1, 0
+        try:
+            derived = statement(finding, cited, schedules, case)
+        except (StatementUnknown, ReplayUnknown, KeyError, TypeError, ValueError) as error:
+            print("---- source-derived statement %s: %s" % (finding["type"], error))
+            return 0, 1
+        recorded = (finding["severity"], finding["expected"], finding["actual"])
+        if recorded != derived:
+            print("FAIL source-derived statement differs for %s: expected %r, found %r" %
+                  (finding["type"], derived, recorded))
+            return 1, 0
+    print("OK   %d conclusion statement(s) and severities independently reconstructed" % len(findings))
+    return 0, 0
+
+
+def check_run_history(c, given_files):
+    """Replay every preserved run, then prove each case issue came from its first finding."""
+    earlier = c["run"].get("earlierRunKeys")
+    if not earlier:
+        return 0, 0
+    entries = c.get("runProofs", [])
+    if c.get("runsWithoutProof") or len(entries) != len(earlier) + 1:
+        print("---- run history: immutable proof is unavailable for one or more runs")
+        return 0, 1
+    proofs = [entry["proof"] for entry in entries]
+    if sorted(p["runKey"] for p in proofs if p["runId"] != c["run"]["runId"]) != sorted(earlier) \
+            or sum(p["runId"] == c["run"]["runId"] and p["runKey"] == c["run"]["runKey"] for p in proofs) != 1:
+        print("FAIL run proof membership differs from the case's run inventory")
+        return 1, 0
+    sources = {s["importId"]: s for s in c["sources"]}
+    if len(sources) != len(c["sources"]):
+        print("FAIL case source manifests repeat an import identity")
+        return 1, 0
+    first = {}
+    ordered = sorted(proofs, key=lambda p: (ts(p["completedAt"]), p["runId"]))
+    if any(ts(a["completedAt"]) == ts(b["completedAt"]) for a, b in zip(ordered, ordered[1:])):
+        print("---- run history: two runs share a completion instant; first occurrence is ambiguous")
+        return 0, 1
+    if ordered[-1]["runId"] != c["run"]["runId"]:
+        print("FAIL the exported latest run is not the last preserved run")
+        return 1, 0
+    for proof in ordered:
+        members = {s["importId"]: s for s in proof["sources"]}
+        if len(members) != len(proof["sources"]) or any(i not in sources for i in members):
+            print("FAIL preserved run sources are missing from the case")
+            return 1, 0
+        fields = ("sourceType", "sourceIdentity", "fileSha256", "byteSize", "evidenceStorageKey", "profile", "profileVersion")
+        if any(any(snapshot[field] != sources[import_id][field] for field in fields)
+               for import_id, snapshot in members.items()):
+            print("FAIL preserved run source differs from its immutable manifest")
+            return 1, 0
+        view = {"sources": [sources[i] for i in sorted(members)],
+                "case": {"caseId": proof["caseId"], "periodEnd": proof["periodEnd"],
+                         "settlementSlaDays": proof["settlementSlaDays"]},
+                "run": {"runKey": proof["runKey"], "rulesetVersion": proof["rulesetVersion"],
+                        "recordsProcessed": proof["recordsProcessed"],
+                        "summary": {"importIds": sorted(members),
+                                    "importFileHashes": sorted(s["fileSha256"] for s in members.values())}},
+                "findingInputs": {"feeSchedules": proof["feeSchedules"]}}
+        try:
+            if computed_run_key(view) != proof["runKey"]:
+                print("FAIL preserved run key disagrees with its source and fee inputs")
+                return 1, 0
+            records = run_records(view, given_files)
+            matched = payment_matches(records)
+            if proof["rulesetVersion"] != RULESET:
+                raise Unknown("ruleset %s is unsupported" % proof["rulesetVersion"])
+            refund_providers = {s["sourceIdentity"].lower() for s in view["sources"]
+                                if s["profile"] == "checkout-financial-actions" and s["profileVersion"] >= 2}
+            derived = replay(records, matched, view["case"], proof["feeSchedules"], refund_providers)
+        except (Unknown, CheckoutUnknown, AdyenUnknown, ReplayUnknown, csv.Error) as error:
+            print("---- run history %s: %s" % (proof["runId"], error))
+            return 0, 1
+        listed = Counter((f["type"], f["ruleId"], f["exposureCurrency"], d(f["exposureAmount"]),
+                          tuple(sorted((r["importId"], r["rowNumber"]) for r in f["sourceRows"])))
+                         for f in proof["findings"])
+        if derived != listed or len(proof["findings"]) != proof["exceptionCount"]:
+            print("FAIL preserved run %s omits or changes a source finding" % proof["runId"])
+            return 1, 0
+        statement_failed, statement_incomplete = check_source_statements(
+            proof["findings"], records, proof["feeSchedules"], view["case"])
+        if statement_failed or statement_incomplete:
+            return statement_failed, statement_incomplete
+        for finding in proof["findings"]:
+            key = (finding["type"], tuple(sorted(r["recordKey"] for r in finding["sourceRows"])))
+            if key not in first:
+                first[key] = (proof, finding)
+        print("OK   historical run %s: %d finding(s) independently replayed" %
+              (proof["runId"], len(proof["findings"])))
+    issues = {}
+    for issue in c["exceptions"]:
+        key = (issue["type"], tuple(sorted(r["recordKey"] for r in issue["evidence"]["records"])))
+        if key in issues:
+            print("FAIL case lists one finding identity more than once")
+            return 1, 0
+        issues[key] = issue
+    if set(issues) != set(first):
+        print("FAIL case issues differ from the first findings across its runs")
+        return 1, 0
+    for key, (proof, finding) in first.items():
+        issue = issues[key]
+        if issue["raisedByRunId"] != proof["runId"] or issue["evidence"]["runId"] != proof["runId"] \
+                or issue["ruleId"] != finding["ruleId"] or issue["ruleVersion"] != proof["rulesetVersion"] \
+                or issue["severity"] != finding["severity"] \
+                or issue["expected"] != finding["expected"] or issue["actual"] != finding["actual"] \
+                or issue["exposureCurrency"] != finding["exposureCurrency"] \
+                or d(issue["exposureAmount"]) != d(finding["exposureAmount"]) \
+                or sorted((r["importId"], r["rowNumber"], r["fileSha256"], r["rowSha256"])
+                          for r in issue["evidence"]["records"]) != sorted(
+                    (r["importId"], r["rowNumber"], r["fileSha256"], r["rowSha256"])
+                    for r in finding["sourceRows"]):
+            print("FAIL case issue differs from the first run that found it")
+            return 1, 0
+    print("     run history: %d run(s), %d unique issue(s), every finding source-replayed" % (len(ordered), len(issues)))
+    return 0, 0
 
 
 def by_type(recs, *types):
@@ -208,42 +463,517 @@ def row_numbers(raw):
 
 def header_of(text):
     """The supplied file's header names as TrustLedger reads them: BOM dropped, trimmed, lower-cased."""
-    return [h.strip().lower() for h in next(csv.reader([text.lstrip("\ufeff").splitlines()[0]]), [])] if text else []
+    lines = text.lstrip("\ufeff").splitlines()
+    return [h.strip().lower() for h in next(csv.reader([lines[0]]), [])] if lines else []
+
+
+def source_rows(profile, text):
+    """Rows by CSV record number (not physical line), as the importer numbers them. Empty lines are skipped."""
+    if profile == "provider-event-json":
+        return [text]
+    reader = csv.reader(io.StringIO(text.lstrip("\ufeff"), newline=""), strict=True)
+    next(reader, None)  # header
+    return [tuple(field.strip() for field in row) for row in reader if row]
+
+
+def event_fields(text):
+    """Read one canonical feed delivery as scalars, preserving decimal spellings for the CSV field rules."""
+    def reject_constant(value):
+        raise ValueError("invalid JSON number %s" % value)
+
+    body = json.loads(text, parse_int=Decimal, parse_float=Decimal, parse_constant=reject_constant)
+    if not isinstance(body, dict):
+        raise ValueError("event body is not one JSON object")
+    values = {}
+    for key, value in body.items():
+        if value is None:
+            continue
+        if isinstance(value, (dict, list)):
+            raise ValueError("event field %s is nested" % key)
+        values[key.lower()] = str(value).lower() if isinstance(value, bool) else str(value)
+    required = ("event_id", "transaction_ref", "event_type", "status", "currency", "gross", "occurred_at")
+    if any(name not in values for name in required):
+        raise ValueError("event is missing a required provider field")
+    return values
+
+
+def row_at_number(profile, rows, number, raw):
+    if not isinstance(number, int) or number < 1 or number > len(rows):
+        return False
+    if profile == "provider-event-json":
+        return number == 1 and rows[0] == raw
+    parsed = next(csv.reader(io.StringIO(raw, newline=""), strict=True), None)
+    return parsed is not None and tuple(field.strip() for field in parsed) == rows[number - 1]
+
+
+def source_record_values(profile, identity, values):
+    """Independently normalise the three simple CSV profiles. Refuse rows whose inputs would be rejected."""
+    if profile not in ("internal-expected", "provider-transactions", "provider-settlement"):
+        raise Unknown("source-to-record mapping is not implemented for %r" % profile)
+
+    def val(name):
+        value = values.get(name)
+        if value is not None and len(value) > 160:
+            raise ValueError("%s exceeds 160 characters" % name)
+        return value if value and not value.isspace() else None
+
+    def required(name):
+        value = val(name)
+        if value is None:
+            raise ValueError("missing %s" % name)
+        return value
+
+    def amount(name, needed):
+        value = required(name) if needed else val(name)
+        if value is not None and not re.fullmatch(r"\d{1,15}(\.\d{1,4})?", value):
+            raise ValueError("invalid %s decimal" % name)
+        return value
+
+    def instant(name, needed):
+        value = required(name) if needed else val(name)
+        if value is not None:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2}))?", value):
+                raise ValueError("invalid ISO instant in %s" % name)
+            parsed = ts(value)
+            if parsed.tzinfo is None and len(value) != 10:
+                raise ValueError("time without zone in %s" % name)
+        return value
+
+    currency = required("currency").upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        raise ValueError("invalid currency")
+
+    base = {"providerEventId": None, "stableRef": None, "internalRef": None,
+            "occurredAt": None, "receivedAt": None, "feeAmount": None, "netAmount": None,
+            "paymentStatus": None, "settlementBatch": None}
+    if profile == "internal-expected":
+        kind = (val("event_type") or "PAYMENT").upper()
+        if kind not in ("PAYMENT", "REFUND"):
+            raise ValueError("invalid internal event type")
+        base.update(provider=required("provider").lower(), stableRef=val("provider_ref"),
+                    internalRef=required("internal_ref"), eventType=kind,
+                    occurredAt=instant("expected_at", True), currency=currency,
+                    grossAmount=amount("amount", True), paymentStatus=val("status"))
+        base["eventType"] = "EXPECTED_" + base["eventType"]
+    elif profile == "provider-transactions":
+        kind, status = required("event_type").upper(), required("status").upper()
+        if kind not in ("CHARGE", "REFUND", "REVERSAL") or status not in ("PENDING", "SUCCESS", "FAILED"):
+            raise ValueError("invalid provider event type or status")
+        base.update(provider=identity.lower(), providerEventId=required("event_id"),
+                    stableRef=required("transaction_ref"), internalRef=val("merchant_ref"),
+                    eventType=kind, occurredAt=instant("occurred_at", True),
+                    receivedAt=instant("received_at", False), currency=currency,
+                    grossAmount=amount("gross", True), feeAmount=amount("fee", False), netAmount=amount("net", False),
+                    paymentStatus=status)
+    else:
+        base.update(provider=identity.lower(), stableRef=required("transaction_ref"),
+                    eventType="SETTLEMENT_LINE", occurredAt=instant("settled_at", True),
+                    currency=currency, grossAmount=amount("gross", True),
+                    feeAmount=amount("fee", True), netAmount=amount("net", True), settlementBatch=required("batch_id"))
+    return base
+
+
+def source_record(profile, identity, raw, header):
+    if profile == "provider-event-json":
+        return source_record_values("provider-transactions", identity, event_fields(raw))
+    fields = next(csv.reader(io.StringIO(raw, newline=""), strict=True), None)
+    if fields is None or header is None or len(fields) != len(header):
+        raise Unknown("source row and header do not have the same columns")
+    values = dict(zip(header, (field.strip() for field in fields)))
+    return source_record_values(profile, identity, values)
+
+
+def source_value_agrees(field, stated, source):
+    if field in ("grossAmount", "feeAmount", "netAmount"):
+        return d(stated) == d(source)
+    if field in ("occurredAt", "receivedAt"):
+        return source_time(stated) == source_time(source)
+    return stated == source
+
+
+def source_time(value):
+    parsed = ts(value)
+    return parsed.replace(tzinfo=timezone.utc) if parsed is not None and parsed.tzinfo is None else parsed
+
+
+def run_records(c, given_files):
+    """The entire input universe for supported profiles, checked against manifests and source files."""
+    completed = [s for s in c["sources"] if s["status"] == "COMPLETED"]
+    sources = {s["importId"]: s for s in completed}
+    if len(sources) != len(completed):
+        raise Unknown("the source list repeats an import identity")
+    run_ids = c["run"]["summary"].get("importIds")
+    if not isinstance(run_ids, list) or len(run_ids) != len(set(run_ids)) or set(run_ids) != set(sources):
+        raise Unknown("the run's complete import membership is not established")
+    run_hashes = c["run"]["summary"].get("importFileHashes")
+    if not isinstance(run_hashes, list) or sorted(run_hashes) != sorted(s["fileSha256"] for s in sources.values()):
+        raise Unknown("the run's file inventory differs from its source manifests")
+    records = []
+    for import_id in run_ids:
+        source = sources[import_id]
+        if source["profile"] not in ("internal-expected", "provider-transactions", "provider-settlement",
+                                      "checkout-financial-actions", "adyen-settlement-detail", "provider-event-json") or source["profileVersion"] != (
+                                          2 if source["profile"] == "checkout-financial-actions" else 1):
+            raise Unknown("complete source parsing is not implemented for %s/v%s" %
+                          (source["profile"], source["profileVersion"]))
+        expected_type = {"internal-expected": "INTERNAL", "provider-transactions": "PROVIDER_TRANSACTION",
+                         "provider-settlement": "SETTLEMENT", "checkout-financial-actions": "SETTLEMENT",
+                         "adyen-settlement-detail": "SETTLEMENT",
+                         "provider-event-json": "PROVIDER_TRANSACTION"}[source["profile"]]
+        if source["sourceType"] != expected_type:
+            raise Unknown("source type disagrees with its import profile")
+        if source["fileSha256"] not in given_files:
+            raise Unknown("source file %s was not supplied" % source["filename"])
+        if source["duplicateCount"] or source["rejectedRowsOmitted"]:
+            raise Unknown("the import has duplicates or unlisted rejected rows")
+        if source["profile"] == "provider-event-json":
+            body = given_files[source["fileSha256"]]
+            if source["recordCount"] != 1 or source["acceptedCount"] + source["rejectedCount"] != 1:
+                raise EventMismatch("JSON event manifest does not describe exactly one delivery")
+            rejected = source["rejectedRows"]
+            if len(rejected) != source["rejectedCount"] or any(r["rowNumber"] != 1 or
+                    r["rowSha256"] != row_hash(source["sourceType"], source["sourceIdentity"], body) for r in rejected):
+                raise EventMismatch("JSON event rejection does not match its supplied body")
+            try:
+                record = source_record("provider-event-json", source["sourceIdentity"], body, None)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                if source["acceptedCount"]:
+                    raise EventMismatch("accepted JSON event does not parse from its source body")
+            else:
+                if source["rejectedCount"]:
+                    raise EventMismatch("rejected JSON event parses as an accepted provider record")
+                record.update(importId=import_id, rowNumber=1)
+                records.append(record)
+            continue
+        if source["profile"] == "checkout-financial-actions":
+            try:
+                records.extend(derive_checkout(source, given_files[source["fileSha256"]]))
+            except CheckoutUnknown as e:
+                if isinstance(e, CheckoutMismatch):
+                    raise
+                raise Unknown(str(e)) from e
+            continue
+        if source["profile"] == "adyen-settlement-detail":
+            try:
+                records.extend(derive_adyen(source, given_files[source["fileSha256"]]))
+            except AdyenUnknown as e:
+                if isinstance(e, AdyenMismatch):
+                    raise
+                raise Unknown(str(e)) from e
+            continue
+        header = header_of(given_files[source["fileSha256"]])
+        required = {
+            "internal-expected": ("internal_ref", "provider", "currency", "amount", "expected_at"),
+            "provider-transactions": ("event_id", "transaction_ref", "event_type", "status", "currency", "gross", "occurred_at"),
+            "provider-settlement": ("batch_id", "transaction_ref", "currency", "gross", "fee", "net", "settled_at"),
+        }[source["profile"]]
+        if len(header) != len(set(header)) or any(name not in header for name in required):
+            raise Unknown("source headers are incomplete or ambiguous")
+        rows = source_rows(source["profile"], given_files[source["fileSha256"]])
+        if len(rows) != source["recordCount"]:
+            raise Unknown("source row count differs from its manifest")
+        rejected = {item["rowNumber"] for item in source["rejectedRows"]}
+        if len(rejected) != source["rejectedCount"]:
+            raise Unknown("rejected rows are not fully listed")
+        accepted = 0
+        for number, fields in enumerate(rows, 1):
+            if len(fields) != len(header):
+                if number not in rejected:
+                    raise Unknown("an unlisted row has the wrong number of columns")
+                continue
+            try:
+                r = source_record_values(source["profile"], source["sourceIdentity"], dict(zip(header, fields)))
+            except (ValueError, TypeError) as e:
+                if number not in rejected:
+                    raise Unknown("unlisted rejected row %s:%d (%s)" % (source["filename"], number, e)) from e
+                continue
+            if number in rejected:
+                raise Unknown("a listed rejected row parses as accepted")
+            r.update(importId=import_id, rowNumber=number)
+            records.append(r)
+            accepted += 1
+        if accepted != source["acceptedCount"]:
+            raise Unknown("accepted row count differs from its manifest")
+    if len(records) != c["run"]["recordsProcessed"]:
+        raise Unknown("the run's processed count differs from its complete inputs")
+    return records
+
+
+def payment_matches(records):
+    """Re-run R1, R2 and R4 uniqueness over the complete simple-CSV input universe."""
+    events = defaultdict(list)
+    for r in records:
+        if r["eventType"] in ("CHARGE", "REFUND", "REVERSAL"):
+            events[(r["provider"], r["providerEventId"])].append(r)
+    deduped = []
+    for group in events.values():
+        group.sort(key=lambda r: (r["receivedAt"] is None, source_time(r["receivedAt"]) or datetime.max.replace(tzinfo=timezone.utc)))
+        if len(group) > 1 and group[0]["receivedAt"] == group[1]["receivedAt"]:
+            raise Unknown("duplicate deliveries have tied receipt times")
+        deduped.append(group[0])
+    histories = defaultdict(list)
+    for r in deduped:
+        if r["eventType"] == "CHARGE":
+            histories[(r["provider"], r["stableRef"])].append(r)
+    charges = []
+    for history in histories.values():
+        choices = [r for r in history if r["paymentStatus"] == "SUCCESS"] or history
+        choices.sort(key=lambda r: (r["occurredAt"] is None, source_time(r["occurredAt"]) or datetime.max.replace(tzinfo=timezone.utc)))
+        if len(choices) > 1 and choices[-1]["occurredAt"] == choices[-2]["occurredAt"]:
+            raise Unknown("charge history has tied event times")
+        charges.append(choices[-1])
+    internal = [r for r in records if r["eventType"] == "EXPECTED_PAYMENT"]
+    used_internal, used_charge, selected_pairs = set(), set(), set()
+
+    def ident(r):
+        return (r["importId"], r["rowNumber"])
+
+    def pair(block, rule):
+        by_i, by_c = defaultdict(list), defaultdict(list)
+        for i in internal:
+            if ident(i) not in used_internal and block(i) is not None:
+                by_i[block(i)].append(i)
+        for charge in charges:
+            if ident(charge) not in used_charge and block(charge) is not None:
+                by_c[block(charge)].append(charge)
+        found = []
+        for i in internal:
+            key = block(i)
+            if ident(i) in used_internal or key is None:
+                continue
+            candidates = [charge for charge in by_c[key] if rule(i, charge)]
+            if len(candidates) == 1 and sum(rule(other, candidates[0]) for other in by_i[key]) == 1:
+                found.append((i, candidates[0]))
+        for i, charge in found:
+            used_internal.add(ident(i))
+            used_charge.add(ident(charge))
+            selected_pairs.add((ident(i), ident(charge)))
+
+    pair(lambda r: (r["provider"], r["stableRef"]) if r["stableRef"] is not None else None,
+         lambda i, charge: i["provider"] == charge["provider"] and i["stableRef"] == charge["stableRef"])
+    pair(lambda r: (r["provider"], r["internalRef"]) if r["internalRef"] is not None else None,
+         lambda i, charge: i["provider"] == charge["provider"] and i["internalRef"] == charge["internalRef"])
+    pair(lambda r: (r["provider"], r["currency"], d(r["grossAmount"])) if r["grossAmount"] is not None else None,
+         lambda i, charge: i["provider"] == charge["provider"] and i["currency"] == charge["currency"]
+         and d(i["grossAmount"]) == d(charge["grossAmount"])
+         and source_time(i["occurredAt"]) is not None and source_time(charge["occurredAt"]) is not None
+         and abs(source_time(i["occurredAt"]) - source_time(charge["occurredAt"])) <= timedelta(hours=24))
+    return Replay(internal, charges, used_internal, used_charge, deduped, selected_pairs)
+
+
+def payment_pair_confirmed(referenced, matched):
+    """A comparison is a finding only if R1, R2 or R4 selected these exact source rows as a pair."""
+    internal = one(referenced, "EXPECTED_PAYMENT")
+    charge = one(referenced, "CHARGE")
+    return ((internal["importId"], internal["rowNumber"]),
+            (charge["importId"], charge["rowNumber"])) in matched.selected_pairs
+
+
+def settlement_pair_confirmed(referenced, records, matched):
+    """A settlement comparison needs the unique line paired with this representative charge."""
+    line = one(referenced, "SETTLEMENT_LINE")
+    charge = one(referenced, "CHARGE")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    if identity(charge) not in {identity(r) for r in matched.charges}:
+        return False
+    lines = [r for r in records if r["eventType"] == "SETTLEMENT_LINE" and r["provider"] == charge["provider"]
+             and r["stableRef"] == charge["stableRef"]]
+    if len(lines) > 1:
+        raise Unknown("multiple settlement lines share this charge reference; line ordering is not replayed")
+    return len(lines) == 1 and identity(line) == identity(lines[0])
+
+
+def duplicate_group_confirmed(referenced, records):
+    """A duplicate finding must cite the complete delivery group, not a convenient subset."""
+    first = referenced[0]
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    group = [r for r in records if r["eventType"] in ("CHARGE", "REFUND", "REVERSAL")
+             and (r["provider"], r["providerEventId"]) == (first["provider"], first["providerEventId"])]
+    return len(group) > 1 and {identity(r) for r in group} == {identity(r) for r in referenced}
+
+
+def duplicate_effect_confirmed(referenced, matched):
+    """Only distinct successful events in one transaction history count as multiple financial effects."""
+    first = referenced[0]
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    successes = [r for r in matched.deduped if r["eventType"] == "CHARGE" and r["paymentStatus"] == "SUCCESS"
+                 and (r["provider"], r["stableRef"]) == (first["provider"], first["stableRef"])]
+    return len(successes) > 1 and {identity(r) for r in successes} == {identity(r) for r in referenced}
+
+
+def status_transition(ex, referenced, matched):
+    """Reproduce a terminal-status change and its exposure from the whole deduplicated charge history."""
+    if ex["ruleId"] != "D-STATUS-ORDER" or len(referenced) != 2 or any(r["eventType"] != "CHARGE" for r in referenced):
+        raise Unknown("not a two-charge status transition under D-STATUS-ORDER")
+    first = referenced[0]
+    history = [r for r in matched.deduped if r["eventType"] == "CHARGE"
+               and (r["provider"], r["stableRef"]) == (first["provider"], first["stableRef"])]
+    if len(history) < 2 or any((r["provider"], r["stableRef"]) != (first["provider"], first["stableRef"])
+                               for r in referenced):
+        raise Unknown("the cited charges are not in one event history")
+    history.sort(key=lambda r: source_time(r["occurredAt"]))
+    if any(a["occurredAt"] == b["occurredAt"] for a, b in zip(history, history[1:])):
+        raise Unknown("charge history has tied event times")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    cited = {identity(r) for r in referenced}
+    transitions = [(a, b) for a, b in zip(history, history[1:])
+                   if a["paymentStatus"] in ("SUCCESS", "FAILED") and a["paymentStatus"] != b["paymentStatus"]
+                   and {identity(a), identity(b)} == cited]
+    if len(transitions) != 1:
+        raise Unknown("the cited rows are not an adjacent terminal-status change")
+    rep = [r for r in matched.charges if (r["provider"], r["stableRef"]) ==
+           (first["provider"], first["stableRef"])]
+    if len(rep) != 1:
+        raise Unknown("the transaction's representative charge is not established")
+    before, after = transitions[0]
+    return rep[0]["currency"], d(rep[0]["grossAmount"]), "%s then %s; gross of the representative charge" % (
+        before["paymentStatus"], after["paymentStatus"])
+
+
+def refund_pair_confirmed(referenced, records, matched):
+    """Confirm a D-REFUND pair only when both sides have exactly one possible allocation."""
+    internal = one(referenced, "EXPECTED_REFUND")
+    provider = one(referenced, "REFUND", "REVERSAL")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    money_back = [r for r in matched.deduped if r["eventType"] in ("REFUND", "REVERSAL")]
+    if identity(internal) not in {identity(r) for r in records if r["eventType"] == "EXPECTED_REFUND"} \
+            or identity(provider) not in {identity(r) for r in money_back}:
+        return False
+
+    def related(i, p):
+        return i["provider"] == p["provider"] and (
+            (i["stableRef"] is not None and i["stableRef"] == p["stableRef"])
+            or (p["internalRef"] is not None and p["internalRef"] == i["internalRef"]))
+
+    internal_candidates = [r for r in records if r["eventType"] == "EXPECTED_REFUND" and related(r, provider)]
+    provider_candidates = [r for r in money_back if related(internal, r)]
+    if len(internal_candidates) > 1 or len(provider_candidates) > 1:
+        raise Unknown("multiple refund allocations fit these references")
+    return len(internal_candidates) == len(provider_candidates) == 1 and identity(internal_candidates[0]) == identity(internal) \
+        and identity(provider_candidates[0]) == identity(provider)
+
+
+def absence_proven(ex, referenced, records, matched, case, refund_settling_providers=()):
+    """True only when the complete source-backed input set establishes the claimed missing counterpart."""
+    t = ex["type"]
+    target = (referenced[0]["importId"], referenced[0]["rowNumber"])
+    by_identity = {(r["importId"], r["rowNumber"]): r for r in records}
+    if target not in by_identity:
+        raise Unknown("the finding's row is not in the complete run inputs")
+    internal, charges = matched.internal, matched.charges
+    used_internal, used_charge, deduped = matched.used_internal, matched.used_charge, matched.deduped
+    if t == "MISSING_PROVIDER_RECORD":
+        return target in {(r["importId"], r["rowNumber"]) for r in internal} and target not in used_internal
+    if t == "MISSING_INTERNAL_RECORD":
+        return target in {(r["importId"], r["rowNumber"]) for r in charges} and target not in used_charge
+    if t == "MISSING_SETTLEMENT":
+        charge = by_identity[target]
+        if target not in {(r["importId"], r["rowNumber"]) for r in charges} or charge["paymentStatus"] != "SUCCESS":
+            return False
+        covered = {r["provider"] for r in records if r["eventType"] == "SETTLEMENT_LINE"}
+        if charge["provider"] not in covered or source_time(charge["occurredAt"]) + timedelta(days=case["settlementSlaDays"]) > source_time(case["periodEnd"]):
+            return False
+        return not any(r["eventType"] == "SETTLEMENT_LINE" and r["provider"] == charge["provider"]
+                       and r["stableRef"] == charge["stableRef"] for r in records)
+    if t == "UNMATCHED_SETTLEMENT_ITEM":
+        line = by_identity[target]
+        if line["eventType"] != "SETTLEMENT_LINE":
+            return False
+        if any(r["provider"] == line["provider"] and r["stableRef"] == line["stableRef"] for r in charges):
+            raise Unknown("a charge exists; duplicate settlement line ordering is not replayed")
+        return True
+    if t == "MISSING_REFUND_SETTLEMENT":
+        refund = by_identity[target]
+        if refund["eventType"] != "REFUND" or refund["paymentStatus"] != "SUCCESS" \
+                or target not in {(r["importId"], r["rowNumber"]) for r in deduped} \
+                or refund["provider"] not in refund_settling_providers \
+                or source_time(refund["occurredAt"]) is None \
+                or source_time(refund["occurredAt"]) + timedelta(days=case["settlementSlaDays"]) > source_time(case["periodEnd"]):
+            return False
+        candidates = [r for r in records if r["eventType"] == "SETTLED_REFUND" and r["provider"] == refund["provider"]
+                      and r["stableRef"] == refund["stableRef"]]
+        return not candidates
+    if t == "REFUND_MISMATCH" and len(referenced) == 1:
+        r = by_identity[target]
+        if r["eventType"] in ("REFUND", "REVERSAL", "SETTLED_REFUND"):
+            if r["eventType"] != "SETTLED_REFUND" and target not in {(x["importId"], x["rowNumber"]) for x in deduped}:
+                return False
+            if r["eventType"] == "SETTLED_REFUND" and any(x["eventType"] == "REFUND" and x["provider"] == r["provider"]
+                    and x["stableRef"] == r["stableRef"] for x in deduped):
+                return False
+            others = [x for x in records if x["eventType"] == "EXPECTED_REFUND" and x["provider"] == r["provider"]
+                      and ((x["stableRef"] is not None and x["stableRef"] == r["stableRef"])
+                           or (r["internalRef"] is not None and r["internalRef"] == x["internalRef"]))]
+        elif r["eventType"] == "EXPECTED_REFUND":
+            others = [x for x in records if x["eventType"] in ("REFUND", "REVERSAL", "SETTLED_REFUND") and x["provider"] == r["provider"]
+                      and ((r["stableRef"] is not None and r["stableRef"] == x["stableRef"])
+                           or (x["internalRef"] is not None and x["internalRef"] == r["internalRef"]))]
+        else:
+            return False
+        if others:
+            raise Unknown("a possible refund counterpart exists; allocation is not replayed")
+        return True
+    raise Unknown("absence check is not implemented for %s" % t)
 
 
 def row_currency(profile, raw, header):
     """The record's currency as its source row states it. With the source file, from the profile's currency
     column located by name in that file's header. Without it, only whether the code appears in the row at all."""
+    if profile == "provider-event-json":
+        try:
+            currency = event_fields(raw)["currency"].upper()
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            raise Unknown("JSON event currency cannot be read: %s" % e) from e
+        return (currency, True) if header is not None else ({currency}, False)
     fields = [f.strip().upper() for f in next(csv.reader([raw]), [])]
     name = CURRENCY_HEADER_BY_PROFILE.get(profile)
-    if header is not None and name is not None:
+    if name is None:
+        raise Unknown("unsupported source profile %r" % profile)
+    if header is not None:
         if name not in header or header.index(name) >= len(fields):
             raise Unknown("the supplied %s file has no %r column" % (profile, name))
         return fields[header.index(name)], True
     return set(fields), False
 
 
-def check_provenance(c, given_files):
+def check_provenance(c, given_files, universe=None):
     """Each listed record's row hashes to its rowSha256, cites a declared source, is in any file supplied, and
     carries the record's currency and amounts. Returns (failures, amounts not found, records whose currency
     could not be confirmed)."""
-    declared = {s["fileSha256"]: s for s in c["sources"]}
+    declared = {s["importId"]: s for s in c["sources"]}
+    rows_by_file = {}
     failures = unbound = 0
     currency_unconfirmed = set()
+    complete, _, universe_error = universe if universe is not None else (None, None, None)
+    derived = {r["recordKey"]: r for r in complete or [] if "recordKey" in r}
     for r in c["findingInputs"]["records"]:
         where = "%s:%d" % (r["sourceIdentity"], r["rowNumber"])
         if row_hash(r["sourceType"], r["sourceIdentity"], r["rawRow"]) != r["rowSha256"]:
             print("FAIL row %s does not hash to its rowSha256" % where)
             failures += 1
-        source = declared.get(r["fileSha256"])
-        if source is None:
-            print("FAIL row %s cites a file that is not one of the bundle's sources" % where)
+        source = declared.get(r["importId"])
+        if source is None or source["fileSha256"] != r["fileSha256"]:
+            print("FAIL row %s cites an import or file that is not one of the bundle's sources" % where)
             failures += 1
-        elif r["fileSha256"] in given_files and r["rawRow"] not in given_files[r["fileSha256"]]:
-            print("FAIL row %s is not in the source file supplied" % where)
-            failures += 1
+            source = None
+        elif r["fileSha256"] in given_files:
+            try:
+                key = (source["importId"], r["fileSha256"])
+                if key not in rows_by_file:
+                    rows_by_file[key] = source_rows(source.get("profile"), given_files[r["fileSha256"]])
+                if not row_at_number(source.get("profile"), rows_by_file[key], r["rowNumber"], r["rawRow"]):
+                    print("FAIL row %s is not at its stated record number in the source file supplied" % where)
+                    failures += 1
+            except csv.Error as e:
+                print("FAIL row %s cannot be read at its stated record number: %s" % (where, e))
+                failures += 1
+            if (r["importId"], r["sourceType"], r["sourceIdentity"]) != (
+                    source["importId"], source["sourceType"], source["sourceIdentity"]):
+                print("FAIL row %s does not belong to the cited source manifest" % where)
+                failures += 1
         if source is not None:
-            header = header_of(given_files[r["fileSha256"]]) if r["fileSha256"] in given_files else None
+            header = ([] if source["profile"] == "provider-event-json" else
+                      header_of(given_files[r["fileSha256"]])) if r["fileSha256"] in given_files else None
             try:
                 stated, exact = row_currency(source.get("profile"), r["rawRow"], header)
             except Unknown as e:
@@ -259,30 +989,72 @@ def check_provenance(c, given_files):
                     print("---- row %s: currency %s does not appear in the row; supply the source file to check it"
                           % (where, r["currency"]))
                     currency_unconfirmed.add(r["recordKey"])
-        in_row = row_numbers(r["rawRow"])
-        for field in ("grossAmount", "feeAmount", "netAmount"):
-            if r[field] is not None and abs(Decimal(r[field])) not in in_row:
-                print("---- row %s: %s %s is not a value in the row; read as the ruleset states, not confirmed" % (where, field, r[field]))
-                unbound += 1
+            if header is not None:
+                if source["profile"] in ("checkout-financial-actions", "adyen-settlement-detail"):
+                    from_row = derived.get(r["recordKey"])
+                    if from_row is None:
+                        print("---- row %s: provider report mapping not confirmed (%s)" % (where, universe_error))
+                        currency_unconfirmed.add(r["recordKey"])
+                    elif r["rowNumber"] != from_row["rowNumber"] or r["importId"] != from_row["importId"]:
+                        print("FAIL row %s: provider record cites the wrong gross source row" % where)
+                        failures += 1
+                    else:
+                        for field, expected in from_row.items():
+                            if field not in ("recordKey", "importId", "rowNumber") and not source_value_agrees(field, r.get(field), expected):
+                                print("FAIL row %s: %s differs from its complete provider report row" % (where, field))
+                                failures += 1
+                else:
+                    try:
+                        from_row = source_record(source["profile"], source["sourceIdentity"], r["rawRow"], header)
+                    except (Unknown, ValueError, TypeError, csv.Error) as e:
+                        print("---- row %s: canonical mapping not confirmed (%s)" % (where, e))
+                        currency_unconfirmed.add(r["recordKey"])
+                    else:
+                        for field, expected in from_row.items():
+                            if not source_value_agrees(field, r.get(field), expected):
+                                print("FAIL row %s: %s differs from its source row" % (where, field))
+                                failures += 1
+        if source is None or source["profile"] not in ("checkout-financial-actions", "adyen-settlement-detail",
+                                                        "provider-event-json"):
+            in_row = row_numbers(r["rawRow"])
+            for field in ("grossAmount", "feeAmount", "netAmount"):
+                if r[field] is not None and abs(Decimal(r[field])) not in in_row:
+                    print("---- row %s: %s %s is not a value in the row; read as the ruleset states, not confirmed" % (where, field, r[field]))
+                    unbound += 1
     records = c["findingInputs"]["records"]
     print("     provenance: %d record(s) checked against their rows; %d found in the source files supplied"
           % (len(records), sum(1 for r in records if r["fileSha256"] in given_files)))
     return failures, unbound, currency_unconfirmed
 
 
-def check_findings(c, currency_unconfirmed):
+def source_universe(c, given_files):
+    try:
+        complete_records = run_records(c, given_files)
+        return complete_records, payment_matches(complete_records), None
+    except (Unknown, CheckoutUnknown, AdyenUnknown) as e:
+        return None, None, e
+    except csv.Error as e:
+        return None, None, Unknown("source CSV cannot be parsed: %s" % e)
+
+
+def check_findings(c, currency_unconfirmed, given_files, universe=None):
     """Re-derive each exception. Returns (failed, not_rederivable, reproduced)."""
     if c["run"]["rulesetVersion"] != RULESET:
         print("     re-derivation skipped: this verifier implements %s, the run used %s" % (RULESET, c["run"]["rulesetVersion"]))
         return 0, len(c["exceptions"]), 0
     records = {r["recordKey"]: r for r in c["findingInputs"]["records"]}
+    complete_records, matched, universe_error = source_universe(c, given_files) if universe is None else universe
+    refund_settling_providers = {s["sourceIdentity"].lower() for s in c["sources"]
+                                 if s["profile"] == "checkout-financial-actions" and s["profileVersion"] >= 2}
     failed = not_rederivable = reproduced = 0
     for ex in c["exceptions"]:
         label = "%s %s" % (ex["type"], ex["exceptionId"][:8])
         refs = ex["evidence"]["records"]
-        missing = [x["recordKey"] for x in refs if records.get(x["recordKey"], {}).get("rowSha256") != x["rowSha256"]]
+        link_fields = ("importId", "sourceType", "rowNumber", "fileSha256", "rowSha256")
+        missing = [x["recordKey"] for x in refs if any(
+            records.get(x["recordKey"], {}).get(field) != x.get(field) for field in link_fields)]
         if missing:
-            print("FAIL %s names %s, not listed in the bundle with that row" % (label, ", ".join(missing)))
+            print("FAIL %s names %s, not listed in the bundle with that source row" % (label, ", ".join(missing)))
             failed += 1
             continue
         uncertain = [x["recordKey"] for x in refs if x["recordKey"] in currency_unconfirmed]
@@ -292,13 +1064,115 @@ def check_findings(c, currency_unconfirmed):
             not_rederivable += 1
             continue
         try:
-            ccy, amount, how = rederive(ex, [records[x["recordKey"]] for x in refs], c["case"], c["findingInputs"]["feeSchedules"])
+            cited = [records[x["recordKey"]] for x in refs]
+            if ex["type"] == "UNEXPECTED_STATUS_TRANSITION":
+                if universe_error is not None:
+                    raise Unknown(str(universe_error))
+                ccy, amount, how = status_transition(ex, cited, matched)
+            else:
+                ccy, amount, how = rederive(ex, cited, c["case"], c["findingInputs"]["feeSchedules"])
         except Unknown as e:
             print("---- %s %s: not re-derivable (%s)" % (label, ex["exposureAmount"], e))
             not_rederivable += 1
             continue
+        needs_absence = ex["type"] in ("MISSING_PROVIDER_RECORD", "MISSING_INTERNAL_RECORD", "MISSING_SETTLEMENT",
+                                        "MISSING_REFUND_SETTLEMENT", "UNMATCHED_SETTLEMENT_ITEM") or (
+                                            ex["type"] == "REFUND_MISMATCH" and len(refs) == 1)
+        if needs_absence:
+            try:
+                if universe_error is not None:
+                    raise Unknown(str(universe_error))
+                confirmed = absence_proven(ex, [records[x["recordKey"]] for x in refs], complete_records, matched,
+                                           c["case"], refund_settling_providers)
+            except Unknown as e:
+                print("---- %s %s: not re-derivable (amount %s, absence unproven: %s)"
+                      % (label, ex["exposureAmount"], amount, e))
+                not_rederivable += 1
+                continue
+            if not confirmed:
+                print("FAIL %s claims a missing counterpart, but the complete source-backed run contradicts it" % label)
+                failed += 1
+                continue
+            how += "; counterpart absence confirmed across the run inputs"
         stated = (ex["exposureCurrency"], d(ex["exposureAmount"]))
         if amount is not None and (ccy, amount) == stated:
+            if ex["type"] == "REFUND_MISMATCH" and len(refs) == 2:
+                try:
+                    if universe_error is not None:
+                        raise Unknown("refund allocation is not replayed for this source profile")
+                    if ex["ruleId"] == "D-REFUND":
+                        confirmed = refund_pair_confirmed([records[x["recordKey"]] for x in refs], complete_records, matched)
+                    elif ex["ruleId"] == "D-SETTLED-REFUND":
+                        cited = [records[x["recordKey"]] for x in refs]
+                        settled, provider = one(cited, "SETTLED_REFUND"), one(cited, "REFUND")
+                        candidates = [r for r in matched.deduped if r["eventType"] == "REFUND"
+                                      and (r["provider"], r["stableRef"]) == (settled["provider"], settled["stableRef"])]
+                        settlements = [r for r in complete_records if r["eventType"] == "SETTLED_REFUND"
+                                       and (r["provider"], r["stableRef"]) == (provider["provider"], provider["stableRef"])]
+                        confirmed = len(candidates) == len(settlements) == 1 \
+                            and (provider["importId"], provider["rowNumber"]) == (candidates[0]["importId"], candidates[0]["rowNumber"]) \
+                            and (settled["importId"], settled["rowNumber"]) == (settlements[0]["importId"], settlements[0]["rowNumber"])
+                    else:
+                        raise Unknown("refund rule is not implemented")
+                except Unknown as e:
+                    print("---- %s %s: not re-derivable (refund allocation unproven: %s)" %
+                          (label, ex["exposureAmount"], e))
+                    not_rederivable += 1
+                    continue
+                if not confirmed:
+                    print("FAIL %s does not cite the unique refund pair in the full run" % label)
+                    failed += 1
+                    continue
+                how += "; unique refund pair confirmed across the run inputs"
+            if ex["type"] in ("CHARGEBACK_DEBITED", "UNMATCHED_CHARGEBACK_REVERSAL"):
+                if universe_error is not None:
+                    not_rederivable += 1
+                    continue
+                cited = [records[x["recordKey"]] for x in refs]
+                first = cited[0]
+                group = [r for r in complete_records if r["eventType"] in ("SETTLED_CHARGEBACK", "SETTLED_CHARGEBACK_REVERSAL")
+                         and (r["provider"], r["stableRef"], r["currency"]) ==
+                         (first["provider"], first["stableRef"], first["currency"])]
+                if {(r["importId"], r["rowNumber"]) for r in group} != {(r["importId"], r["rowNumber"]) for r in cited}:
+                    print("FAIL %s cites an incomplete dispute history" % label)
+                    failed += 1
+                    continue
+            pair_types = ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "PENDING_UNKNOWN", "PAYMENT_STATUS_MISMATCH")
+            settlement_types = ("NET_SETTLEMENT_MISMATCH", "LATE_SETTLEMENT")
+            if ex["type"] in pair_types + settlement_types + ("FEE_MISMATCH", "DUPLICATE_PROVIDER_EVENT",
+                                                             "DUPLICATE_FINANCIAL_EFFECT"):
+                try:
+                    if universe_error is not None:
+                        raise Unknown(str(universe_error))
+                    cited = [records[x["recordKey"]] for x in refs]
+                    if ex["type"] in pair_types:
+                        confirmed = payment_pair_confirmed(cited, matched)
+                    elif ex["type"] in settlement_types:
+                        confirmed = settlement_pair_confirmed(cited, complete_records, matched)
+                    elif ex["type"] == "DUPLICATE_PROVIDER_EVENT":
+                        confirmed = duplicate_group_confirmed(cited, complete_records)
+                    elif ex["type"] == "DUPLICATE_FINANCIAL_EFFECT":
+                        confirmed = duplicate_effect_confirmed(cited, matched)
+                    else:
+                        charge = one(cited, "CHARGE")
+                        confirmed = (charge["importId"], charge["rowNumber"]) in {
+                            (r["importId"], r["rowNumber"]) for r in matched.charges}
+                except Unknown as e:
+                    print("---- %s %s: not re-derivable (finding condition unproven: %s)" %
+                          (label, ex["exposureAmount"], e))
+                    not_rederivable += 1
+                    continue
+                if not confirmed:
+                    if ex["type"] == "DUPLICATE_PROVIDER_EVENT":
+                        print("FAIL %s does not cite every delivery in the full run" % label)
+                    elif ex["type"] == "DUPLICATE_FINANCIAL_EFFECT":
+                        print("FAIL %s does not cite every distinct successful charge in the full run" % label)
+                    else:
+                        relation = "payment pair" if ex["type"] in pair_types else "settlement pair" if ex["type"] in settlement_types else "representative charge"
+                        print("FAIL %s cites records that are not the %s selected by the full run" % (label, relation))
+                    failed += 1
+                    continue
+                how += "; finding condition confirmed across the run inputs"
             print("OK   %s %s %s reproduced: %s" % (label, ccy, ex["exposureAmount"], how))
             reproduced += 1
         else:
@@ -308,12 +1182,112 @@ def check_findings(c, currency_unconfirmed):
     return failed, not_rederivable, reproduced
 
 
+def check_full_finding_set(c, universe):
+    if c["run"]["rulesetVersion"] != RULESET:
+        return 0, 1
+    if c["run"].get("earlierRunKeys") != []:
+        return 0, 1
+    complete_records, matched, universe_error = universe
+    if universe_error is not None:
+        print("---- full finding replay: %s" % universe_error)
+        return 0, 1
+    try:
+        refund_settling_providers = {s["sourceIdentity"].lower() for s in c["sources"]
+                                     if s["profile"] == "checkout-financial-actions" and s["profileVersion"] >= 2}
+        expected = replay(complete_records, matched, c["case"], c["findingInputs"]["feeSchedules"],
+                          refund_settling_providers)
+        listed = bundled_findings(c["exceptions"])
+    except ReplayUnknown as e:
+        print("---- full finding replay: %s" % e)
+        return 0, 1
+    if expected != listed:
+        missing = expected - listed
+        extra = listed - expected
+        print("FAIL full source replay found %d missing and %d unsupported listed finding(s)" %
+              (sum(missing.values()), sum(extra.values())))
+        for signature in list(missing)[:3]:
+            print("     missing: %s %s %s %s from %s" % signature)
+        for signature in list(extra)[:3]:
+            print("     unsupported: %s %s %s %s from %s" % signature)
+        return 1, 0
+    print("     full source replay: %d finding(s) independently enumerated" % sum(expected.values()))
+    return 0, 0
+
+
+def check_finding_inventory(c):
+    """Bind a single run's exported issue list to its recorded finding counts."""
+    run, exceptions = c["run"], c["exceptions"]
+    summary = run["summary"]
+    expected = summary.get("exceptionsByType")
+    if not isinstance(expected, dict) or any(not isinstance(n, int) or isinstance(n, bool) or n < 1
+                                              for n in expected.values()):
+        print("FAIL run has no valid exceptionsByType inventory")
+        return 1, 0
+    if sum(expected.values()) != run.get("exceptionCount"):
+        print("FAIL run exceptionCount differs from its exceptionsByType inventory")
+        return 1, 0
+    ids = [ex.get("exceptionId") for ex in exceptions]
+    if len(ids) != len(set(ids)):
+        print("FAIL bundle lists one exception more than once")
+        return 1, 0
+    earlier = run.get("earlierRunKeys")
+    if not isinstance(earlier, list):
+        print("---- finding inventory: earlier-run membership is not available")
+        return 0, 1
+    if earlier:
+        print("---- finding inventory: case issues can originate in earlier runs; complete run findings are not exported")
+        return 0, 1
+    actual = Counter(ex["type"] for ex in exceptions)
+    if dict(actual) != expected or len(exceptions) != run["exceptionCount"]:
+        print("FAIL bundle exception list differs from the run's finding inventory")
+        return 1, 0
+    totals = defaultdict(Decimal)
+    for ex in exceptions:
+        if ex["exposureAmount"] is not None:
+            totals[ex["exposureCurrency"]] += d(ex["exposureAmount"])
+    stated_totals = {item["currency"]: d(item["unresolvedAmount"])
+                     for item in run["unresolvedAtRunByCurrency"]}
+    if dict(totals) != stated_totals:
+        print("FAIL bundle exception exposure totals differ from the run's unresolved totals")
+        return 1, 0
+    for ex in exceptions:
+        evidence = ex.get("evidence") or {}
+        if ex.get("raisedByRunId") != run["runId"] or evidence.get("runId") != run["runId"] \
+                or ex.get("ruleVersion") != run["rulesetVersion"] or evidence.get("ruleVersion") != run["rulesetVersion"]:
+            print("FAIL exception %s is not bound to this run and ruleset" % ex["exceptionId"])
+            return 1, 0
+    print("     finding inventory: %d listed across %d type(s), bound to this run" % (len(exceptions), len(actual)))
+    return 0, 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 2
-    with open(argv[1], "rb") as f:
-        bundle = json.loads(f.read().decode("utf-8"))
+    archive_sources = None
+    if argv[1].lower().endswith(".zip"):
+        if len(argv) != 2:
+            print("FAIL a proof package takes no separate source paths")
+            return 2
+        try:
+            with zipfile.ZipFile(argv[1]) as archive:
+                names = archive.namelist()
+                if len(names) != len(set(names)) or "bundle.json" not in names \
+                        or any(n != "bundle.json" and not re.fullmatch(r"sources/[0-9a-f]{64}", n) for n in names):
+                    print("FAIL proof package contains missing, duplicate or undeclared paths")
+                    return 1
+                if sum(info.file_size for info in archive.infolist()) > 100 * 1024 * 1024:
+                    print("FAIL proof package exceeds the 100 MiB source limit")
+                    return 1
+                bundle = json.loads(archive.read("bundle.json").decode("utf-8"))
+                archive_sources = {name.removeprefix("sources/"): archive.read(name)
+                                   for name in names if name != "bundle.json"}
+        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as error:
+            print("FAIL cannot read proof package: %s" % error)
+            return 1
+    else:
+        with open(argv[1], "rb") as f:
+            bundle = json.loads(f.read().decode("utf-8"))
     if bundle.get("kind") != "RECONCILIATION_CASE_EVIDENCE":
         print("FAIL not a reconciliation case bundle: kind=%r" % bundle.get("kind"))
         return 1
@@ -327,35 +1301,84 @@ def main(argv):
 
     declared = {s["fileSha256"]: s["filename"] for s in bundle["content"]["sources"]}
     given = {}
-    for path in argv[2:]:
-        with open(path, "rb") as f:
-            data = f.read()
+    def source_paths():
+        for path in argv[2:]:
+            with open(path, "rb") as source_file:
+                yield path, source_file.read()
+
+    supplied = (("sources/" + digest, data) for digest, data in archive_sources.items()) if archive_sources is not None \
+        else source_paths()
+    for path, data in supplied:
         digest = hashlib.sha256(data).hexdigest()
-        if digest in declared:
+        if digest in declared and (archive_sources is None or path == "sources/" + digest):
             print("OK   source %s is %s in the bundle" % (path, declared[digest]))
             given[digest] = data.decode("utf-8", errors="replace")
         else:
             print("FAIL source %s (%s) is not one of the bundle's %d sources" % (path, digest, len(declared)))
             ok = False
+    if archive_sources is not None and set(archive_sources) != set(declared):
+        print("FAIL proof package source inventory differs from the bundle manifest")
+        ok = False
 
     c = bundle["content"]
     print("     status=%s ruleset=%s sources=%d matches=%d exceptions=%d" % (
         bundle.get("bundleStatus"), c["run"]["rulesetVersion"], len(c["sources"]), len(c["matches"]), len(c["exceptions"])))
 
+    version = bundle.get("bundleVersion")
+    if version == "recon-case-bundle/1":
+        print("     recon-case-bundle/1 is integrity only: exceptions were not re-derived")
+        return 3 if ok else 1
+    if version != "recon-case-bundle/2":
+        print("     bundle version %r is not supported for re-derivation" % version)
+        return 3 if ok else 1
     if "findingInputs" not in c:
-        if bundle.get("bundleVersion") == "recon-case-bundle/1":
-            print("     recon-case-bundle/1 carries no finding inputs: exceptions were not re-derived")
-            return 0 if ok else 1
-        print("FAIL %s carries no finding inputs: exceptions cannot be re-derived" % bundle.get("bundleVersion"))
+        print("FAIL recon-case-bundle/2 carries no finding inputs: exceptions cannot be re-derived")
         return 1
-    failures, unbound, currency_unconfirmed = check_provenance(c, given)
+    try:
+        run_key_failed = check_run_key(c)
+    except Unknown as e:
+        print("---- run key: %s" % e)
+        run_key_failed = 0
+        run_key_incomplete = 1
+    else:
+        run_key_incomplete = 0
+    proof_failed, proof_incomplete = check_run_proofs(c)
+    multi_run = bool(c["run"].get("earlierRunKeys"))
+    if multi_run:
+        inventory_failed, inventory_incomplete = check_run_history(c, given)
+    else:
+        inventory_failed, inventory_incomplete = check_finding_inventory(c)
+    universe = source_universe(c, given)
+    failures, unbound, currency_unconfirmed = check_provenance(c, given, universe)
     ok = failures == 0 and ok
-    failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed)
+    if isinstance(universe[2], CheckoutMismatch):
+        print("FAIL full Checkout source replay: %s" % universe[2])
+        ok = False
+    if isinstance(universe[2], AdyenMismatch):
+        print("FAIL full Adyen source replay: %s" % universe[2])
+        ok = False
+    if isinstance(universe[2], EventMismatch):
+        print("FAIL full JSON event source replay: %s" % universe[2])
+        ok = False
+    if multi_run:
+        failed, not_rederivable, reproduced = 0, len(c["exceptions"]) if inventory_incomplete else 0, \
+            len(c["exceptions"]) if not inventory_incomplete and not inventory_failed else 0
+        replay_failed, replay_incomplete = 0, inventory_incomplete
+        statement_failed, statement_incomplete = 0, inventory_incomplete
+    else:
+        failed, not_rederivable, reproduced = check_findings(c, currency_unconfirmed, given, universe)
+        replay_failed, replay_incomplete = check_full_finding_set(c, universe)
+        statement_failed, statement_incomplete = (0, 1) if universe[2] is not None else check_source_statements(
+            c["exceptions"], universe[0], c["findingInputs"]["feeSchedules"], c["case"])
     print("     exceptions: %d reproduced, %d not re-derivable, %d failed, of %d"
           % (reproduced, not_rederivable, failed, len(c["exceptions"])))
-    if not ok or failed:
+    if not ok or failed or inventory_failed or replay_failed or statement_failed or run_key_failed or proof_failed:
         return 1
-    return 3 if not_rederivable or unbound else 0
+    missing_sources = set(declared) - set(given)
+    if missing_sources:
+        print("     source files: %d of %d not supplied; source provenance is not independently confirmed"
+              % (len(missing_sources), len(declared)))
+    return 3 if not_rederivable or unbound or missing_sources or inventory_incomplete or replay_incomplete or statement_incomplete or run_key_incomplete or proof_incomplete else 0
 
 
 if __name__ == "__main__":

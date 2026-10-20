@@ -12,7 +12,7 @@ active:
   priority: P0                 # founder instruction, 2026-10-20: "GO" on the re-derivation verifier
   status: IN_PROGRESS
   claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
-  branch: feat/rederive-verifier
+  branch: codex/source-bound-proof
   source: "ACTIVE_WORK.yaml history 2026-10-20 (FOUNDER_OVERRIDE: GO on the recommendation to make bundle conclusions reproducible)"
   corroborated_by:
     - scripts/verify_recon_bundle.py
@@ -22,8 +22,36 @@ active:
     A reconciliation case bundle (recon-case-bundle/2) carries what every exception was computed from:
     each record an exception names, with the values the rules read and the exact source row, and the fee
     schedules on record. scripts/verify_recon_bundle.py, which shares no code with TrustLedger, proves each
-    row against its hash and the source file, and recomputes every exception's amount; a finding it cannot
-    recompute is reported as such, never passed. No UI, no migration, no money movement.
+    row against its hash and the source file, and recomputes every exception's amount, expected and actual
+    statements, and severity; a finding it cannot
+    recompute is reported as such, never passed. The follow-up after PR 177 requires every declared source
+    file and binds each cited row to its record number before returning success. No money movement.
+    For the three generic CSV profiles, the verifier also reads canonical fields from named columns and
+    replays full-run payment and simple settlement matching before confirming a missing counterpart or
+    a cited comparison pair; duplicate delivery and distinct financial-effect groups must be complete.
+    A status-transition finding can be replayed from the full generic-CSV charge history.
+    A two-record generic-CSV refund mismatch is confirmed only for a unique reference allocation.
+    A one-run bundle binds the listed exceptions to its recorded run count, type inventory, per-currency
+    exposure totals, and run/ruleset IDs;
+    for the generic CSV profiles an independent pass enumerates the complete finding set from all source rows,
+    catching omitted findings even when the bundle's counts and totals are changed with them;
+    for Checkout.com Financial Actions v2 without rejected or duplicate rows or unexported timestamp-zone
+    settings, independently derive all
+    settlement, settled refund and chargeback records from the complete report, replay refund settlement
+    absence and dispute history, and reject a rehashed forged aggregate or coordinated omitted finding;
+    for Adyen Settlement Details v1 without rejected or duplicate rows or unsupported timestamp zones,
+    independently derive each line and composite fee from all report rows, then replay the complete finding set;
+    for canonical provider-event-json v1 deliveries, independently parse every accepted or rejected body
+    and replay the complete finding set alongside file imports;
+    one tenant-scoped package download for a stored export carries its exact bundle and hash-checked source
+    bytes so the independent verifier can replay the case from one portable file;
+    new runs preserve write-once source membership, case settings, fee terms and every finding in V60;
+    the verifier replays each run from its exact source files and proves which first finding raised each
+    case issue, including recurring findings and newly exposed fees. Pre-V60 runs without snapshots
+    remain unconfirmed rather than claiming a historical inventory.
+    Unsupported conditions remain unconfirmed. CI and Security passed all eight checks on draft PR #179
+    (backend: 694 tests, 135 classes, none skipped or failed). Review, production observation and customer
+    validation remain open.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)
   founder_lane_in_parallel: obtain one anonymised real bank export (CAMT.053 > MT940 > the bank's CSV)
   last_completed:

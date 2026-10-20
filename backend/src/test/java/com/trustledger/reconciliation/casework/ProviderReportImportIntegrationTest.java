@@ -8,11 +8,15 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +31,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Real provider settlement reports (the providers' own published samples) through the governed import,
@@ -80,6 +86,49 @@ class ProviderReportImportIntegrationTest {
 
     private long count(String sql, Object... args) {
         return jdbc.queryForObject(sql, Long.class, args);
+    }
+
+    private String verifyCheckoutBundle(String token, UUID caseId, String internal, String events) throws Exception {
+        return verifyCheckoutBundle(token, caseId, internal, events, sample(CHECKOUT));
+    }
+
+    private String verifyCheckoutBundle(String token, UUID caseId, String internal, String events, byte[] report) throws Exception {
+        return verifyCheckoutBundle(token, caseId, internal, events, report, null, 0);
+    }
+
+    private String verifyCheckoutBundle(String token, UUID caseId, String internal, String events, byte[] report,
+                                        Consumer<JsonNode> edit, int expectedExit) throws Exception {
+        return verifyProviderBundle(token, caseId, internal, events, report, edit, expectedExit);
+    }
+
+    private String verifyProviderBundle(String token, UUID caseId, String internal, String events, byte[] report,
+                                        Consumer<JsonNode> edit, int expectedExit) throws Exception {
+        HttpResponse<String> exported = http.post(CASES + caseId + "/bundle", token, null);
+        assertEquals(201, exported.statusCode(), exported.body());
+        HttpResponse<String> downloaded = http.get("/api/v1/evidence/exports/"
+            + http.tree(exported).get("exportId").asString() + "/download", token);
+        assertEquals(200, downloaded.statusCode(), downloaded.body());
+        JsonNode bundleJson = json.readTree(downloaded.body());
+        if (edit != null) edit.accept(bundleJson);
+        Path dir = Path.of("target/recon-bundle");
+        Files.createDirectories(dir);
+        Path bundle = Files.createTempFile(dir, "provider-bundle-", ".json");
+        Files.writeString(bundle, json.writeValueAsString(bundleJson));
+        List<String> command = new ArrayList<>(List.of("python3", "../scripts/verify_recon_bundle.py", bundle.toString()));
+        for (byte[] bytes : List.of(internal.getBytes(StandardCharsets.UTF_8), events.getBytes(StandardCharsets.UTF_8), report)) {
+            Path file = Files.createTempFile(dir, "provider-source-", ".csv");
+            Files.write(file, bytes);
+            command.add(file.toString());
+        }
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(expectedExit, process.waitFor(), output);
+        return output;
+    }
+
+    private void rehash(JsonNode bundle) {
+        ((ObjectNode) bundle).put("contentHash", "sha256:" + Hashes.sha256(
+            json.writeValueAsString(bundle.get("content")).getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -194,14 +243,16 @@ class ProviderReportImportIntegrationTest {
     void aRunReadsAdyenLinesInTheChargeCurrency() throws Exception {
         AuthResponse op = http.register();
         UUID caseId = http.createCase(op.token(), "ADYEN-RUN-" + UUID.randomUUID());
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,adyen,X4J8X927MZNPIFY2,PAYMENT,EUR,5.00,2023-08-01T13:07:16Z\n"
+            + "I2,adyen,ZVA14XO8S0GYIJU2,PAYMENT,USD,5.00,2023-07-31T13:47:45Z\n";
+        String events = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,X4J8X927MZNPIFY2,,CHARGE,SUCCESS,EUR,5.00,,,2023-08-01T13:07:16Z,\n"
+            + "e2,ZVA14XO8S0GYIJU2,,CHARGE,SUCCESS,USD,5.00,,,2023-07-31T13:47:45Z,\n";
         CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "INTERNAL", "ledger", "internal-expected", "internal.csv",
-            ("internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
-                + "I1,adyen,X4J8X927MZNPIFY2,PAYMENT,EUR,5.00,2023-08-01T13:07:16Z\n"
-                + "I2,adyen,ZVA14XO8S0GYIJU2,PAYMENT,USD,5.00,2023-07-31T13:47:45Z\n").getBytes(StandardCharsets.UTF_8)));
+            internal.getBytes(StandardCharsets.UTF_8)));
         CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "PROVIDER_TRANSACTION", "adyen", "provider-transactions", "tx.csv",
-            ("event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
-                + "e1,X4J8X927MZNPIFY2,,CHARGE,SUCCESS,EUR,5.00,,,2023-08-01T13:07:16Z,\n"
-                + "e2,ZVA14XO8S0GYIJU2,,CHARGE,SUCCESS,USD,5.00,,,2023-07-31T13:47:45Z,\n").getBytes(StandardCharsets.UTF_8)));
+            events.getBytes(StandardCharsets.UTF_8)));
         assertEquals(201, uploadReport(op.token(), caseId, "adyen", "adyen-settlement-detail", null, ADYEN).statusCode());
 
         HttpResponse<String> r = http.post(CASES + caseId + "/runs", op.token(), null);
@@ -243,6 +294,51 @@ class ProviderReportImportIntegrationTest {
         assertEquals(64, zva.get("recordKey").asString().length());
         assertEquals("0.8969444665577660", zva.get("fxRate").asString(), "the provider's rate, digit for digit");
         assertTrue(bundle.get("content").get("limitations").toString().contains("No amount was converted"));
+
+        String proof = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), null, 0);
+        assertTrue(proof.contains("full source replay: 56 finding(s) independently enumerated"), proof);
+        assertTrue(proof.contains("56 reproduced, 0 not re-derivable, 0 failed"), proof);
+        String forged = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            for (JsonNode record : changed.get("content").get("findingInputs").get("records")) {
+                if ("EUR".equals(record.get("currency").asString()) && "0.0900".equals(record.get("feeAmount").asString())) {
+                    ((ObjectNode) record).put("feeAmount", "0.0800");
+                    break;
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(forged.contains("feeAmount differs from its complete provider report row"), forged);
+        String changedComponent = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            for (JsonNode source : changed.get("content").get("sources")) {
+                if ("adyen-settlement-detail".equals(source.get("profile").asString())) {
+                    ((ObjectNode) source.get("providerEvidence").get("rows").get(1).get("components").get(0))
+                        .put("rawValue", "999");
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(changedComponent.contains("Adyen components differ from source row"), changedComponent);
+        String omitted = verifyProviderBundle(op.token(), caseId, internal, events, sample(ADYEN), changed -> {
+            JsonNode content = changed.get("content");
+            ArrayNode exceptions = (ArrayNode) content.get("exceptions");
+            for (int i = 0; i < exceptions.size(); i++) {
+                if ("USD".equals(exceptions.get(i).get("exposureCurrency").asString())) {
+                    exceptions.remove(i);
+                    break;
+                }
+            }
+            JsonNode run = content.get("run");
+            ((ObjectNode) run).put("exceptionCount", run.get("exceptionCount").asInt() - 1);
+            ((ObjectNode) run.get("summary").get("exceptionsByType")).put("UNMATCHED_SETTLEMENT_ITEM", 55);
+            for (JsonNode total : run.get("unresolvedAtRunByCurrency")) {
+                if ("USD".equals(total.get("currency").asString())) {
+                    BigDecimal remaining = new BigDecimal(total.get("unresolvedAmount").asString()).subtract(new BigDecimal("20.0000"));
+                    ((ObjectNode) total).put("unresolvedAmount", remaining.toPlainString());
+                }
+            }
+            rehash(changed);
+        }, 1);
+        assertTrue(omitted.contains("full source replay found 1 missing"), omitted);
     }
 
     /** Preregistered for recon-rules 1.2.0 in the design doc before the code was written. */
@@ -274,6 +370,8 @@ class ProviderReportImportIntegrationTest {
             summary.get("exceptionsByType").properties().forEach(e -> byType.put(e.getKey(), e.getValue().asInt()));
             assertEquals(withRefund ? Map.of("UNMATCHED_SETTLEMENT_ITEM", 3)
                 : Map.of("UNMATCHED_SETTLEMENT_ITEM", 3, "REFUND_MISMATCH", 1), byType);
+            String proof = verifyCheckoutBundle(op.token(), c, internal + (withRefund ? refund : ""), charges);
+            assertTrue(proof.contains("full source replay"), proof);
         }
     }
 
@@ -305,6 +403,7 @@ class ProviderReportImportIntegrationTest {
         assertEquals(Map.of("UNMATCHED_SETTLEMENT_ITEM", 3, "MISSING_REFUND_SETTLEMENT", 1), byType);
         assertEquals(0, new BigDecimal("100.0000").compareTo(jdbc.queryForObject(
             "SELECT exposure_amount FROM reconciliation_issues WHERE case_id = ? AND type = 'MISSING_REFUND_SETTLEMENT'", BigDecimal.class, caseId)));
+        assertTrue(verifyCheckoutBundle(op.token(), caseId, internal, events).contains("MISSING_REFUND_SETTLEMENT"));
 
         // The same refunds against a generic settlement file, which cannot express a refund: nothing raised.
         UUID generic = http.createCase(op.token(), "GENERIC-REFSET-" + UUID.randomUUID());
@@ -317,6 +416,78 @@ class ProviderReportImportIntegrationTest {
         assertEquals(201, g.statusCode(), g.body());
         JsonNode gs = json.readTree(http.tree(g).get("run").get("summary").asString());
         assertNull(gs.get("exceptionsByType").get("MISSING_REFUND_SETTLEMENT"), gs.toString());
+    }
+
+    @Test
+    void anUnreturnedCheckoutDisputeAndMismatchedSettledRefundReplayFromSources() throws Exception {
+        AuthResponse op = http.register();
+        UUID caseId = http.createCase(op.token(), "CKO-DEBIT-" + UUID.randomUUID());
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,PAYMENT,USD,70.00,2022-11-14T12:08:12Z\n"
+            + "R1,checkout,pay_itwvhag5e5tklnry88sgtpxh1c,REFUND,USD,70.00,2022-11-14T12:08:12Z\n";
+        String events = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "c1,pay_itwvhag5e5tklnry88sgtpxh1c,,CHARGE,SUCCESS,USD,70.00,,,2022-11-14T12:08:12Z,\n"
+            + "r1,pay_itwvhag5e5tklnry88sgtpxh1c,,REFUND,SUCCESS,USD,69.00,,,2022-11-14T12:08:12Z,\n";
+        String original = new String(sample(CHECKOUT), StandardCharsets.UTF_8);
+        String reportText = original.lines().filter(line -> !line.contains("act_lgwihyempnejqwl8f9ogiumvs8"))
+            .reduce("", (all, line) -> all + line + "\n");
+        byte[] report = reportText.getBytes(StandardCharsets.UTF_8);
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "INTERNAL", "ledger", "internal-expected", "internal.csv",
+            internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "PROVIDER_TRANSACTION", "checkout", "provider-transactions", "tx.csv",
+            events.getBytes(StandardCharsets.UTF_8)));
+        HttpResponse<String> imported = http.multipart(CASES + caseId + "/imports", op.token(), Map.of("sourceType", "SETTLEMENT",
+            "sourceIdentity", "checkout", "profile", "checkout-financial-actions"), "checkout-debit.csv", report);
+        assertEquals(201, imported.statusCode(), imported.body());
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", op.token(), null));
+        String proof = verifyCheckoutBundle(op.token(), caseId, internal, events, report);
+        assertTrue(proof.contains("CHARGEBACK_DEBITED"), proof);
+        assertTrue(proof.contains("D-SETTLED-REFUND") || proof.contains("REFUND_MISMATCH"), proof);
+        assertTrue(proof.contains("0 not re-derivable, 0 failed"), proof);
+
+        String forged = verifyCheckoutBundle(op.token(), caseId, internal, events, report, bundle -> {
+            for (JsonNode record : bundle.get("content").get("findingInputs").get("records")) {
+                if ("SETTLED_CHARGEBACK".equals(record.get("eventType").asString())) {
+                    ((ObjectNode) record).put("grossAmount", "999.0000");
+                    break;
+                }
+            }
+            rehash(bundle);
+        }, 1);
+        assertTrue(forged.contains("grossAmount differs from its complete provider report row"), forged);
+
+        String changedComponent = verifyCheckoutBundle(op.token(), caseId, internal, events, report, bundle -> {
+            for (JsonNode source : bundle.get("content").get("sources")) {
+                if ("checkout-financial-actions".equals(source.get("profile").asString())) {
+                    ((ObjectNode) source.get("providerEvidence").get("rows").get(0).get("components").get(0))
+                        .put("rawValue", "999");
+                }
+            }
+            rehash(bundle);
+        }, 1);
+        assertTrue(changedComponent.contains("Checkout components differ from source row"), changedComponent);
+
+        String omitted = verifyCheckoutBundle(op.token(), caseId, internal, events, report, bundle -> {
+            JsonNode content = bundle.get("content");
+            ArrayNode exceptions = (ArrayNode) content.get("exceptions");
+            for (int i = 0; i < exceptions.size(); i++) {
+                if ("CHARGEBACK_DEBITED".equals(exceptions.get(i).get("type").asString())) {
+                    exceptions.remove(i);
+                    break;
+                }
+            }
+            JsonNode run = content.get("run");
+            ((ObjectNode) run).put("exceptionCount", run.get("exceptionCount").asInt() - 1);
+            ((ObjectNode) run.get("summary").get("exceptionsByType")).remove("CHARGEBACK_DEBITED");
+            for (JsonNode total : run.get("unresolvedAtRunByCurrency")) {
+                if ("USD".equals(total.get("currency").asString())) {
+                    BigDecimal remaining = new BigDecimal(total.get("unresolvedAmount").asString()).subtract(new BigDecimal("980.6400"));
+                    ((ObjectNode) total).put("unresolvedAmount", remaining.toPlainString());
+                }
+            }
+            rehash(bundle);
+        }, 1);
+        assertTrue(omitted.contains("full source replay found 1 missing"), omitted);
     }
 
     @Test

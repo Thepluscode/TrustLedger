@@ -8,6 +8,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,6 +30,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Spec section 25: a webhook is a one-row import. provider-b's seven transactions arrive as seven
@@ -122,6 +126,30 @@ class AcmeFeedConvergenceIntegrationTest {
 
     private int count(String sql, Object... args) { return jdbc.queryForObject(sql, Integer.class, args); }
 
+    private String verifyOffline(JsonNode bundle, int expectedExit) throws Exception {
+        List<byte[]> bodies = new ArrayList<>(List.of(CaseworkHttp.fixture("internal-expected.csv"),
+            CaseworkHttp.fixture("provider-a-transactions.csv"), CaseworkHttp.fixture("provider-b-settlement.csv")));
+        for (String event : PROVIDER_B_EVENTS) bodies.add(event.getBytes(StandardCharsets.UTF_8));
+        return verifyOffline(bundle, expectedExit, bodies);
+    }
+
+    private String verifyOffline(JsonNode bundle, int expectedExit, List<byte[]> bodies) throws Exception {
+        Path dir = Path.of("target/recon-bundle");
+        Files.createDirectories(dir);
+        Path bundleFile = Files.createTempFile(dir, "feed-bundle-", ".json");
+        Files.writeString(bundleFile, json.writeValueAsString(bundle));
+        List<String> command = new ArrayList<>(List.of("python3", "../scripts/verify_recon_bundle.py", bundleFile.toString()));
+        for (byte[] body : bodies) {
+            Path source = Files.createTempFile(dir, "feed-source-", ".dat");
+            Files.write(source, body);
+            command.add(source.toString());
+        }
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(expectedExit, process.waitFor(), output);
+        return output;
+    }
+
     @Test
     void eventsAndFilesConvergeOnTheSameEngineAndTheSameNumbers() throws Exception {
         AuthResponse owner = http.register();
@@ -182,6 +210,34 @@ class AcmeFeedConvergenceIntegrationTest {
         TreeSet<String> types = new TreeSet<>();
         for (JsonNode e : c.get("exceptions")) types.add(e.get("type").asString());
         assertEquals("[AMOUNT_MISMATCH, DUPLICATE_PROVIDER_EVENT, FEE_MISMATCH, LATE_SETTLEMENT, MISSING_INTERNAL_RECORD, MISSING_PROVIDER_RECORD, REFUND_MISMATCH]", types.toString());
+
+        String proof = verifyOffline(bundle, 0);
+        assertTrue(proof.contains("full source replay: 7 finding(s) independently enumerated"), proof);
+        assertTrue(proof.contains("7 reproduced, 0 not re-derivable, 0 failed"), proof);
+
+        JsonNode forged = json.readTree(json.writeValueAsString(bundle));
+        for (JsonNode record : forged.get("content").get("findingInputs").get("records")) {
+            if ("evt_b_004".equals(record.get("providerEventId").asString())) {
+                ((ObjectNode) record).put("grossAmount", "121.0000");
+                break;
+            }
+        }
+        ((ObjectNode) forged).put("contentHash", "sha256:" + Hashes.sha256(
+            json.writeValueAsString(forged.get("content")).getBytes(StandardCharsets.UTF_8)));
+        assertTrue(verifyOffline(forged, 1).contains("grossAmount differs from its source row"));
+
+        JsonNode falseAccepted = json.readTree(json.writeValueAsString(bundle));
+        for (JsonNode source : falseAccepted.get("content").get("sources")) {
+            if ("provider-event-json".equals(source.get("profile").asString()) && source.get("rejectedCount").asInt() == 1) {
+                ((ObjectNode) source).put("acceptedCount", 1);
+                ((ObjectNode) source).put("rejectedCount", 0);
+                ((ArrayNode) source.get("rejectedRows")).removeAll();
+                break;
+            }
+        }
+        ((ObjectNode) falseAccepted).put("contentHash", "sha256:" + Hashes.sha256(
+            json.writeValueAsString(falseAccepted.get("content")).getBytes(StandardCharsets.UTF_8)));
+        assertTrue(verifyOffline(falseAccepted, 1).contains("accepted JSON event does not parse from its source body"));
     }
 
     @Test
@@ -303,6 +359,19 @@ class AcmeFeedConvergenceIntegrationTest {
             byFeed.put(row.get("feed_id").toString(), row.get("source_identity") + "/" + row.get("delivery_count"));
         }
         assertEquals(Map.of(b.id().toString(), "provider-b/1", c.id().toString(), "provider-c/2"), byFeed);
+
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+            + "I1,provider-a,no-provider-record,PAYMENT,GBP,50.00,2026-08-03T10:00:00Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        HttpResponse<String> exported = http.post(CASES + caseId + "/bundle", owner.token(), null);
+        assertEquals(201, exported.statusCode(), exported.body());
+        JsonNode bundle = json.readTree(http.get("/api/v1/evidence/exports/" + http.tree(exported).get("exportId").asString()
+            + "/download", owner.token()).body());
+        String proof = verifyOffline(bundle, 0, List.of(internal.getBytes(StandardCharsets.UTF_8),
+            body.getBytes(StandardCharsets.UTF_8)));
+        assertTrue(proof.contains("full source replay: 3 finding(s) independently enumerated"), proof);
     }
 
     @Test

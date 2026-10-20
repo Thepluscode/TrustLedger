@@ -4,19 +4,25 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
 import java.net.http.HttpResponse;
+import java.net.http.HttpRequest;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -25,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
 
 /**
  * The resolution bundle for ACME-2026-08. Expected counts come from design spec section 20. The hash is
@@ -53,6 +60,7 @@ class CaseBundleIntegrationTest {
 
     @Value("${local.server.port}") int port;
     @Autowired ObjectMapper json;
+    @Autowired JdbcTemplate jdbc;
     CaseworkHttp http;
 
     @BeforeEach
@@ -93,6 +101,140 @@ class CaseBundleIntegrationTest {
 
     private String hashOf(JsonNode content) {
         return "sha256:" + Hashes.sha256(json.writeValueAsString(content).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String verifySourceBundle(JsonNode bundle, String... sources) throws Exception {
+        return verifySourceBundleExpect(bundle, 0, sources);
+    }
+
+    private String verifySourceBundleExpect(JsonNode bundle, int expectedExit, String... sources) throws Exception {
+        Path dir = Path.of("target/recon-bundle");
+        Files.createDirectories(dir);
+        Path bundleFile = Files.createTempFile(dir, "proof-bundle-", ".json");
+        Files.writeString(bundleFile, json.writeValueAsString(bundle));
+        List<String> command = new ArrayList<>(List.of("python3", "../scripts/verify_recon_bundle.py", bundleFile.toString()));
+        for (String source : sources) {
+            Path file = Files.createTempFile(dir, "proof-source-", ".csv");
+            Files.writeString(file, source);
+            command.add(file.toString());
+        }
+        Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(expectedExit, p.waitFor(), out);
+        return out;
+    }
+
+    @Test
+    void oneDownloadCarriesTheStoredExportAndEveryOriginalSourceForOfflineReplay() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        JsonNode exported = export(owner.token(), caseId);
+        String path = "/api/v1/evidence/exports/" + exported.get("exportId").asString() + "/package";
+        HttpResponse<byte[]> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(http.uri(path))
+            .header("Authorization", "Bearer " + owner.token()).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode());
+        assertEquals("application/zip", response.headers().firstValue("Content-Type").orElse(""));
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(response.body()))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) entries.put(entry.getName(), zip.readAllBytes());
+        }
+        assertEquals(5, entries.size());
+        JsonNode bundle = json.readTree(entries.get("bundle.json"));
+        assertEquals(exported.get("contentHash").asString(), bundle.get("contentHash").asString());
+        for (JsonNode source : bundle.get("content").get("sources")) {
+            byte[] original = entries.get("sources/" + source.get("fileSha256").asString());
+            assertNotNull(original);
+            assertEquals(source.get("fileSha256").asString(), Hashes.sha256(original));
+        }
+        Path packageFile = Files.createTempFile("trustledger-proof-", ".zip");
+        try {
+            Files.write(packageFile, response.body());
+            Process p = new ProcessBuilder("python3", "../scripts/verify_recon_bundle.py", packageFile.toString())
+                .redirectErrorStream(true).start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(0, p.waitFor(), output);
+        } finally {
+            Files.deleteIfExists(packageFile);
+        }
+        AuthResponse stranger = http.register();
+        assertEquals(403, http.get(path, stranger.token()).statusCode());
+    }
+
+    @Test
+    void laterFeeCorrectionCannotRewriteTheInputsOrFindingsOfAnEarlierRun() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        Map<String, Object> correction = new LinkedHashMap<>();
+        correction.put("provider", "provider-b");
+        correction.put("currency", "GBP");
+        correction.put("percentageBps", 500);
+        correction.put("flatFee", "0.00");
+        correction.put("tolerance", "0.01");
+        correction.put("effectiveFrom", "2026-01-01T00:00:00Z");
+        CaseworkHttp.expect2xx(http.post("/api/v1/tenant/fee-schedules", owner.token(), json.writeValueAsString(correction)));
+
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        JsonNode proof = bundle.get("content").get("runProofs").get(0).get("proof");
+        assertEquals(1, bundle.get("content").get("runProofs").size());
+        assertEquals(150, proof.get("feeSchedules").get(0).get("percentageBps").asInt());
+        assertEquals(150, bundle.get("content").get("findingInputs").get("feeSchedules").get(0).get("percentageBps").asInt());
+        assertEquals(7, proof.get("findings").size());
+        assertEquals(500, jdbc.queryForObject("SELECT percentage_bps FROM provider_fee_schedules WHERE tenant_id = ?",
+            Integer.class, owner.tenantId()));
+        assertThrows(org.springframework.dao.DataAccessException.class,
+            () -> jdbc.update("UPDATE recon_run_proofs SET proof_json = '{}' WHERE run_id = ?",
+                UUID.fromString(proof.get("runId").asString())));
+
+        verifySourceBundle(bundle,
+            new String(CaseworkHttp.fixture("internal-expected.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-a-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-settlement.csv"), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void everyRunReplaysAndRecurringFindingsRemainOneCaseIssue() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        Map<String, Object> correction = new LinkedHashMap<>();
+        correction.put("provider", "provider-b");
+        correction.put("currency", "GBP");
+        correction.put("percentageBps", 500);
+        correction.put("flatFee", "0.00");
+        correction.put("tolerance", "0.01");
+        correction.put("effectiveFrom", "2026-01-01T00:00:00Z");
+        CaseworkHttp.expect2xx(http.post("/api/v1/tenant/fee-schedules", owner.token(), json.writeValueAsString(correction)));
+        HttpResponse<String> second = http.post(CASES + caseId + "/runs", owner.token(), null);
+        assertEquals(201, second.statusCode(), second.body());
+        assertEquals(12, http.tree(second).get("run").get("exceptionCount").asInt());
+
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        JsonNode content = bundle.get("content");
+        assertEquals(2, content.get("runProofs").size());
+        assertEquals(0, content.get("runsWithoutProof").size());
+        assertEquals(12, content.get("exceptions").size(), "seven recurring findings and five newly exposed fees");
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM recon_run_proofs WHERE tenant_id = ?", Integer.class,
+            owner.tenantId()));
+        String[] sourceFiles = {
+            new String(CaseworkHttp.fixture("internal-expected.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-a-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-transactions.csv"), StandardCharsets.UTF_8),
+            new String(CaseworkHttp.fixture("provider-b-settlement.csv"), StandardCharsets.UTF_8)};
+        String result = verifySourceBundle(bundle, sourceFiles);
+        assertTrue(result.contains("2 run(s), 12 unique issue(s)"), result);
+
+        ObjectNode omittedIssue = (ObjectNode) bundle.deepCopy();
+        ((ArrayNode) omittedIssue.get("content").get("exceptions")).remove(0);
+        omittedIssue.put("contentHash", hashOf(omittedIssue.get("content")));
+        assertTrue(verifySourceBundleExpect(omittedIssue, 1, sourceFiles).contains("case issues differ"));
+
+        ObjectNode omittedFinding = (ObjectNode) bundle.deepCopy();
+        ObjectNode wrapper = (ObjectNode) omittedFinding.get("content").get("runProofs").get(0);
+        ((ArrayNode) wrapper.get("proof").get("findings")).remove(0);
+        wrapper.put("sha256", hashOf(wrapper.get("proof")));
+        omittedFinding.put("contentHash", hashOf(omittedFinding.get("content")));
+        assertTrue(verifySourceBundleExpect(omittedFinding, 1, sourceFiles).contains("omits or changes"));
     }
 
     @Test
@@ -164,6 +306,131 @@ class CaseBundleIntegrationTest {
         assertEquals(0, p.waitFor(), out);
         assertTrue(out.contains("exceptions: 7 reproduced, 0 not re-derivable, 0 failed, of 7"), out);
         assertTrue(out.contains("10 found in the source files supplied"), out);
+    }
+
+    @Test
+    void terminalStatusChangeReproducesFromTheCompleteSourceHistory() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "STATUS-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,12.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,FAILED,GBP,10.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx1,P1,CHARGE,SUCCESS,GBP,12.00,,,2026-08-03T10:05:00Z,2026-08-03T10:05:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "status-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "status-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(1, bundle.get("content").get("exceptions").size());
+        assertEquals("UNEXPECTED_STATUS_TRANSITION", bundle.get("content").get("exceptions").get(0).get("type").asString());
+        assertEquals("12.0000", bundle.get("content").get("exceptions").get(0).get("exposureAmount").asString());
+
+        String out = verifySourceBundle(bundle, internal, provider);
+        assertTrue(out.contains("exceptions: 1 reproduced, 0 not re-derivable, 0 failed, of 1"), out);
+        assertTrue(out.contains("FAILED then SUCCESS; gross of the representative charge"), out);
+    }
+
+    @Test
+    void uniqueRefundMismatchReproducesFromBothSourceFiles() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "REFUND-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,12.00,2026-08-03T10:00:00Z,PAID\n"
+            + "R1,prov,tx1,REFUND,GBP,8.00,2026-08-04T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,12.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "r1,tx1,R1,REFUND,SUCCESS,GBP,7.00,,,2026-08-04T10:01:00Z,2026-08-04T10:01:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "refund-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "refund-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(1, bundle.get("content").get("exceptions").size());
+        assertEquals("REFUND_MISMATCH", bundle.get("content").get("exceptions").get(0).get("type").asString());
+        assertEquals("1.0000", bundle.get("content").get("exceptions").get(0).get("exposureAmount").asString());
+
+        String out = verifySourceBundle(bundle, internal, provider);
+        assertTrue(out.contains("exceptions: 1 reproduced, 0 not re-derivable, 0 failed, of 1"), out);
+        assertTrue(out.contains("unique refund pair confirmed across the run inputs"), out);
+    }
+
+    @Test
+    void aCleanRunHasAnIndependentlyEmptyFindingSet() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "CLEAN-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,12.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,12.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "clean-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "clean-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(0, bundle.get("content").get("exceptions").size());
+        assertTrue(verifySourceBundle(bundle, internal, provider).contains("full source replay: 0 finding(s) independently enumerated"));
+    }
+
+    @Test
+    void paymentAmountCurrencyAndStatusFindingsReplayTogether() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "PAIR-RULES-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,100.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P2,prov,tx2,PAYMENT,GBP,30.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P3,prov,tx3,PAYMENT,GBP,40.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P4,prov,tx4,PAYMENT,GBP,50.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,110.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx2,P2,CHARGE,PENDING,GBP,30.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e3,tx3,P3,CHARGE,FAILED,GBP,40.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e4,tx4,P4,CHARGE,SUCCESS,USD,50.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "pair-rules-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "pair-rules-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(4, bundle.get("content").get("exceptions").size());
+        String out = verifySourceBundle(bundle, internal, provider);
+        assertTrue(out.contains("full source replay: 4 finding(s) independently enumerated"), out);
+        assertTrue(out.contains("exceptions: 4 reproduced, 0 not re-derivable, 0 failed, of 4"), out);
+    }
+
+    @Test
+    void settlementNetAbsenceAndUnmatchedLineReplayTogether() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "SETTLEMENT-RULES-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,100.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P2,prov,tx2,PAYMENT,GBP,50.00,2026-08-03T10:00:00Z,PAID\n"
+            + "P3,prov,tx3,PAYMENT,GBP,30.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,SUCCESS,GBP,100.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx2,P2,CHARGE,SUCCESS,GBP,50.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e3,tx3,P3,CHARGE,SUCCESS,GBP,30.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n";
+        String settlement = "batch_id,transaction_ref,currency,gross,fee,net,settled_at\n"
+            + "batch-1,tx1,GBP,100.00,5.00,90.00,2026-08-04T10:00:00Z\n"
+            + "batch-1,tx3,GBP,30.00,0.00,30.00,2026-08-04T10:00:00Z\n"
+            + "batch-1,tx999,GBP,20.00,2.00,18.00,2026-08-04T10:00:00Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "settlement-rules-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "settlement-rules-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "SETTLEMENT", "prov", "provider-settlement",
+            "settlement-rules-lines.csv", settlement.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(3, bundle.get("content").get("exceptions").size());
+        String out = verifySourceBundle(bundle, internal, provider, settlement);
+        assertTrue(out.contains("full source replay: 3 finding(s) independently enumerated"), out);
+        assertTrue(out.contains("NET_SETTLEMENT_MISMATCH"), out);
+        assertTrue(out.contains("MISSING_SETTLEMENT"), out);
+        assertTrue(out.contains("UNMATCHED_SETTLEMENT_ITEM"), out);
     }
 
     @Test
