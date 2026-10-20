@@ -16,7 +16,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 import verify_recon_bundle as verifier
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERIFIER = os.path.join(HERE, "verify_recon_bundle.py")
@@ -67,6 +69,40 @@ def main():
     expect("intact bundle without sources is incomplete", 3, "source files: 4 of 4 not supplied", intact)
     expect("intact bundle with its 4 source files", 0, "10 found in the source files supplied", intact, *sources)
     expect("intact bundle with one source missing is incomplete", 3, "source files: 1 of 4 not supplied", intact, *sources[:-1])
+
+    def package(entries):
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
+            name = f.name
+        try:
+            with zipfile.ZipFile(name, "w") as archive:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    for path, data in entries:
+                        archive.writestr(path, data)
+            p = subprocess.run([sys.executable, VERIFIER, name], capture_output=True, text=True)
+            return p.returncode, p.stdout
+        finally:
+            os.unlink(name)
+
+    archive_entries = [("bundle.json", json.dumps(intact).encode("utf-8"))]
+    for path in sources:
+        with open(path, "rb") as f:
+            data = f.read()
+        archive_entries.append(("sources/" + hashlib.sha256(data).hexdigest(), data))
+    for label, entries, wanted, message in [
+        ("complete portable package", archive_entries, 0, "10 found in the source files supplied"),
+        ("package missing a source", archive_entries[:-1], 1, "source inventory differs"),
+        ("package has an extra source", archive_entries + [("sources/" + "0" * 64, b"extra")], 1, "not one of"),
+        ("package has a renamed source", archive_entries[:1] + [("sources/" + "0" * 64, archive_entries[1][1])] + archive_entries[2:], 1, "not one of"),
+        ("package source bytes changed", archive_entries[:1] + [(archive_entries[1][0], archive_entries[1][1] + b"x")] + archive_entries[2:], 1, "not one of"),
+        ("package has a duplicate source path", archive_entries + [archive_entries[1]], 1, "duplicate or undeclared paths"),
+    ]:
+        got, out = package(entries)
+        passed = got == wanted and message in out
+        results.append(passed)
+        print("%s %-58s exit %s (want %s)" % ("PASS" if passed else "FAIL", label, got, wanted))
+        if not passed:
+            print(out)
 
     b = copy.deepcopy(intact)
     b["content"]["exceptions"].pop()

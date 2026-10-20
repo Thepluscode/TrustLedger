@@ -104,14 +104,14 @@ export default function ReconCasePage() {
     }
   }
 
-  async function download() {
+  async function download(withSources: boolean) {
     if (!bundle || !view) return;
     try {
-      const blob = await api.downloadEvidenceExport(bundle.exportId);
+      const blob = await api.downloadEvidenceExport(bundle.exportId, withSources);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${view.reconciliationCase.caseRef}-${bundle.bundleStatus.toLowerCase()}-bundle.json`;
+      a.download = `${view.reconciliationCase.caseRef}-${bundle.bundleStatus.toLowerCase()}-${withSources ? "proof.zip" : "bundle.json"}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -344,8 +344,8 @@ export default function ReconCasePage() {
                   <div className="entry"><span className="muted">Status</span><span><StatusPill value={bundle.bundleStatus} /></span></div>
                   <div className="entry"><span className="muted">Content hash</span><span className="mono" style={{ wordBreak: "break-all" }}>{bundle.contentHash}</span></div>
                   <div className="entry"><span className="muted">File</span><span>{bytes(bundle.byteSize)} · {bundle.signed ? "signed" : "unsigned (no signing key configured)"}</span></div>
-                  <div className="entry"><span className="muted">Verify offline</span><span className="mono">python3 scripts/verify_recon_bundle.py bundle.json [all source files]</span></div>
-                  <div className="entry"><span /><button className="secondary" onClick={download}>Download JSON</button></div>
+                  <div className="entry"><span className="muted">Verify offline</span><span className="mono">python3 scripts/verify_recon_bundle.py &lt;downloaded-package.zip&gt;</span></div>
+                  <div className="entry"><span /><button className="secondary" onClick={() => download(true)}>Download proof package</button><button className="secondary" onClick={() => download(false)}>Download JSON</button></div>
                 </div>
               )}
             </div>

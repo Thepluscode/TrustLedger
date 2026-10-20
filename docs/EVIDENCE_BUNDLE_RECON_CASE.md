@@ -4,7 +4,7 @@ The resolution bundle for one reconciliation case. It extends the existing evide
 (`EvidenceService.persist`): the same checksum, the same optional Ed25519 signature over the stored bytes, the
 same download and verify endpoints. Only the content is new.
 
-Status: **IMPLEMENTED, tested on PostgreSQL** (`CaseBundleIntegrationTest`). Not production-observed.
+Status: **IMPLEMENTED, tested on PostgreSQL** (`CaseBundleIntegrationTest` 10/10). Not production-observed.
 
 ## Produce, download, verify
 
@@ -12,10 +12,21 @@ Status: **IMPLEMENTED, tested on PostgreSQL** (`CaseBundleIntegrationTest`). Not
 |---|---|
 | Export | `POST /api/v1/reconciliation/cases/{caseId}/bundle` → `exportId`, `bundleStatus`, `contentHash` |
 | Download | `GET /api/v1/evidence/exports/{exportId}/download` |
+| Download with original sources | `GET /api/v1/evidence/exports/{exportId}/package` → ZIP containing `bundle.json` and `sources/{fileSha256}` |
 | Checksum and signature | `GET /api/v1/evidence/exports/{exportId}/verify` |
+| Offline from one file | `python3 scripts/verify_recon_bundle.py trustledger-proof-{exportId}.zip` |
 | Offline, with no TrustLedger code | `python3 scripts/verify_recon_bundle.py bundle.json [source-file ...]` (see [Re-deriving the findings](#re-deriving-the-findings)) |
 
 Export needs `EVIDENCE_EXPORT` and `RECON_VIEW`. A case with no current run is refused (409).
+The package download needs `EVIDENCE_EXPORT` and the export's tenant scope (reconciliation cases are
+tenant-wide). It checks the
+stored export checksum and each original source's length and SHA-256 against the recorded import before
+returning the archive. Missing or changed source bytes fail closed (409); a package over 100 MiB of
+uncompressed bundle and distinct source bytes is refused (409). The ZIP uses digest names, so original
+filenames cannot create archive paths. The verifier refuses missing, extra, renamed or duplicate entries.
+This packages customer-supplied files; it does not authenticate them with a bank or provider. The separate
+`/verify` endpoint checks the stored export's optional signature; the offline replay checks content and
+source derivation, not the export's detached signature.
 
 ## Shape
 
@@ -108,7 +119,7 @@ bundle's exception list or run totals. It refuses ambiguous refund allocation an
 ordering, returning exit 3. Supported Adyen Settlement Details v1, Checkout.com Financial Actions v2,
 and canonical JSON provider events have the same full finding replay.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks fifty-six cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks sixty-two cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
 the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
 PostgreSQL exports and requires all seven ACME exceptions, a terminal-status transition, a unique refund mismatch,

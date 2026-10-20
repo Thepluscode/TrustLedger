@@ -42,6 +42,8 @@ active:
     independently derive each line and composite fee from all report rows, then replay the complete finding set;
     for canonical provider-event-json v1 deliveries, independently parse every accepted or rejected body
     and replay the complete finding set alongside file imports;
+    one tenant-scoped package download for a stored export carries its exact bundle and hash-checked source
+    bytes so the independent verifier can replay the case from one portable file;
     a multi-run bundle cannot prove historical issue inventory and remains unconfirmed.
     Unsupported conditions remain unconfirmed. This is local-tested only, pending CI and review.
   next_after_this: none authorised (bank/cash evidence reader waits for a real bank export)

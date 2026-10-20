@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.trustledger.api.AuthDtos.AuthResponse;
 import java.net.http.HttpResponse;
+import java.net.http.HttpRequest;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,6 +115,43 @@ class CaseBundleIntegrationTest {
         String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, p.waitFor(), out);
         return out;
+    }
+
+    @Test
+    void oneDownloadCarriesTheStoredExportAndEveryOriginalSourceForOfflineReplay() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = reconciledCase(owner);
+        JsonNode exported = export(owner.token(), caseId);
+        String path = "/api/v1/evidence/exports/" + exported.get("exportId").asString() + "/package";
+        HttpResponse<byte[]> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(http.uri(path))
+            .header("Authorization", "Bearer " + owner.token()).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode());
+        assertEquals("application/zip", response.headers().firstValue("Content-Type").orElse(""));
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(response.body()))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) entries.put(entry.getName(), zip.readAllBytes());
+        }
+        assertEquals(5, entries.size());
+        JsonNode bundle = json.readTree(entries.get("bundle.json"));
+        assertEquals(exported.get("contentHash").asString(), bundle.get("contentHash").asString());
+        for (JsonNode source : bundle.get("content").get("sources")) {
+            byte[] original = entries.get("sources/" + source.get("fileSha256").asString());
+            assertNotNull(original);
+            assertEquals(source.get("fileSha256").asString(), Hashes.sha256(original));
+        }
+        Path packageFile = Files.createTempFile("trustledger-proof-", ".zip");
+        try {
+            Files.write(packageFile, response.body());
+            Process p = new ProcessBuilder("python3", "../scripts/verify_recon_bundle.py", packageFile.toString())
+                .redirectErrorStream(true).start();
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(0, p.waitFor(), output);
+        } finally {
+            Files.deleteIfExists(packageFile);
+        }
+        AuthResponse stranger = http.register();
+        assertEquals(403, http.get(path, stranger.token()).statusCode());
     }
 
     @Test

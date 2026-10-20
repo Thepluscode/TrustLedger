@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify a TrustLedger reconciliation case bundle without TrustLedger.
 
+    verify_recon_bundle.py proof-package.zip
     verify_recon_bundle.py bundle.json [source-file ...]
 
 1. Integrity: contentHash is the SHA-256 of the bundle's `content`, serialised compactly with keys in
@@ -34,6 +35,7 @@ import io
 import json
 import re
 import sys
+import zipfile
 from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -1026,8 +1028,30 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 2
-    with open(argv[1], "rb") as f:
-        bundle = json.loads(f.read().decode("utf-8"))
+    archive_sources = None
+    if argv[1].lower().endswith(".zip"):
+        if len(argv) != 2:
+            print("FAIL a proof package takes no separate source paths")
+            return 2
+        try:
+            with zipfile.ZipFile(argv[1]) as archive:
+                names = archive.namelist()
+                if len(names) != len(set(names)) or "bundle.json" not in names \
+                        or any(n != "bundle.json" and not re.fullmatch(r"sources/[0-9a-f]{64}", n) for n in names):
+                    print("FAIL proof package contains missing, duplicate or undeclared paths")
+                    return 1
+                if sum(info.file_size for info in archive.infolist()) > 100 * 1024 * 1024:
+                    print("FAIL proof package exceeds the 100 MiB source limit")
+                    return 1
+                bundle = json.loads(archive.read("bundle.json").decode("utf-8"))
+                archive_sources = {name.removeprefix("sources/"): archive.read(name)
+                                   for name in names if name != "bundle.json"}
+        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as error:
+            print("FAIL cannot read proof package: %s" % error)
+            return 1
+    else:
+        with open(argv[1], "rb") as f:
+            bundle = json.loads(f.read().decode("utf-8"))
     if bundle.get("kind") != "RECONCILIATION_CASE_EVIDENCE":
         print("FAIL not a reconciliation case bundle: kind=%r" % bundle.get("kind"))
         return 1
@@ -1041,16 +1065,24 @@ def main(argv):
 
     declared = {s["fileSha256"]: s["filename"] for s in bundle["content"]["sources"]}
     given = {}
-    for path in argv[2:]:
-        with open(path, "rb") as f:
-            data = f.read()
+    def source_paths():
+        for path in argv[2:]:
+            with open(path, "rb") as source_file:
+                yield path, source_file.read()
+
+    supplied = (("sources/" + digest, data) for digest, data in archive_sources.items()) if archive_sources is not None \
+        else source_paths()
+    for path, data in supplied:
         digest = hashlib.sha256(data).hexdigest()
-        if digest in declared:
+        if digest in declared and (archive_sources is None or path == "sources/" + digest):
             print("OK   source %s is %s in the bundle" % (path, declared[digest]))
             given[digest] = data.decode("utf-8", errors="replace")
         else:
             print("FAIL source %s (%s) is not one of the bundle's %d sources" % (path, digest, len(declared)))
             ok = False
+    if archive_sources is not None and set(archive_sources) != set(declared):
+        print("FAIL proof package source inventory differs from the bundle manifest")
+        ok = False
 
     c = bundle["content"]
     print("     status=%s ruleset=%s sources=%d matches=%d exceptions=%d" % (

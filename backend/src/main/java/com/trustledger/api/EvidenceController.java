@@ -3,6 +3,7 @@ package com.trustledger.api;
 import com.trustledger.app.AccessControlService;
 import com.trustledger.app.EvidenceService;
 import com.trustledger.app.RetentionService;
+import com.trustledger.reconciliation.casework.CaseProofPackageService;
 import com.trustledger.persistence.entity.EvidenceExportEntity;
 import com.trustledger.persistence.repo.EvidenceExportRepository;
 import com.trustledger.security.CurrentUser;
@@ -26,14 +27,16 @@ public class EvidenceController {
     private final AccessControlService access;
 
     private final EvidenceSigner signer;
+    private final CaseProofPackageService proofPackages;
 
     public EvidenceController(EvidenceService evidence, RetentionService retention, EvidenceExportRepository exports,
-                              AccessControlService access, EvidenceSigner signer) {
+                              AccessControlService access, EvidenceSigner signer, CaseProofPackageService proofPackages) {
         this.signer = signer;
         this.evidence = evidence;
         this.retention = retention;
         this.exports = exports;
         this.access = access;
+        this.proofPackages = proofPackages;
     }
 
     public record EvidenceExportView(UUID id, String resourceType, UUID resourceId, String format,
@@ -85,6 +88,17 @@ public class EvidenceController {
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_JSON)
             .header("X-Evidence-Checksum", checksum)
+            .body(content);
+    }
+
+    /** Exact stored bundle and its hash-checked original inputs, for independent offline replay. */
+    @GetMapping("/exports/{id}/package")
+    public ResponseEntity<byte[]> packageExport(@PathVariable UUID id) {
+        access.require(Permission.EVIDENCE_EXPORT);
+        byte[] content = proofPackages.packageExport(CurrentUser.tenantId(), CurrentUser.userId(), id);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/zip"))
+            .header("Content-Disposition", "attachment; filename=trustledger-proof-" + id + ".zip")
             .body(content);
     }
 
