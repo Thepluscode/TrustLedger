@@ -486,6 +486,35 @@ def duplicate_effect_confirmed(referenced, matched):
     return len(successes) > 1 and {identity(r) for r in successes} == {identity(r) for r in referenced}
 
 
+def status_transition(ex, referenced, matched):
+    """Reproduce a terminal-status change and its exposure from the whole deduplicated charge history."""
+    if ex["ruleId"] != "D-STATUS-ORDER" or len(referenced) != 2 or any(r["eventType"] != "CHARGE" for r in referenced):
+        raise Unknown("not a two-charge status transition under D-STATUS-ORDER")
+    first = referenced[0]
+    history = [r for r in matched.deduped if r["eventType"] == "CHARGE"
+               and (r["provider"], r["stableRef"]) == (first["provider"], first["stableRef"])]
+    if len(history) < 2 or any((r["provider"], r["stableRef"]) != (first["provider"], first["stableRef"])
+                               for r in referenced):
+        raise Unknown("the cited charges are not in one event history")
+    history.sort(key=lambda r: source_time(r["occurredAt"]))
+    if any(a["occurredAt"] == b["occurredAt"] for a, b in zip(history, history[1:])):
+        raise Unknown("charge history has tied event times")
+    identity = lambda r: (r["importId"], r["rowNumber"])
+    cited = {identity(r) for r in referenced}
+    transitions = [(a, b) for a, b in zip(history, history[1:])
+                   if a["paymentStatus"] in ("SUCCESS", "FAILED") and a["paymentStatus"] != b["paymentStatus"]
+                   and {identity(a), identity(b)} == cited]
+    if len(transitions) != 1:
+        raise Unknown("the cited rows are not an adjacent terminal-status change")
+    rep = [r for r in matched.charges if (r["provider"], r["stableRef"]) ==
+           (first["provider"], first["stableRef"])]
+    if len(rep) != 1:
+        raise Unknown("the transaction's representative charge is not established")
+    before, after = transitions[0]
+    return rep[0]["currency"], d(rep[0]["grossAmount"]), "%s then %s; gross of the representative charge" % (
+        before["paymentStatus"], after["paymentStatus"])
+
+
 def absence_proven(ex, referenced, records, matched, case):
     """True only when the complete source-backed input set establishes the claimed missing counterpart."""
     t = ex["type"]
@@ -650,7 +679,13 @@ def check_findings(c, currency_unconfirmed, given_files):
             not_rederivable += 1
             continue
         try:
-            ccy, amount, how = rederive(ex, [records[x["recordKey"]] for x in refs], c["case"], c["findingInputs"]["feeSchedules"])
+            cited = [records[x["recordKey"]] for x in refs]
+            if ex["type"] == "UNEXPECTED_STATUS_TRANSITION":
+                if universe_error is not None:
+                    raise Unknown(str(universe_error))
+                ccy, amount, how = status_transition(ex, cited, matched)
+            else:
+                ccy, amount, how = rederive(ex, cited, c["case"], c["findingInputs"]["feeSchedules"])
         except Unknown as e:
             print("---- %s %s: not re-derivable (%s)" % (label, ex["exposureAmount"], e))
             not_rederivable += 1

@@ -71,13 +71,14 @@ written a second time, in Python, from its specification. For a `/2` bundle it c
 | For those three profiles, the run's import IDs and file hashes agree with the source manifests; every CSV record is accounted for, including listed rejections; payment and simple settlement matching are replayed over the full source files | a missing payment or settlement finding has a counterpart in the supplied run |
 | A payment mismatch cites the exact pair selected by R1/R2/R4; a fee mismatch cites a representative charge; a settlement comparison cites its unique paired line and charge | two unrelated rows happen to produce the claimed arithmetic or timing |
 | A duplicate-delivery finding cites every delivery of its provider event; a duplicate-financial-effect finding cites every distinct successful charge after delivery deduplication | an extra delivery was omitted, or two deliveries were mistaken for two charges |
+| For simple CSV runs, a status-transition finding cites adjacent charges in the full deduplicated history after a terminal state, and takes its exposure from the representative charge | pending becomes success, nonadjacent events are cited, or the amount comes from the wrong event |
 | Each record amount appears as a number among its row's fields | not a failure: reported, exit 3. Composite amounts (an Adyen fee summed from several columns) land here legitimately |
 | Every exception's records are listed, and its currency and amount are recomputed from them and the fee schedules | an exception, a record value or a schedule was changed |
 
 Exit 0: every declared source file was supplied, its listed rows were checked, and every exception was
 reproduced. Exit 1: something failed. Exit 3: nothing failed, but proof is incomplete: a source file was
-not supplied, a type or ruleset is unsupported, `UNEXPECTED_STATUS_TRANSITION` depends on history the
-bundle does not list, or an amount was not found verbatim in its row. A `/2` bundle without
+not supplied, a type or ruleset is unsupported, the full status history cannot be replayed, or an amount
+was not found verbatim in its row. A `/2` bundle without
 `findingInputs` fails; a `/1` bundle is checked for integrity only and returns exit 3.
 
 For simple CSV runs, a singleton `REFUND_MISMATCH` is also checked against the full input set when no
@@ -90,10 +91,10 @@ their allocation or complete dispute history is not replayed. A run using Adyen,
 also returns exit 3 for absence findings. The source files are the verifier's trust boundary: their hashes
 show consistency with the bundle, not that a bank or provider independently vouched for the files.
 
-Controls: `python3 scripts/test_verify_recon_bundle.py` checks thirty-nine cases, including edits to a real
+Controls: `python3 scripts/test_verify_recon_bundle.py` checks forty-two cases, including edits to a real
 export of the SYNTHETIC ACME-2026-08 case (`scripts/fixtures/acme-interim-bundle.FIXTURE.json`). It recomputes
-the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against a fresh
-PostgreSQL export on every build and requires all seven ACME exceptions to reproduce.
+the hash for each edit and requires the change to be caught. `CaseBundleIntegrationTest` runs the verifier against fresh
+PostgreSQL exports and requires all seven ACME exceptions and a terminal-status transition to reproduce.
 
 ## What the bundle does not claim
 

@@ -167,6 +167,41 @@ class CaseBundleIntegrationTest {
     }
 
     @Test
+    void terminalStatusChangeReproducesFromTheCompleteSourceHistory() throws Exception {
+        AuthResponse owner = http.register();
+        UUID caseId = http.createCase(owner.token(), "STATUS-2026-08");
+        String internal = "internal_ref,provider,provider_ref,event_type,currency,amount,expected_at,status\n"
+            + "P1,prov,tx1,PAYMENT,GBP,12.00,2026-08-03T10:00:00Z,PAID\n";
+        String provider = "event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+            + "e1,tx1,P1,CHARGE,FAILED,GBP,10.00,,,2026-08-03T10:00:00Z,2026-08-03T10:00:01Z\n"
+            + "e2,tx1,P1,CHARGE,SUCCESS,GBP,12.00,,,2026-08-03T10:05:00Z,2026-08-03T10:05:01Z\n";
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "INTERNAL", "ledger", "internal-expected",
+            "status-internal.csv", internal.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(owner.token(), caseId, "PROVIDER_TRANSACTION", "prov", "provider-transactions",
+            "status-provider.csv", provider.getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.post(CASES + caseId + "/runs", owner.token(), null));
+        JsonNode bundle = download(owner.token(), export(owner.token(), caseId));
+        assertEquals(1, bundle.get("content").get("exceptions").size());
+        assertEquals("UNEXPECTED_STATUS_TRANSITION", bundle.get("content").get("exceptions").get(0).get("type").asString());
+        assertEquals("12.0000", bundle.get("content").get("exceptions").get(0).get("exposureAmount").asString());
+
+        Path dir = Path.of("target/recon-bundle");
+        Files.createDirectories(dir);
+        Path bundleFile = Files.createTempFile(dir, "status-bundle-", ".json");
+        Path internalFile = Files.createTempFile(dir, "status-internal-", ".csv");
+        Path providerFile = Files.createTempFile(dir, "status-provider-", ".csv");
+        Files.writeString(bundleFile, json.writeValueAsString(bundle));
+        Files.writeString(internalFile, internal);
+        Files.writeString(providerFile, provider);
+        Process p = new ProcessBuilder("python3", "../scripts/verify_recon_bundle.py", bundleFile.toString(),
+            internalFile.toString(), providerFile.toString()).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, p.waitFor(), out);
+        assertTrue(out.contains("exceptions: 1 reproduced, 0 not re-derivable, 0 failed, of 1"), out);
+        assertTrue(out.contains("FAILED then SUCCESS; gross of the representative charge"), out);
+    }
+
+    @Test
     void theSameCaseStateExportsToTheSameHashAndAnyOperatorActionChangesIt() throws Exception {
         AuthResponse owner = http.register();
         UUID caseId = reconciledCase(owner);

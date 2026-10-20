@@ -113,6 +113,41 @@ def main():
     results.append(passed)
     print("%s two-record refund arithmetic needs allocation replay" % ("PASS" if passed else "FAIL"))
 
+    def charge(event_id, status, amount, minute, row):
+        values = dict(event_id=event_id, transaction_ref="tx-status", event_type="CHARGE", status=status,
+                      currency="GBP", gross=amount, occurred_at="2026-08-03T10:%02d:00Z" % minute)
+        r = verifier.source_record_values("provider-transactions", "prov", values)
+        r.update(importId="status-run", rowNumber=row)
+        return r
+
+    failed = charge("e1", "FAILED", "10.00", 0, 1)
+    success = charge("e2", "SUCCESS", "12.00", 5, 2)
+    replay = verifier.payment_matches([failed, success])
+    ccy, amount, _ = verifier.status_transition({"ruleId": "D-STATUS-ORDER"}, [failed, success], replay)
+    passed = (ccy, str(amount)) == ("GBP", "12.00")
+    results.append(passed)
+    print("%s terminal change uses the representative charge amount" % ("PASS" if passed else "FAIL"))
+
+    pending = charge("e1", "PENDING", "10.00", 0, 1)
+    try:
+        verifier.status_transition({"ruleId": "D-STATUS-ORDER"}, [pending, success],
+                                   verifier.payment_matches([pending, success]))
+        passed = False
+    except verifier.Unknown:
+        passed = True
+    results.append(passed)
+    print("%s pending then success is not a terminal change" % ("PASS" if passed else "FAIL"))
+
+    middle = charge("e3", "FAILED", "11.00", 3, 3)
+    try:
+        verifier.status_transition({"ruleId": "D-STATUS-ORDER"}, [failed, success],
+                                   verifier.payment_matches([failed, middle, success]))
+        passed = False
+    except verifier.Unknown:
+        passed = True
+    results.append(passed)
+    print("%s nonadjacent statuses are not a transition pair" % ("PASS" if passed else "FAIL"))
+
     # The verifier must read currency from the source row, not trust matching edits to the finding and inputs.
     b = copy.deepcopy(intact)
     e = exception(b, "AMOUNT_MISMATCH")
@@ -328,7 +363,7 @@ def main():
     finally:
         os.unlink(f.name)
 
-    if len(results) < 39:
+    if len(results) < 42:
         print("FAIL only %d controls ran" % len(results))
         return 1
     print("%d of %d controls behaved" % (sum(results), len(results)))
