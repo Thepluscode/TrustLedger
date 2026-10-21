@@ -60,15 +60,18 @@ outcome.
 - **Canonical main:** the financial, reconciliation, audit, tenant-security and governance foundations.
 - **Open PR #125:** broader frontend/API wiring; built on branch, not canonical main.
 - **Local verified:** the anonymous six-scenario Executive Showcase; not yet remote main or publicly hosted.
-- **Commercially unproven:** 0/25 interviews, 0/3 data commitments and 0/2 paid commitments.
+- **Commercially unproven:** 23 contacts and one reply, but 0/25 completed qualified interviews,
+  0/3 data commitments and 0/2 paid commitments.
 
 The full claim boundary is maintained in
 [`docs/CAPABILITY_EXPOSURE_REGISTER.md`](../docs/CAPABILITY_EXPOSURE_REGISTER.md).
 
 ## Engagement path
 
-1. **Paid discovery:** map flows, failure taxonomy, data access and current operating baseline.
-2. **Read-only pilot:** measure investigation speed, accuracy, detection, evidence and adoption.
+1. **£4,000 Payment Reliability Discovery:** map one real workflow, failure taxonomy, data access,
+   current exposure and measurable pilot baseline.
+2. **£10,000 Founding Design Partner Pilot:** first three qualified customers; one corridor, two
+   data sources and six weeks of measured read-only operation. The standard pilot is £20,000.
 3. **Settlement Watch:** continuous exception monitoring only after the market and product gates pass.
 
 The canonical doctrine is in [`docs/CANONICAL_PRODUCT_DOCTRINE.md`](../docs/CANONICAL_PRODUCT_DOCTRINE.md).
