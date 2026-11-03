@@ -1,0 +1,4 @@
+{
+  "unit": "exit 1",
+  "integration": "exit 127"
+}
