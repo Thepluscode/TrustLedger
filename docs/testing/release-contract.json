@@ -1,0 +1,24 @@
+{
+  "requirement": "FILL IN: the outcome that must hold, and where that requirement is recorded",
+  "changed": [
+    "."
+  ],
+  "checks": {
+    "lint": null,
+    "unit": "bash -c 'cd backend && mvn -B -ntp test'",
+    "integration": "bash -c 'cd frontend && npm test'",
+    "concurrency": null,
+    "invariant": null,
+    "failure_injection": null,
+    "recovery": null,
+    "audit_evidence": null,
+    "observability": null
+  },
+  "not_applicable": {},
+  "proposed_from": [
+    "Makefile",
+    "backend/pom.xml",
+    "frontend/package.json"
+  ],
+  "standard": "theplus-tech-knowledge/doctrine/RELEASE_GATE.md; run with tools/release_evidence.py"
+}
