@@ -92,3 +92,18 @@ quietly widened. The function `trustledger_reject_evidence_truncate` from V58 is
 
 **Resume when:** a migration is authorised; it is three `CREATE TRIGGER` statements and one test.
 
+
+## Provider settlement-behaviour library and pre-settlement anomaly warnings
+
+Raised 2026-10-26 in a strategy conversation, not by a customer. Two ideas: encode each provider's
+settlement timing and fee behaviour so a mismatch that is expected on day N is not raised as an
+exception, and warn before a settlement closes when a batch deviates from that provider's history.
+
+**Evidence for these proposed features or customer need: none yet.** The assistant that proposed them also asserted provider-specific timings
+(e.g. an "Adyen 4-day rolling settlement window") and benefit figures that were invented, not sourced.
+Do not copy any such figure into code, docs or sales material; a provider's behaviour enters this
+repository only from its documentation or a real settlement file, as `docs/PROVIDER_SETTLEMENT_FORMATS.md`
+already does. Pre-settlement warnings would also need a historical baseline the pilot does not hold.
+
+**Resume when:** a pilot conversation names a false-positive exception caused by expected provider
+timing, or a real settlement file shows one.
