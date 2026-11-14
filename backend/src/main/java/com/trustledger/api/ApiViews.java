@@ -62,7 +62,7 @@ public final class ApiViews {
                                           UUID ownerUserId, java.math.BigDecimal exposureAmount,
                                           String exposureCurrency, Instant dueAt) {}
 
-    /** Inbound provider webhook event (§13.5). Deduped by (provider, eventId); duplicates never persist. */
+    /** Canonical provider event (§13.5); repeated transport deliveries remain evidenced in the inbox. */
     public record WebhookEventView(UUID id, String provider, String providerReference, String eventId,
                                    String eventType, boolean signatureValid, boolean processed, String payload,
                                    Instant createdAt) {}

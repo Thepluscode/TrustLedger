@@ -7,9 +7,9 @@ import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Inbound provider webhook events (design.md §13.5), tenant-scoped read view. Events are deduped by
- * (provider, eventId) at ingest, so a replayed callback never persists a second row — the list is the
- * already-deduplicated set, with signature-valid and processed flags per event.
+ * Inbound provider webhook events (design.md §13.5), tenant-scoped canonical read view. The durable
+ * inbox retains repeated transport delivery evidence; this view contains the unique event identities
+ * whose state and financial effects are applied idempotently.
  */
 @RestController
 @RequestMapping("/api/v1/payment-rails/webhooks")

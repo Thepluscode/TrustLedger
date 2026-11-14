@@ -16,7 +16,8 @@ governs customer-proven expansion and production activation, not whether the cor
    `OPERATOR_EXPOSURE_WORKFLOW.md`; do not lead with the full platform.
 6. Record the evidence immediately in `kill-test-tracker.csv` and rerun the scorer.
 7. Ask for a scoped data exercise only after recurring or materially exposed pain is confirmed.
-8. Ask for paid discovery only when the buyer, measurable outcome and data boundary are known.
+8. Ask for the fixed £4,000 Payment Reliability Discovery only when the buyer, measurable outcome
+   and data boundary are known; never quote a range. Credit it to a pilot booked within 30 days.
 
 ## Continuous sourcing
 
