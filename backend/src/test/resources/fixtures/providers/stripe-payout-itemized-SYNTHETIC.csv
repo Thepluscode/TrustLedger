@@ -1,0 +1,11 @@
+balance_transaction_id,created_utc,created,available_on,currency,gross,fee,net,reporting_category,source_id,charge_id,customer_facing_amount,customer_facing_currency,automatic_payout_id,automatic_payout_effective_at_utc,automatic_payout_effective_at,description
+txn_SYNTH001,2026-11-02 10:15:00,,2026-11-04,usd,100.00,3.20,96.80,charge,ch_SYNTH001,ch_SYNTH001,100.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC charge
+txn_SYNTH002,2026-11-02 11:00:00,,2026-11-04,usd,250.00,7.55,242.45,charge,ch_SYNTH002,ch_SYNTH002,250.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC charge
+txn_SYNTH003,2026-11-03 09:30:00,,2026-11-04,usd,-40.00,0.00,-40.00,refund,re_SYNTH001,ch_SYNTH001,40.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC partial refund
+txn_SYNTH004,2026-11-03 12:00:00,,2026-11-06,usd,10.00,0.59,9.41,charge,ch_SYNTH003,ch_SYNTH003,10.00,usd,,,,SYNTHETIC charge not yet paid out
+txn_SYNTH005,2026-11-03 13:00:00,,2026-11-04,usd,20.00,0.88,19.00,charge,ch_SYNTH004,ch_SYNTH004,20.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC net does not equal gross minus fee
+txn_SYNTH006,2026-11-03 14:00:00,,2026-11-04,usd,5.00,0.00,5.00,refund,re_SYNTH002,ch_SYNTH002,5.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC refund with a positive gross
+txn_SYNTH007,2026-11-03 15:00:00,,2026-11-04,usd,-250.00,15.00,-265.00,dispute,dp_SYNTH001,ch_SYNTH002,250.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC dispute
+txn_SYNTH008,2026-11-03 16:00:00,,2026-11-04,usd,-2.00,0.00,-2.00,fee,,,,,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC account fee
+txn_SYNTH001,2026-11-02 10:15:00,,2026-11-04,usd,100.00,3.20,96.80,charge,ch_SYNTH001,ch_SYNTH001,100.00,usd,po_SYNTH1,2026-11-04 00:00:00,,SYNTHETIC repeated row
+txn_SYNTH009,,2026-11-02 12:00:00,2026-11-04,eur,50.00,1.75,48.25,charge,ch_SYNTH005,ch_SYNTH005,54.10,usd,po_SYNTH1,,2026-11-04 00:00:00,SYNTHETIC charge in EUR with local times only

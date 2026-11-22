@@ -70,6 +70,7 @@ class ProviderReportImportIntegrationTest {
 
     private static final String ADYEN = "adyen-settlement-detail-batch-134-sample.csv";
     private static final String CHECKOUT = "checkout-financial-actions-by-payout-sample.csv";
+    private static final String STRIPE_SYNTHETIC = "stripe-payout-itemized-SYNTHETIC.csv";
 
     private HttpResponse<String> uploadReport(String token, UUID caseId, String provider, String profile, String zone,
                                               String file) throws Exception {
@@ -243,6 +244,45 @@ class ProviderReportImportIntegrationTest {
         assertEquals(64, zva.get("recordKey").asString().length());
         assertEquals("0.8969444665577660", zva.get("fxRate").asString(), "the provider's rate, digit for digit");
         assertTrue(bundle.get("content").get("limitations").toString().contains("No amount was converted"));
+    }
+
+    /**
+     * The Stripe itemized payout reader through the real import and run path, on a SYNTHETIC file: no real
+     * Stripe export has been through it. Expected values are hand-computed from the fixture text.
+     */
+    @Test
+    void aSyntheticStripePayoutReportImportsAndReconcilesItsChargeAndRefund() throws Exception {
+        AuthResponse op = http.register();
+        UUID caseId = http.createCase(op.token(), "STRIPE-" + UUID.randomUUID());
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "INTERNAL", "ledger", "internal-expected", "internal.csv",
+            ("internal_ref,provider,provider_ref,event_type,currency,amount,expected_at\n"
+                + "I1,stripe,ch_SYNTH001,PAYMENT,USD,100.00,2026-11-02T10:15:00Z\n"
+                + "R1,stripe,ch_SYNTH001,REFUND,USD,40.00,2026-11-03T09:30:00Z\n").getBytes(StandardCharsets.UTF_8)));
+        CaseworkHttp.expect2xx(http.upload(op.token(), caseId, "PROVIDER_TRANSACTION", "stripe", "provider-transactions", "tx.csv",
+            ("event_id,transaction_ref,merchant_ref,event_type,status,currency,gross,fee,net,occurred_at,received_at\n"
+                + "e1,ch_SYNTH001,,CHARGE,SUCCESS,USD,100.00,,,2026-11-02T10:15:00Z,\n").getBytes(StandardCharsets.UTF_8)));
+
+        HttpResponse<String> r = uploadReport(op.token(), caseId, "stripe", "stripe-payout-itemized", null, STRIPE_SYNTHETIC);
+        assertEquals(201, r.statusCode(), r.body());
+        JsonNode m = http.tree(r).get("manifest");
+        assertEquals(10, m.get("recordCount").asInt());
+        assertEquals(9, m.get("acceptedCount").asInt());
+        assertEquals(1, m.get("duplicateCount").asInt());
+        JsonNode p = http.tree(r).get("provider");
+        assertEquals(4, p.get("settlementRecords").asInt());   // rows 1, 2, 3 and 10
+        assertEquals(5, p.get("rowsNotReconciled").asInt());   // rows 4 to 8, each with its reason
+        assertEquals(1, p.get("rowsWithUnresolvedTime").asInt()); // row 10 has local times and no zone was declared
+        UUID importId = UUID.fromString(m.get("id").asString());
+        assertEquals(1, count("SELECT count(*) FROM recon_records WHERE import_id = ? AND event_type = 'SETTLED_REFUND' AND gross_amount = 40.0000", importId));
+
+        HttpResponse<String> run = http.post(CASES + caseId + "/runs", op.token(), null);
+        assertEquals(201, run.statusCode(), run.body());
+        JsonNode summary = json.readTree(http.tree(run).get("run").get("summary").asString());
+        assertEquals(1, summary.get("matchesByRule").get("R3-SETTLEMENT-BATCH").asInt());
+        Map<String, Integer> byType = new TreeMap<>();
+        summary.get("exceptionsByType").properties().forEach(e -> byType.put(e.getKey(), e.getValue().asInt()));
+        // ch_SYNTH002 and ch_SYNTH005 settled with no charge in this case; the refund was matched, not raised.
+        assertEquals(Map.of("UNMATCHED_SETTLEMENT_ITEM", 2), byType);
     }
 
     /** Preregistered for recon-rules 1.2.0 in the design doc before the code was written. */
