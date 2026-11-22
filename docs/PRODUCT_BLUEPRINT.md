@@ -187,6 +187,11 @@ When the system cannot prove that a transaction is safe, authorised or eligible,
 
 Repeated client requests, job retries and webhook redelivery must not create duplicate financial effects.
 
+TrustLedger does not guarantee that external systems deliver an event exactly once. It guarantees
+that identifiable duplicate evidence cannot silently produce a duplicate financial effect.
+Transport delivery may repeat; every delivery remains evidenced, while the same stable source and
+canonical identity cannot create a second state transition or ledger mutation.
+
 ## Provider independent
 
 Business logic should not depend directly on Paystack or another provider. Provider-specific behaviour is isolated behind adapters.
@@ -194,6 +199,8 @@ Business logic should not depend directly on Paystack or another provider. Provi
 ## Financial truth over provider convenience
 
 A timeout does not mean failure. An HTTP success response does not necessarily mean settlement.
+TrustLedger does not guess financial state when external evidence is ambiguous; ambiguity remains
+explicit until reconciled.
 
 ## Evidence attached to every decision
 

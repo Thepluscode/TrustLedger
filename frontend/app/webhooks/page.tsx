@@ -31,13 +31,13 @@ export default function WebhooksPage() {
         <div>
           <p className="eyebrow">Payment Rails</p>
           <h1>Webhook events</h1>
-          <p className="sub">Inbound provider callbacks, signature-checked and applied at most once.</p>
+          <p className="sub">Duplicate delivery is expected. Duplicate financial effect is prohibited.</p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
       <div className="safety-boundary webhook-boundary">
         <strong>Replay-safe ingest</strong>
-        <span>Provider + event ID is the deduplication key. A replay creates no second inbox row and no second ledger posting.</span>
+        <span>The durable inbox retains repeated-delivery evidence. Stable provider + event identity prevents a second state transition or ledger posting.</span>
       </div>
 
       <section className="operations-strip" aria-label="Webhook event summary">
