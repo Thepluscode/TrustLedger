@@ -28,7 +28,11 @@ public final class AdyenSettlementDetailV1 implements ProviderReportProfile {
     public static final String NAME = "adyen-settlement-detail";
 
     @Override public String name() { return NAME; }
-    @Override public int version() { return 1; }
+    /**
+     * v2: refund and chargeback journal types become settled records. The class keeps its v1 name so that
+     * the readers sharing its helpers need no change; the manifest records the version that read a file.
+     */
+    @Override public int version() { return 2; }
 
     @Override
     public List<String> requiredHeaders() {
@@ -69,8 +73,13 @@ public final class AdyenSettlementDetailV1 implements ProviderReportProfile {
 
     /**
      * Each {@code Settled} row is one settlement line, even when a payment has several: a payment settled
-     * twice must reach the engine twice. Every other journal type, and every batch-level row, is kept as
-     * evidence with its reason; this ruleset reconciles charge settlements only.
+     * twice must reach the engine twice. Refund and chargeback journal types (the SDR reference's journal
+     * types table, read 2026-11-22) become settled records the same way, one per row. Every other journal
+     * type, {@code RefundedReversed} included (the engine has no settled refund reversal), and every
+     * batch-level row is kept as evidence with its reason.
+     *
+     * <p>Not yet checked against a real Adyen file containing refunds or chargebacks: Adyen's published
+     * sample has none.
      */
     @Override
     public List<Derivation> settlementLines(ProviderEvidence evidence, String provider) {
@@ -78,8 +87,13 @@ public final class AdyenSettlementDetailV1 implements ProviderReportProfile {
         for (ProviderRow r : evidence.batchLevel()) out.add(Derivation.notReconciled(r, "BATCH_LEVEL_ENTRY: " + r.kind()));
         for (ProviderEvidence.PaymentAggregate p : evidence.payments()) {
             for (ProviderRow r : p.sources()) {
-                out.add("Settled".equals(r.kind()) ? line(r, provider)
-                    : Derivation.notReconciled(r, "JOURNAL_TYPE_NOT_RECONCILED: " + r.kind()));
+                out.add(switch (r.kind()) {
+                    case "Settled" -> line(r, provider);
+                    case "Refunded" -> moneyBack(r, EventType.SETTLED_REFUND, -1, provider);
+                    case "Chargeback", "SecondChargeback" -> moneyBack(r, EventType.SETTLED_CHARGEBACK, -1, provider);
+                    case "ChargebackReversed" -> moneyBack(r, EventType.SETTLED_CHARGEBACK_REVERSAL, 1, provider);
+                    default -> Derivation.notReconciled(r, "JOURNAL_TYPE_NOT_RECONCILED: " + r.kind());
+                });
             }
         }
         return out;
@@ -108,6 +122,26 @@ public final class AdyenSettlementDetailV1 implements ProviderReportProfile {
             sameCurrency ? ProviderEvidence.toMonetaryScale(net.get(currency)) : null,
             null, "SETTLED", row.batch(), row.rowNumber());
         return new Derivation(line, one, null);
+    }
+
+    /**
+     * A refund, chargeback or reversal row. The reference says which journal types are debits and which
+     * credits but not which gross column each uses, and the sample writes a {@code Settled} gross in the
+     * debit column; the net columns, which the sample uses as the reference describes, are the authority.
+     *
+     * @param sign the sign the net must have: -1 when money left the merchant, +1 when it came back
+     */
+    private static Derivation moneyBack(ProviderRow row, EventType type, int sign, String provider) {
+        Derivation d = line(row, provider);
+        if (d.line() == null) return d;
+        Map<String, BigDecimal> net = ProviderEvidence.sum(List.of(row), m -> m.role() == Role.SETTLEMENT, true);
+        if (net.size() != 1) return Derivation.notReconciled(row, "NO_SINGLE_NET_CURRENCY");
+        if (net.values().iterator().next().signum() != sign) return Derivation.notReconciled(row, "UNEXPECTED_SIGN");
+        CanonicalRecord l = d.line();
+        return new Derivation(new CanonicalRecord(l.recordKey(), l.sourceType(), l.sourceSystem(), l.provider(),
+            l.providerEventId(), l.stableRef(), l.internalRef(), type, l.eventVersion(), l.occurredAt(), l.receivedAt(),
+            l.currency(), l.grossAmount(), l.feeAmount(), l.netAmount(), l.paymentStatus(), l.settlementStatus(),
+            l.settlementBatch(), l.rowNumber()), d.sources(), null);
     }
 
     private static void add(List<MonetaryComponent> into, Role role, Direction direction, String field,
