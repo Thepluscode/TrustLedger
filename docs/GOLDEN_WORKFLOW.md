@@ -21,7 +21,8 @@ provider webhook / settlement row / ledger import
   → normalise to a canonical event      (provider states → canonical states, original retained)
   → assign canonical identity           (TrustLedger identity is stable across replay)
   → detect duplicate delivery           (delivery remains evidenced; no second transition)
-  → append to the event stream          (at-least-once delivery is expected)
+  → append to the event stream          (at-least-once delivery expected; idempotent on
+                                          tenant+provider+event id+type+ref)
   → compare against internal ledger     (reconciliation/)
   → classify the break                  (closed taxonomy — see PRODUCT_BLUEPRINT §1.3)
   → raise an operator exception         (current: severity + evidence; owner/exposure after gates)
