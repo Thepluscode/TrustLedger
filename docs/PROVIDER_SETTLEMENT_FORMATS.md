@@ -86,7 +86,9 @@ Conversion rules, ruleset v1:
 - **One currency per record.** The line is in the currency the payment was charged/captured in. Fee and
   net are set only when the provider paid out in that same currency; otherwise they stay unknown and the
   payout amount lives in the evidence. TrustLedger never converts with the provider's rate.
-- **Adyen:** each `Settled` row is one line (a payment settled twice reaches the engine twice). Every
+- **Adyen:** each `Settled` row is one line (a payment settled twice reaches the engine twice). From
+  profile v2 (2026-11-22, synthetic-tested only), `Refunded`, `Chargeback`, `SecondChargeback` and
+  `ChargebackReversed` rows become settled records too (see "Built on synthetic data only" below). Every
   other journal type and every batch-level row is evidence with a reason. Settled time = booking date.
 - **Checkout.com (profile v2, recon-rules 1.2.0):** rows are attributed by **action**, because
   Checkout.com attributes every fee to the action that caused it. Per payment: the capture (every action
@@ -103,8 +105,8 @@ Conversion rules, ruleset v1:
   `docs/superpowers/specs/2026-09-17-reconciliation-incident-reconstruction-design.md`.
   A successful provider refund due in the period that no settled refund paid out raises
   `MISSING_REFUND_SETTLEMENT` — only for a provider whose settlement data came from a format that
-  settles refunds (Checkout.com v2). A generic file or the Adyen profile cannot show a refund, so their
-  silence raises nothing.
+  settles refunds (Checkout.com v2). A generic file cannot show a refund, and the Adyen v2 and Stripe
+  readers are not yet trusted to, so their silence raises nothing.
 
 On the official samples: Adyen → 58 lines (27 USD gross-only, 31 EUR with fee/net), 5 rows kept as
 batch-level evidence. Checkout.com (v2) → 8 records: 5 capture lines, 1 settled refund (USD 70.00,
@@ -125,11 +127,34 @@ dispute fees with no dispute amount 2). With the matching charges and an interna
   each component's raw text. Three provider limitations are added only when a provider report exists,
   so bundles without one hash exactly as before.
 
+## Built on synthetic data only (2026-11-22, founder "ALL")
+
+Neither reader below has seen a real provider file. Both fail closed where the provider's reference is
+silent, and neither yet makes a missing refund a finding (`settlesRefunds` stays false for both).
+
+- **Stripe itemized payout reconciliation** (`stripe-payout-itemized`, `payout_reconciliation.itemized.5`),
+  from [the column reference](https://docs.stripe.com/reports/report-types/payout-reconciliation).
+  `charge_id` is required (not a default column; the only one that links a refund to its charge). The
+  reference states neither the sign of a refund's gross nor the dispute category names, so a row becomes a
+  record only when `net = gross − fee` exactly and the sign fits (`charge` > 0, `refund` < 0); disputes and
+  every other category stay evidence. `*_utc` columns are UTC; the default columns are "in the requested
+  time zone, or UTC if not provided", so without `*_utc` they need a declared account zone.
+  Fixture: `stripe-payout-itemized-SYNTHETIC.csv`, one row per rule.
+- **Adyen refunds and chargebacks** (profile version 2), from the SDR journal types table:
+  `Refunded` → settled refund; `Chargeback`, `SecondChargeback` → settled chargeback;
+  `ChargebackReversed` → reversal. `RefundedReversed` stays evidence (the engine has no settled refund
+  reversal). The reference gives each type's direction but not its gross column, and the batch 134 sample
+  writes a `Settled` gross in the debit column while using the net columns as described, so **the net
+  column's direction decides**: money out must be a net debit, a reversal a net credit, otherwise
+  `UNEXPECTED_SIGN`.
+
+The blocker for either claim going beyond "tested on synthetic data" is one real file: a Stripe test-mode
+itemized payout export with `charge_id`, and an Adyen SDR containing a refund and a chargeback.
+
 ## Not built yet
 
-- **Stripe** — mapping designed from the docs; not implemented until a real test-mode export passes.
-- Adyen refunds and chargebacks: its published sample has none, so they stay evidence until a real
-  file with them passes through.
+- Stripe disputes, until a real export shows their `reporting_category` and signs.
+- Making a refund missing from a Stripe or Adyen file a finding.
 - Reserves and taxes as reconciled items (preserved, not compared).
 - Adyen batch balance (nets to zero) as a reconciliation finding; it is a test invariant only.
 

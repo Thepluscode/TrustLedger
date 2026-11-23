@@ -100,6 +100,7 @@ export const IMPORT_PROFILES: { sourceType: string; profile: string; label: stri
   { sourceType: "SETTLEMENT", profile: "provider-settlement", label: "Provider — settlement" },
   { sourceType: "SETTLEMENT", profile: "adyen-settlement-detail", label: "Adyen — settlement details report" },
   { sourceType: "SETTLEMENT", profile: "checkout-financial-actions", label: "Checkout.com — financial actions by payout", accountTimezone: true },
+  { sourceType: "SETTLEMENT", profile: "stripe-payout-itemized", label: "Stripe — itemized payout reconciliation (not yet checked on a real export)", accountTimezone: true },
 ];
 
 /** One sentence for what a provider report became. Rows kept aside and unplaced times are always stated. */

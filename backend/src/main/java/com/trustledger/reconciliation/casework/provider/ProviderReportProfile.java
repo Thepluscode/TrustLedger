@@ -69,8 +69,10 @@ public interface ProviderReportProfile {
 
     /**
      * Whether a settlement import in this profile and version turns refunds into settled refunds, so that a
-     * refund missing from it is a finding. Checkout.com v2 does; Adyen v1 keeps refunds as evidence, and the
-     * generic settlement format has no way to express one.
+     * refund missing from it is a finding. Checkout.com v2 does; Adyen v1 kept refunds as evidence, and the
+     * generic settlement format has no way to express one. Adyen v2 and Stripe v1 settle refunds but are not
+     * listed: until a real file confirms their refund rows, a refund absent from one is not evidence that none
+     * was paid out.
      */
     static boolean settlesRefunds(String profile, int version) {
         return CheckoutFinancialActionsV2.NAME.equals(profile) && version >= 2;
@@ -89,6 +91,7 @@ public interface ProviderReportProfile {
                 yield new AdyenSettlementDetailV1();
             }
             case CheckoutFinancialActionsV2.NAME -> new CheckoutFinancialActionsV2(accountZone);
+            case StripeItemizedPayoutV1.NAME -> new StripeItemizedPayoutV1(accountZone);
             default -> null;
         };
     }

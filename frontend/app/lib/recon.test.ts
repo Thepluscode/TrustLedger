@@ -75,6 +75,7 @@ describe("provider reports, as the console offers them", () => {
       "provider-settlement:SETTLEMENT:false",
       "adyen-settlement-detail:SETTLEMENT:false",
       "checkout-financial-actions:SETTLEMENT:true",
+      "stripe-payout-itemized:SETTLEMENT:true",
     ]);
   });
 
