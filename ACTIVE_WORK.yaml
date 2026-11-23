@@ -10,9 +10,13 @@ canonical_path: ~/projects/fintech/TrustLedger_v2
 active:
   task: rederivable_case_bundle
   priority: P0                 # founder instruction, 2026-10-20: "GO" on the re-derivation verifier
-  status: IN_PROGRESS
+  status: COMPLETED            # merged, PR 177 -> 527423b; no successor task authorised yet
   claim_level: tested          # implemented -> tested -> production-observed -> customer-validated
   branch: feat/rederive-verifier
+  merged:
+    pull_requests: [177]
+    merge_commits: [527423b]
+    ci_on_merge_commit: "CI run 39374922985 success; Security run 39374923003 success (2026-10-20)"
   source: "ACTIVE_WORK.yaml history 2026-10-20 (FOUNDER_OVERRIDE: GO on the recommendation to make bundle conclusions reproducible)"
   corroborated_by:
     - scripts/verify_recon_bundle.py
@@ -169,3 +173,11 @@ history:
     evidence: "scripts/verify_recon_bundle.py at 96d07c4 (49 lines, hash check only); PR 163 merged 2026-10-04"
     authorising_condition: FOUNDER_OVERRIDE
     approved_by: FOUNDER ("GO", in session, 2026-10-20)
+  - date: 2026-10-26
+    change: task completed (recorded late)
+    previous_task: "rederivable_case_bundle (merged, PR 177 -> 527423b on 2026-10-20; this file still said IN_PROGRESS)"
+    new_task: none
+    reason: merged to main by the founder; CI and Security green on the merge commit
+    evidence: "GitHub Actions CI run 39374922985 and Security run 39374923003 on 527423b, both success"
+    authorising_condition: CURRENT_TASK_COMPLETED
+    approved_by: FOUNDER (merged PR 177)
