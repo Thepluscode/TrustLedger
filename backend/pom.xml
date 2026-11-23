@@ -39,9 +39,15 @@
             </dependency>
             <!-- kafka-clients 4.1.2 pulls lz4-java 1.10.1 (HIGH CVE-2026-106451, fixed 1.11.4). -->
             <dependency>
-                <groupId>at.yawk.lz4</groupId>
+                <groupId>at.yawi.lz4</groupId>
                 <artifactId>lz4-java</artifactId>
                 <version>1.11.4</version>
+            </dependency>
+            <!-- kafka-clients 4.1.2 also pulls snappy-java 1.1.10.7 (HIGH CVE-2026-108106/-93451, fixed 1.1.10.9). -->
+            <dependency>
+                <groupId>org.xerial.snappy</groupId>
+                <artifactId>snappy-java</artifactId>
+                <version>1.1.10.9</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
